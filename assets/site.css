@@ -67,7 +67,7 @@ h1 em{font-style:normal;font-weight:300;background:linear-gradient(100deg,#007cf
 .cat.soon .cover.ph .em{font-weight:200;color:var(--faint)}
 
 /* version card (category page) */
-.ver{display:flex;flex-direction:column;border:1px solid var(--hairline);border-radius:14px;overflow:hidden;
+.ver{position:relative;display:flex;flex-direction:column;border:1px solid var(--hairline);border-radius:14px;overflow:hidden;
      background:var(--canvas);transition:border-color .22s,box-shadow .22s,transform .22s}
 .ver:hover{border-color:var(--hairline-2);box-shadow:0 18px 48px -28px rgba(0,0,0,.3);transform:translateY(-3px)}
 .ver .shot{aspect-ratio:16/10;overflow:hidden;background:var(--soft2);border-bottom:1px solid var(--hairline)}
@@ -80,6 +80,32 @@ h1 em{font-style:normal;font-weight:300;background:linear-gradient(100deg,#007cf
 .ver .txt p{font-size:13px;font-weight:300;color:var(--mute);margin-top:4px;line-height:1.5}
 .ver .arr2{color:var(--faint);font-size:15px;transition:color .22s,transform .22s;padding-top:2px}
 .ver:hover .arr2{color:var(--ink);transform:translate(2px,-2px)}
+
+/* Jev score badge on the thumbnail */
+.score{position:absolute;top:12px;right:12px;z-index:2;display:flex;align-items:baseline;gap:3px;
+       padding:6px 11px 7px;border-radius:11px;background:rgba(255,255,255,.9);backdrop-filter:blur(6px);
+       border:1px solid var(--hairline-2);box-shadow:0 6px 20px -10px rgba(0,0,0,.4)}
+.score b{font-size:19px;font-weight:400;letter-spacing:-.02em;color:var(--ink);line-height:1}
+.score .j{font-size:9px;font-weight:400;letter-spacing:.12em;color:var(--mute);text-transform:uppercase}
+.score.hi b{color:#0a7d33}
+.score.lo b{color:#c15b00}
+.rk{position:absolute;top:12px;left:12px;z-index:2;font-size:12px;font-weight:300;letter-spacing:.04em;
+    color:#fff;background:rgba(23,23,23,.62);backdrop-filter:blur(6px);padding:4px 9px;border-radius:9px}
+.rk.g1{background:rgba(10,125,51,.82)}
+
+/* dimension mini-bars */
+.dims{display:grid;grid-template-columns:repeat(4,1fr);gap:9px;padding:0 20px 18px}
+.dims .d{display:flex;flex-direction:column;gap:5px}
+.dims .d span{font-size:10.5px;font-weight:300;color:var(--mute);white-space:nowrap}
+.dims .d .tr{height:3px;border-radius:2px;background:var(--soft2);overflow:hidden}
+.dims .d .fl{height:100%;border-radius:2px;background:var(--ink)}
+
+/* scoring methodology note */
+.note{max-width:1120px;margin:-6px auto 30px;padding:0 32px;display:flex;flex-wrap:wrap;gap:10px 22px;align-items:center}
+.note .k{font-size:12.5px;font-weight:300;color:var(--mute)}
+.note .k b{font-weight:400;color:var(--body)}
+.note .tag{font-size:11px;font-weight:400;letter-spacing:.08em;text-transform:uppercase;color:var(--accent);
+           border:1px solid var(--hairline-2);border-radius:999px;padding:3px 10px}
 
 /* empty state */
 .empty{max-width:1120px;margin:0 auto 112px;padding:0 32px}

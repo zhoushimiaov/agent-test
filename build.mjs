@@ -1,11 +1,20 @@
 // Agent Test — static site generator.
 // Regenerates the hub (index.html) and every category index.html from the data
 // below, all linking the shared assets/site.css. Run: node build.mjs
-import { writeFileSync, mkdirSync } from "node:fs";
+import { writeFileSync, mkdirSync, readFileSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
+
+// Load a category's Jev scores (pelican-bicycle/scores.json), if present.
+function loadScores(slug) {
+  const p = join(ROOT, slug, "scores.json");
+  if (!existsSync(p)) return null;
+  const data = JSON.parse(readFileSync(p, "utf8"));
+  const by = Object.fromEntries(data.results.map((r) => [r.slug, r]));
+  return { ...data, by };
+}
 
 const FONTS =
   '<link rel="preconnect" href="https://fonts.googleapis.com">\n' +
@@ -108,11 +117,12 @@ const pad2 = (n) => String(n).padStart(2, "0");
 // ---- hub (index.html) ----
 function hubCard(cat) {
   const n = cat.versions.length;
+  const scores = n ? loadScores(cat.slug) : null;
   const cover = cat.cover
     ? `<div class="cover"><img src="${cat.cover}" alt="${cat.title}预览" loading="lazy"></div>`
     : `<div class="cover ph"><span class="em">${cat.emoji}</span></div>`;
   const count = n
-    ? `<span class="count open">${n} 个版本</span>`
+    ? `<span class="count open">${n} 个版本${scores ? " · Jev 已评分" : ""}</span>`
     : `<span class="count">版本征集中</span>`;
   const go = `<span class="go">${n ? "进入栏目" : "查看"} <span class="arr">→</span></span>`;
   return `    <a class="cat" href="${cat.slug}/">
@@ -175,24 +185,54 @@ ${cards}
 }
 
 // ---- category page ----
-function verCard(v, i) {
+function verCard(v, i, score, dimLabels) {
+  let rank = "", badge = "", dims = "";
+  if (score) {
+    const cls = score.total >= 85 ? " hi" : score.total < 50 ? " lo" : "";
+    const rcls = score.rank === 1 ? " g1" : "";
+    rank = `<span class="rk${rcls}">#${score.rank}</span>`;
+    badge = `<span class="score${cls}"><b>${score.total}</b><span class="j">Jev</span></span>`;
+    const order = ["pelican", "bicycle", "riding", "scene"];
+    dims = `\n      <div class="dims">${order
+      .map((k) => `<div class="d"><span>${dimLabels[k]}</span><div class="tr"><div class="fl" style="width:${Math.round(
+        score.dims[k].frac * 100
+      )}%"></div></div></div>`)
+      .join("")}</div>`;
+  }
+  const idx = score ? "" : `<div class="idx">${pad2(i + 1)}</div>`;
   return `    <a class="ver" href="${v.slug}.html">
-      <div class="shot"><img src="thumbs/${v.slug}.png" alt="${v.name} ${v.sub} 预览" loading="lazy"></div>
+      <div class="shot">${rank}${badge}<img src="thumbs/${v.slug}.png" alt="${v.name} ${v.sub} 预览" loading="lazy"></div>
       <div class="meta">
-        <div class="idx">${pad2(i + 1)}</div>
-        <div class="txt"><h3>${v.name}</h3><p>${v.sub}</p></div>
+        ${idx}<div class="txt"><h3>${v.name}</h3><p>${v.sub}</p></div>
         <span class="arr2">↗</span>
-      </div>
+      </div>${dims}
     </a>`;
 }
 
 function renderCategory(cat) {
   const hasVers = cat.versions.length > 0;
+  const scores = hasVers ? loadScores(cat.slug) : null;
+  let ordered = cat.versions;
+  if (scores) {
+    ordered = [...cat.versions].sort(
+      (a, b) => (scores.by[b.slug]?.total ?? -1) - (scores.by[a.slug]?.total ?? -1)
+    );
+  }
+  const dimLabels = scores?.dimLabels || {};
+  let note = "";
+  if (scores) {
+    const w = scores.weights;
+    note = `\n  <div class="note">
+    <span class="tag">TypeSafe Jev 评分</span>
+    <span class="k">由 System One 判定模型 <b>${scores.model}</b> 根据每个版本的真实渲染结果打分(满分 100)</span>
+    <span class="k"><b>${dimLabels.pelican}</b> ${w.pelican} · <b>${dimLabels.bicycle}</b> ${w.bicycle} · <b>${dimLabels.riding}</b> ${w.riding} · <b>${dimLabels.scene}</b> ${w.scene}</span>
+  </div>`;
+  }
   const body = hasVers
-    ? `  <div class="label"><span>模型版本</span><b>Versions</b><i></i></div>
+    ? `  <div class="label"><span>${scores ? "Jev 排行" : "模型版本"}</span><b>${scores ? "Leaderboard" : "Versions"}</b><i></i></div>${note}
 
   <div class="grid">
-${cat.versions.map(verCard).join("\n")}
+${ordered.map((v, i) => verCard(v, i, scores?.by[v.slug], dimLabels)).join("\n")}
   </div>`
     : `  <section class="empty">
     <div class="box">
