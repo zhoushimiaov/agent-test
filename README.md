@@ -10,7 +10,7 @@
 
 | 栏目 | 目录 | 考点 | 状态 |
 | --- | --- | --- | --- |
-| 鹈鹕骑车 | `pelican-bicycle/` | 空间想象 + 前端功力 | 16 个版本 |
+| 鹈鹕骑车 | `pelican-bicycle/` | 空间想象 + 前端功力 | 18 个版本 |
 | 水母漂浮 | `jellyfish-float/` | 半透明材质、柔体律动、水下光线 | 版本征集中 |
 | 企鹅滑雪跳台 | `penguin-ski-jump/` | 斜坡腾空落地的 3D 相机与阴影 | 版本征集中 |
 | 鲸鱼在城市上空游泳 | `whale-over-city/` | 超现实尺度 + 云层前后遮挡 | 版本征集中 |
@@ -20,7 +20,7 @@
 | 狮子跳火圈 | `lion-fire-hoop/` | 抛物线 + 火圈粒子 + 落地时机 | 版本征集中 |
 
 ### 🦩🚲 鹈鹕骑车 (`pelican-bicycle/`)
-经典 LLM 创意基准:实现「一只骑自行车的鹈鹕」。现有 16 个模型版本。
+经典 LLM 创意基准:实现「一只骑自行车的鹈鹕」。现有 18 个模型版本。
 
 | # | 版本 | 来源 / 说明 | 文件 |
 | --- | --- | --- | --- |
@@ -36,10 +36,12 @@
 | 10 | K2.8 Preview | 预览版 | `k2.8-preview.html` |
 | 11 | K3 | 小浣熊 Raccoon | `k3-raccoon.html` |
 | 12 | K3 | Crush | `k3-crush.html` |
-| 13 | Claude Sonnet 5.5 | Tabbit | `sonnet-5.5-tabbit.html` |
-| 14 | Claude Haiku 5.5 | Tabbit | `haiku-5.5-tabbit.html` |
-| 15 | Muse Spark 1.3 | Muse | `muse-spark-1.3.html` |
-| 16 | Space-Bunny | 匿名模型 | `space-bunny.html` |
+| 13 | K3 | SVG 动画 · 鹈鹕兜风 | `k3-svg.html` |
+| 14 | K3 | Three.js 3D 场景 | `k3-3d.html` |
+| 15 | Claude Sonnet 5.5 | Tabbit | `sonnet-5.5-tabbit.html` |
+| 16 | Claude Haiku 5.5 | Tabbit | `haiku-5.5-tabbit.html` |
+| 17 | Muse Spark 1.3 | Muse | `muse-spark-1.3.html` |
+| 18 | Space-Bunny | 匿名模型 | `space-bunny.html` |
 
 ## 目录结构
 

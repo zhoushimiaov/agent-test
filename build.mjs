@@ -26,6 +26,8 @@ const pelicanVersions = [
   ["k2.8-preview", "K2.8 Preview", "预览版"],
   ["k3-raccoon", "K3", "小浣熊 Raccoon"],
   ["k3-crush", "K3", "Crush"],
+  ["k3-svg", "K3", "SVG 动画 · 鹈鹕兜风"],
+  ["k3-3d", "K3", "Three.js 3D 场景"],
   ["sonnet-5.5-tabbit", "Claude Sonnet 5.5", "Tabbit"],
   ["haiku-5.5-tabbit", "Claude Haiku 5.5", "Tabbit"],
   ["muse-spark-1.3", "Muse Spark 1.3", "Muse"],
