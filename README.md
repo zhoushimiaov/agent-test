@@ -43,16 +43,20 @@
 | 17 | Muse Spark 1.3 | Muse | `muse-spark-1.3.html` |
 | 18 | Space-Bunny | 匿名模型 | `space-bunny.html` |
 
+鹈鹕骑车栏目页已变为 **Jev 评分排行榜**:18 个版本由 TypeSafe 的 System One 判定模型(`jev-1.13.0`)按 4 个加权维度打分 —— 鹈鹕还原 30 / 单车结构 25 / 骑行姿态 25 / 场景构图 20,合成 0–100 总分后降序排列,卡片带名次徽标、分数徽标与各维度迷你条。详见下方「用 Jev 给版本打分」。
+
 ## 目录结构
 
 ```
 .
 ├── index.html              # 首页：大类栏目导航（由 build.mjs 生成）
 ├── build.mjs               # 站点生成器：栏目/版本数据 → 首页 + 各栏目 index.html
+├── jev-score.mjs           # Jev 评分脚本：调用 System One 判定模型给版本打分
 ├── assets/
 │   └── site.css            # 共享样式表（Vercel 浅色设计语言）
 ├── pelican-bicycle/
-│   ├── index.html          # 栏目页：各模型版本列表（卡片带真实截图）
+│   ├── index.html          # 栏目页：Jev 评分排行榜（卡片带真实截图 + 分数）
+│   ├── scores.json         # Jev 评分结果（由 jev-score.mjs 生成，build.mjs 读取）
 │   ├── thumbs/             # 各版本缩略图（渲染截图）
 │   └── <model>.html        # 各模型版本页面
 ├── <其他栏目>/
@@ -71,3 +75,22 @@
 
 1. 在 `build.mjs` 的 `categories` 数组里加一个栏目对象(slug / title / emoji / blurb / exam)。
 2. 运行 `node build.mjs`,会自动生成栏目目录与「版本征集中」占位页,并刷新首页卡片。
+
+## 用 Jev 给版本打分
+
+栏目页的排行榜由 `jev-score.mjs` 生成,调用 TypeSafe 的 **System One 判定模型**(Jev)为每个版本打分。Jev 是纯文本判定模型,看不到图像,因此评分流程是:先用视觉子代理把每个版本的真实渲染结果写成**中立、客观的文字描述**作为 `state`,再交给 Jev 按各维度的 `criteria`(分级评分标准)给出校准后的分级分数。
+
+- 维度与权重:鹈鹕还原 30 / 单车结构 25 / 骑行姿态 25 / 场景构图 20。每维取 `分数 / 满级` 得到占比,按权重合成后四舍五入为 0–100 总分。
+- 输出 `pelican-bicycle/scores.json`(含 `model`、`weights`、`dimLabels`、按总分降序并带 `rank` 的 `results`)。该文件只含评分结果,可安全提交。
+- `build.mjs` 读取 `scores.json`:存在时把栏目页渲染成排行榜(名次 + 分数徽标 + 维度迷你条 + 方法论说明),首页卡片显示「Jev 已评分」。
+
+重新评分 / 新增版本后再评分:
+
+```bash
+export TYPESAFE_API_KEY=<你的密钥>          # 仅放环境变量，切勿提交
+NODE_USE_ENV_PROXY=1 node jev-score.mjs     # 需走本机代理时必须加这个环境变量
+node build.mjs                              # 用新 scores.json 重新生成页面
+```
+
+> ⚠️ 本机 `fetch`(undici)默认不读代理环境变量,会被 TypeSafe 以 HTTP 451(区域限制)拒绝;必须用 `NODE_USE_ENV_PROXY=1` 让 Node 走 `http_proxy/https_proxy`。`TYPESAFE_API_KEY` 只能存在于环境变量,不要写进代码或提交到仓库。
+
