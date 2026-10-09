@@ -12,6 +12,9 @@
 | 模型版本 | 文件 |
 | --- | --- |
 | Gemini 3.8 Flash | `pelican-bicycle/gemini-3.8-flash.html` |
+| GLM 5.3 Flash | `pelican-bicycle/glm-5.3-flash.html` |
+
+> 导航页(首页 + 栏目页)采用 Vercel 浅色设计语言(近白画布 + ink 文本 + 多彩 mesh 渐变点缀)。
 
 ## 目录结构
 
@@ -20,7 +23,8 @@
 ├── index.html              # 首页：大类栏目导航
 ├── pelican-bicycle/
 │   ├── index.html          # 栏目页：各模型版本列表
-│   └── gemini-3.8-flash.html
+│   ├── gemini-3.8-flash.html
+│   └── glm-5.3-flash.html
 └── CNAME                   # 自定义域名
 ```
 

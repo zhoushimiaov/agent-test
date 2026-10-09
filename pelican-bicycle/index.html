@@ -6,61 +6,114 @@
 <title>鹈鹕骑车 · Agent Test</title>
 <style>
   :root{
-    --bg:#0b1020; --panel:#141b32; --panel2:#1b2444;
-    --text:#e8ecf7; --muted:#9aa6c7; --accent:#5b8cff; --accent2:#7cf0d2;
-    --border:rgba(255,255,255,.08);
+    --ink:#171717; --body:#4d4d4d; --mute:#888888;
+    --hairline:#ebebeb; --hairline-strong:#a1a1a1;
+    --canvas:#ffffff; --canvas-soft:#fafafa; --canvas-soft-2:#f5f5f5;
+    --link:#0070f3;
+    --g-dev-a:#007cf0; --g-dev-b:#00dfd8;
+    --g-prev-a:#7928ca; --g-prev-b:#ff0080;
+    --g-ship-a:#ff4d4d; --g-ship-b:#f9cb28;
+    --font:'Geist',Inter,system-ui,-apple-system,'PingFang SC','Microsoft YaHei',sans-serif;
+    --mono:'Geist Mono',ui-monospace,SFMono-Regular,Menlo,Monaco,monospace;
   }
   *{box-sizing:border-box;margin:0;padding:0}
-  body{
-    font-family:'Segoe UI','PingFang SC','Microsoft YaHei',system-ui,sans-serif;
-    background:radial-gradient(1200px 600px at 20% -10%,#1a2550 0%,transparent 55%),
-               radial-gradient(1000px 500px at 100% 0%,#143040 0%,transparent 50%),
-               var(--bg);
-    color:var(--text);min-height:100vh;line-height:1.6;
-  }
-  .wrap{max-width:1040px;margin:0 auto;padding:48px 24px 80px}
-  .back{display:inline-block;color:var(--muted);text-decoration:none;font-size:14px;margin-bottom:28px}
-  .back:hover{color:var(--accent)}
-  .eyebrow{color:var(--accent2);font-size:14px;letter-spacing:.18em;text-transform:uppercase;font-weight:600}
-  h1{font-size:clamp(30px,5vw,46px);font-weight:800;margin:10px 0 14px}
-  .sub{color:var(--muted);font-size:16px;max-width:640px;margin-bottom:40px}
-  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:20px}
-  .card{
-    display:block;text-decoration:none;color:inherit;
-    background:linear-gradient(180deg,var(--panel2),var(--panel));
-    border:1px solid var(--border);border-radius:18px;padding:26px;
-    transition:transform .18s ease,border-color .18s ease,box-shadow .18s ease;
-  }
-  .card:hover{transform:translateY(-4px);border-color:rgba(91,140,255,.5);box-shadow:0 18px 40px -20px rgba(91,140,255,.6)}
-  .vendor{font-size:13px;color:var(--muted);letter-spacing:.05em;text-transform:uppercase}
-  .card h3{font-size:22px;margin:8px 0 6px;font-weight:700}
-  .card p{color:var(--muted);font-size:14.5px}
-  .meta{margin-top:18px;display:flex;align-items:center;gap:8px;font-size:13px;color:var(--accent)}
-  .pill{font-size:11px;font-weight:600;padding:3px 9px;border-radius:999px;
-        background:rgba(124,240,210,.14);color:var(--accent2);border:1px solid rgba(124,240,210,.25)}
-  footer{margin-top:56px;color:var(--muted);font-size:13px;border-top:1px solid var(--border);padding-top:22px}
-  footer a{color:var(--accent)}
+  html{-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+  body{font-family:var(--font);background:var(--canvas);color:var(--ink);line-height:1.5}
+  ::selection{background:var(--ink);color:#f2f2f2}
+  a{color:inherit;text-decoration:none}
+
+  .nav{height:64px;display:flex;align-items:center;justify-content:space-between;
+       padding:12px 24px;border-bottom:1px solid var(--hairline);position:sticky;top:0;background:rgba(255,255,255,.8);backdrop-filter:saturate(180%) blur(10px);z-index:10}
+  .brand{display:flex;align-items:center;gap:10px;font-weight:600;font-size:15px;letter-spacing:-.28px}
+  .brand .mark{width:22px;height:22px;border-radius:6px;background:#171717;color:#fff;display:grid;place-items:center;font-size:13px}
+  .nav .repo{font-family:var(--mono);font-size:12px;color:var(--body);border:1px solid var(--hairline);
+             border-radius:6px;padding:6px 12px;transition:border-color .15s,color .15s}
+  .nav .repo:hover{border-color:var(--hairline-strong);color:var(--ink)}
+
+  .hero{padding:56px 24px 48px;max-width:1200px;margin:0 auto}
+  .crumb{font-family:var(--mono);font-size:12px;color:var(--mute);margin-bottom:24px}
+  .crumb a{color:var(--mute);transition:color .15s}
+  .crumb a:hover{color:var(--ink)}
+  h1{font-size:clamp(36px,6vw,56px);line-height:1.04;letter-spacing:-1.8px;font-weight:600;display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+  .lede{margin-top:20px;font-size:18px;line-height:28px;color:var(--body);max-width:62ch}
+
+  .section-label{font-family:var(--mono);font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:var(--mute);
+                 padding:0 24px;max-width:1200px;margin:16px auto 20px;display:flex;align-items:center;gap:12px}
+  .section-label::after{content:"";flex:1;height:1px;background:var(--hairline)}
+
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:16px;padding:0 24px 96px;max-width:1200px;margin:0 auto}
+  .card{display:flex;flex-direction:column;background:var(--canvas);border:1px solid var(--hairline);
+        border-radius:12px;overflow:hidden;transition:border-color .18s,box-shadow .18s,transform .18s}
+  .card:hover{border-color:var(--hairline-strong);box-shadow:0 14px 36px -18px rgba(0,0,0,.25);transform:translateY(-2px)}
+  .banner{height:120px;position:relative;display:grid;place-items:center}
+  .banner.gemini{background:linear-gradient(120deg,var(--g-dev-a),var(--g-dev-b))}
+  .banner.glm{background:linear-gradient(120deg,var(--g-prev-a),var(--g-prev-b) 70%,var(--g-ship-b))}
+  .banner .emoji{font-size:46px;filter:drop-shadow(0 4px 10px rgba(0,0,0,.25))}
+  .body{padding:24px;display:flex;flex-direction:column;flex:1}
+  .vendor{font-family:var(--mono);font-size:12px;color:var(--mute);text-transform:uppercase;letter-spacing:.04em;margin-bottom:10px}
+  .card h3{font-size:22px;letter-spacing:-.6px;font-weight:600;margin-bottom:8px}
+  .card p{font-size:14px;line-height:20px;color:var(--body);flex:1}
+  .foot{margin-top:22px;display:flex;align-items:center;justify-content:space-between}
+  .btn{font-size:14px;font-weight:500;line-height:20px;color:#fff;background:var(--ink);
+       border-radius:100px;padding:8px 16px;display:inline-flex;align-items:center;gap:6px;transition:opacity .15s}
+  .card:hover .btn{opacity:.86}
+  .btn .arrow{transition:transform .18s}
+  .card:hover .btn .arrow{transform:translateX(3px)}
+  .tag{font-family:var(--mono);font-size:12px;color:var(--body);background:var(--canvas-soft);border:1px solid var(--hairline);border-radius:100px;padding:4px 10px}
+
+  footer{border-top:1px solid var(--hairline);padding:40px 24px;color:var(--body);font-size:14px}
+  footer .wrap{max-width:1200px;margin:0 auto;display:flex;flex-wrap:wrap;gap:12px;justify-content:space-between;align-items:center}
+  footer a{color:var(--link)}
+  footer .mono{font-family:var(--mono);font-size:12px;color:var(--mute)}
 </style>
 </head>
 <body>
-<div class="wrap">
-  <a class="back" href="../">← 返回首页</a>
-  <div class="eyebrow">栏目 · Category</div>
-  <h1>🦩🚲 鹈鹕骑车</h1>
-  <p class="sub">经典的大模型创意基准：让模型实现「一只骑自行车的鹈鹕」。下面按模型版本归档，点击卡片查看各自的在线效果。</p>
+  <nav class="nav">
+    <a class="brand" href="../"><span class="mark">A</span>Agent Test</a>
+    <a class="repo" href="https://github.com/zhoushimiaov/agent-test" target="_blank" rel="noopener">github.com/zhoushimiaov/agent-test ↗</a>
+  </nav>
+
+  <section class="hero">
+    <div class="crumb"><a href="../">首页</a> / 鹈鹕骑车</div>
+    <h1><span>🦩🚲</span> 鹈鹕骑车</h1>
+    <p class="lede">经典的大模型创意基准:让模型实现「一只骑自行车的鹈鹕」。下面按模型版本归档,点击卡片查看各自的在线效果。</p>
+  </section>
+
+  <div class="section-label">模型版本 · Versions</div>
 
   <div class="grid">
-    <a class="card" href="gemini-3.8-flash.html">
-      <div class="vendor">Google · Gemini</div>
-      <h3>Gemini 3.8 Flash</h3>
-      <p>海岸鹈鹕飞车之旅 · Coastal Pelican Cruiser。玻璃拟态 UI + 交互动画实现。</p>
-      <div class="meta"><span class="pill">在线效果</span><span>打开 →</span></div>
-    </a>
+    <article class="card">
+      <a class="banner gemini" href="gemini-3.8-flash.html"><span class="emoji">🦩</span></a>
+      <div class="body">
+        <div class="vendor">Google · Gemini</div>
+        <h3>Gemini 3.8 Flash</h3>
+        <p>海岸鹈鹕飞车之旅 · Coastal Pelican Cruiser。玻璃拟态 UI 配合交互动画实现。</p>
+        <div class="foot">
+          <span class="tag">在线效果</span>
+          <a class="btn" href="gemini-3.8-flash.html">打开 <span class="arrow">→</span></a>
+        </div>
+      </div>
+    </article>
+
+    <article class="card">
+      <a class="banner glm" href="glm-5.3-flash.html"><span class="emoji">🦩</span></a>
+      <div class="body">
+        <div class="vendor">Zhipu · GLM</div>
+        <h3>GLM 5.3 Flash</h3>
+        <p>追着落日回家 · Pelican Motor Club。黄昏骑行主题的场景化演绎。</p>
+        <div class="foot">
+          <span class="tag">在线效果</span>
+          <a class="btn" href="glm-5.3-flash.html">打开 <span class="arrow">→</span></a>
+        </div>
+      </div>
+    </article>
   </div>
 
   <footer>
-    托管于 GitHub Pages · <a href="https://github.com/zhoushimiaov/agent-test">源码仓库</a>
+    <div class="wrap">
+      <span><a href="../">← 返回首页</a></span>
+      <span class="mono">Hosted on GitHub Pages · agentest.shimiao.work</span>
+    </div>
   </footer>
-</div>
 </body>
 </html>
