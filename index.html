@@ -7,67 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500&family=Noto+Sans+SC:wght@200;300;400;500&display=swap" rel="stylesheet">
-<style>
-  :root{
-    --ink:#171717; --body:#4d4d4d; --mute:#8a8a8a; --faint:#b3b3b3;
-    --hairline:#ececec; --hairline-2:#dcdcdc;
-    --canvas:#ffffff; --soft:#fafafa; --soft2:#f6f6f6;
-    --accent:#0070f3;
-    --font:'Inter','Noto Sans SC',system-ui,-apple-system,sans-serif;
-  }
-  *{box-sizing:border-box;margin:0;padding:0}
-  html{-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
-  body{font-family:var(--font);font-weight:300;background:var(--canvas);color:var(--ink);line-height:1.6;letter-spacing:.01em}
-  ::selection{background:var(--ink);color:#fff}
-  a{color:inherit;text-decoration:none}
-
-  .nav{height:64px;display:flex;align-items:center;justify-content:space-between;
-       padding:0 32px;border-bottom:1px solid var(--hairline);position:sticky;top:0;
-       background:rgba(255,255,255,.72);backdrop-filter:saturate(180%) blur(12px);z-index:10}
-  .brand{display:flex;align-items:center;gap:10px;font-weight:400;font-size:15px;letter-spacing:.02em}
-  .brand .mark{width:24px;height:24px;border-radius:7px;background:var(--ink);color:#fff;display:grid;place-items:center;font-size:13px;font-weight:400}
-  .nav .repo{font-size:13px;font-weight:300;color:var(--mute);transition:color .18s}
-  .nav .repo:hover{color:var(--ink)}
-
-  .wrap{max-width:1120px;margin:0 auto;padding:0 32px}
-
-  .hero{max-width:1120px;margin:0 auto;padding:112px 32px 72px}
-  .eyebrow{font-size:12px;font-weight:400;letter-spacing:.34em;color:var(--faint);text-transform:uppercase;margin-bottom:28px}
-  h1{font-size:clamp(38px,6vw,66px);font-weight:200;line-height:1.14;letter-spacing:-.01em;color:var(--ink);max-width:17ch}
-  h1 em{font-style:normal;font-weight:300;background:linear-gradient(100deg,#007cf0,#7928ca 55%,#ff0080);
-        -webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
-  .lede{margin-top:28px;font-size:18px;font-weight:300;line-height:1.75;color:var(--body);max-width:52ch}
-
-  .label{max-width:1120px;margin:36px auto 22px;padding:0 32px;display:flex;align-items:center;gap:16px}
-  .label span{font-size:12px;font-weight:400;letter-spacing:.26em;text-transform:uppercase;color:var(--faint)}
-  .label::after{content:"";flex:1;height:1px;background:var(--hairline)}
-
-  .grid{max-width:1120px;margin:0 auto;padding:0 32px 112px;display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:24px}
-  .cat{display:flex;flex-direction:column;border:1px solid var(--hairline);border-radius:14px;overflow:hidden;
-       background:var(--canvas);transition:border-color .22s,box-shadow .22s,transform .22s}
-  .cat:hover{border-color:var(--hairline-2);box-shadow:0 18px 48px -28px rgba(0,0,0,.3);transform:translateY(-3px)}
-  .cat .cover{aspect-ratio:16/9;overflow:hidden;background:var(--soft2);border-bottom:1px solid var(--hairline)}
-  .cat .cover img{width:100%;height:100%;object-fit:cover;object-position:center;display:block;transition:transform .5s ease}
-  .cat:hover .cover img{transform:scale(1.03)}
-  .cat .pad{padding:24px 26px 26px}
-  .cat h3{font-size:21px;font-weight:400;letter-spacing:-.01em;margin-bottom:9px}
-  .cat p{font-size:14.5px;font-weight:300;line-height:1.65;color:var(--body)}
-  .cat .foot{margin-top:20px;display:flex;align-items:center;justify-content:space-between}
-  .count{font-size:13px;font-weight:300;color:var(--mute)}
-  .go{font-size:14px;font-weight:400;color:var(--ink);display:inline-flex;gap:7px;align-items:center}
-  .go .arr{transition:transform .22s}
-  .cat:hover .go .arr{transform:translateX(4px)}
-
-  .cat.soon{opacity:.72}
-  .cat.soon:hover{border-color:var(--hairline);box-shadow:none;transform:none;cursor:default}
-  .cat.soon .cover{display:grid;place-items:center;background:
-      linear-gradient(135deg,var(--soft),var(--soft2));color:var(--faint);font-weight:200;font-size:34px}
-
-  footer{border-top:1px solid var(--hairline);padding:44px 32px}
-  footer .wrap{display:flex;flex-wrap:wrap;gap:12px;justify-content:space-between;align-items:center;padding:0}
-  footer span{font-size:13px;font-weight:300;color:var(--mute)}
-  footer a{color:var(--accent)}
-</style>
+<link rel="stylesheet" href="assets/site.css">
 </head>
 <body>
   <nav class="nav">
@@ -81,7 +21,7 @@
     <p class="lede">用一组经典、直观的任务,横向对比不同大模型与 Agent 的实际输出。每个大类下按模型版本归档,点进去即是可交互的在线效果。</p>
   </section>
 
-  <div class="label"><span>栏目 Categories</span></div>
+  <div class="label"><span>栏目 Categories</span><i></i></div>
 
   <div class="grid">
     <a class="cat" href="pelican-bicycle/">
@@ -89,15 +29,78 @@
       <div class="pad">
         <h3>鹈鹕骑车</h3>
         <p>经典的大模型创意基准 —— 让模型实现「一只骑自行车的鹈鹕」,考验空间想象与前端功力。</p>
-        <div class="foot"><span class="count">16 个版本</span><span class="go">进入栏目 <span class="arr">→</span></span></div>
+        <div class="foot"><span class="count open">16 个版本</span><span class="go">进入栏目 <span class="arr">→</span></span></div>
+      </div>
+    </a>
+
+    <a class="cat" href="jellyfish-float/">
+      <div class="cover ph"><span class="em">🪼</span></div>
+      <div class="pad">
+        <h3>水母漂浮</h3>
+        <p>半透明伞体在水中起伏漂浮,考验透明度、柔体律动与光线穿透的质感。</p>
+        <div class="foot"><span class="count">版本征集中</span><span class="go">查看 <span class="arr">→</span></span></div>
+      </div>
+    </a>
+
+    <a class="cat" href="penguin-ski-jump/">
+      <div class="cover ph"><span class="em">🐧</span></div>
+      <div class="pad">
+        <h3>企鹅滑雪跳台</h3>
+        <p>企鹅冲下斜坡、腾空、再落地,考验 3D 相机运动与阴影的连续变化。</p>
+        <div class="foot"><span class="count">版本征集中</span><span class="go">查看 <span class="arr">→</span></span></div>
+      </div>
+    </a>
+
+    <a class="cat" href="whale-over-city/">
+      <div class="cover ph"><span class="em">🐋</span></div>
+      <div class="pad">
+        <h3>鲸鱼在城市上空游泳</h3>
+        <p>巨鲸漂浮于城市上空,超现实尺度加上云层穿插的前后遮挡关系。</p>
+        <div class="foot"><span class="count">版本征集中</span><span class="go">查看 <span class="arr">→</span></span></div>
+      </div>
+    </a>
+
+    <a class="cat" href="elephant-tightrope/">
+      <div class="cover ph"><span class="em">🐘</span></div>
+      <div class="pad">
+        <h3>大象走钢丝</h3>
+        <p>庞大身躯踩在钢丝上,平衡杆与钢丝下垂张力带来强烈反差感。</p>
+        <div class="foot"><span class="count">版本征集中</span><span class="go">查看 <span class="arr">→</span></span></div>
+      </div>
+    </a>
+
+    <a class="cat" href="octopus-drummer/">
+      <div class="cover ph"><span class="em">🐙</span></div>
+      <div class="pad">
+        <h3>章鱼打架子鼓</h3>
+        <p>八条腕要合理分配到鼓、镲与踩锤,肢体协调是重灾区,极能区分模型。</p>
+        <div class="foot"><span class="count">版本征集中</span><span class="go">查看 <span class="arr">→</span></span></div>
+      </div>
+    </a>
+
+    <a class="cat" href="rhino-orbit/">
+      <div class="cover ph"><span class="em">🦏</span></div>
+      <div class="pad">
+        <h3>犀牛绕地球</h3>
+        <p>犀牛沿轨道绕行地球,考的是轨道运动与天体尺度关系的表达。</p>
+        <div class="foot"><span class="count">版本征集中</span><span class="go">查看 <span class="arr">→</span></span></div>
+      </div>
+    </a>
+
+    <a class="cat" href="lion-fire-hoop/">
+      <div class="cover ph"><span class="em">🦁</span></div>
+      <div class="pad">
+        <h3>狮子跳火圈</h3>
+        <p>狮子跃过火圈,考抛物线轨迹、火圈粒子效果与落地时机的配合。</p>
+        <div class="foot"><span class="count">版本征集中</span><span class="go">查看 <span class="arr">→</span></span></div>
       </div>
     </a>
 
     <div class="cat soon">
-      <div class="cover">+</div>
+      <div class="cover ph"><span class="em">+</span></div>
       <div class="pad">
         <h3>更多测试</h3>
-        <p>后续陆续加入更多测试栏目,如代码重构、数据可视化、小游戏实现等。</p>
+        <p>后续陆续加入更多测试命题,如代码重构、数据可视化、小游戏实现等。</p>
         <div class="foot"><span class="count">敬请期待</span></div>
       </div>
     </div>

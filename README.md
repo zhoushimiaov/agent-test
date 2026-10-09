@@ -4,9 +4,20 @@
 
 🔗 在线地址:https://agentest.shimiao.work
 
-> 导航页(首页 + 栏目页)采用 Vercel 浅色设计语言,正文字体为思源黑 / Noto Sans SC Extra Light,整体风格偏优雅、简洁。栏目页卡片缩略图为各版本的真实渲染截图(`pelican-bicycle/thumbs/`)。
+> 导航页(首页 + 栏目页)采用 Vercel 浅色设计语言,正文字体为思源黑 / Noto Sans SC Extra Light,整体风格偏优雅、简洁。所有页面共用一张样式表 `assets/site.css`,由 `build.mjs` 统一生成。栏目页卡片缩略图为各版本的真实渲染截图(如 `pelican-bicycle/thumbs/`)。
 
 ## 栏目
+
+| 栏目 | 目录 | 考点 | 状态 |
+| --- | --- | --- | --- |
+| 鹈鹕骑车 | `pelican-bicycle/` | 空间想象 + 前端功力 | 16 个版本 |
+| 水母漂浮 | `jellyfish-float/` | 半透明材质、柔体律动、水下光线 | 版本征集中 |
+| 企鹅滑雪跳台 | `penguin-ski-jump/` | 斜坡腾空落地的 3D 相机与阴影 | 版本征集中 |
+| 鲸鱼在城市上空游泳 | `whale-over-city/` | 超现实尺度 + 云层前后遮挡 | 版本征集中 |
+| 大象走钢丝 | `elephant-tightrope/` | 身躯 + 平衡杆 + 钢丝下垂张力 | 版本征集中 |
+| 章鱼打架子鼓 | `octopus-drummer/` | 八腕到各鼓件的分配与协调 | 版本征集中 |
+| 犀牛绕地球 | `rhino-orbit/` | 轨道运动与天体尺度关系 | 版本征集中 |
+| 狮子跳火圈 | `lion-fire-hoop/` | 抛物线 + 火圈粒子 + 落地时机 | 版本征集中 |
 
 ### 🦩🚲 鹈鹕骑车 (`pelican-bicycle/`)
 经典 LLM 创意基准:实现「一只骑自行车的鹈鹕」。现有 16 个模型版本。
@@ -34,21 +45,27 @@
 
 ```
 .
-├── index.html              # 首页：大类栏目导航
+├── index.html              # 首页：大类栏目导航（由 build.mjs 生成）
+├── build.mjs               # 站点生成器：栏目/版本数据 → 首页 + 各栏目 index.html
+├── assets/
+│   └── site.css            # 共享样式表（Vercel 浅色设计语言）
 ├── pelican-bicycle/
 │   ├── index.html          # 栏目页：各模型版本列表（卡片带真实截图）
-│   ├── thumbs/             # 各版本缩略图（1280×860 渲染截图）
+│   ├── thumbs/             # 各版本缩略图（渲染截图）
 │   └── <model>.html        # 各模型版本页面
+├── <其他栏目>/
+│   └── index.html          # 空栏目：版本征集中占位页
 └── CNAME                   # 自定义域名
 ```
 
 ## 新增一个模型版本
 
 1. 把 HTML 文件放进对应栏目目录,命名为 `<厂商>-<型号>.html`。
-2. 用无头 Chrome 渲染一张缩略图到 `thumbs/<同名>.png`。
-3. 在该栏目 `index.html` 的版本数据数组里加一行(slug / 标题 / 说明)。
+2. 用无头 Chrome 渲染一张缩略图到该栏目的 `thumbs/<同名>.png`。
+3. 在 `build.mjs` 里把该版本加进对应栏目的 `versions` 数组(`[slug, 名称, 说明]`)。
+4. 运行 `node build.mjs` 重新生成页面。
 
 ## 新增一个大类栏目
 
-1. 新建目录 + `index.html`。
-2. 在根 `index.html` 加一张栏目卡片。
+1. 在 `build.mjs` 的 `categories` 数组里加一个栏目对象(slug / title / emoji / blurb / exam)。
+2. 运行 `node build.mjs`,会自动生成栏目目录与「版本征集中」占位页,并刷新首页卡片。

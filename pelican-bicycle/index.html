@@ -7,61 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500&family=Noto+Sans+SC:wght@200;300;400;500&display=swap" rel="stylesheet">
-<style>
-  :root{
-    --ink:#171717; --body:#4d4d4d; --mute:#8a8a8a; --faint:#b3b3b3;
-    --hairline:#ececec; --hairline-2:#dcdcdc;
-    --canvas:#ffffff; --soft:#fafafa; --soft2:#f6f6f6;
-    --accent:#0070f3;
-    --font:'Inter','Noto Sans SC',system-ui,-apple-system,sans-serif;
-  }
-  *{box-sizing:border-box;margin:0;padding:0}
-  html{-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
-  body{font-family:var(--font);font-weight:300;background:var(--canvas);color:var(--ink);line-height:1.6;letter-spacing:.01em}
-  ::selection{background:var(--ink);color:#fff}
-  a{color:inherit;text-decoration:none}
-
-  .nav{height:64px;display:flex;align-items:center;justify-content:space-between;
-       padding:0 32px;border-bottom:1px solid var(--hairline);position:sticky;top:0;
-       background:rgba(255,255,255,.72);backdrop-filter:saturate(180%) blur(12px);z-index:10}
-  .brand{display:flex;align-items:center;gap:10px;font-weight:400;font-size:15px;letter-spacing:.02em}
-  .brand .mark{width:24px;height:24px;border-radius:7px;background:var(--ink);color:#fff;display:grid;place-items:center;font-size:13px;font-weight:400}
-  .nav .repo{font-size:13px;font-weight:300;color:var(--mute);transition:color .18s}
-  .nav .repo:hover{color:var(--ink)}
-
-  .hero{max-width:1120px;margin:0 auto;padding:72px 32px 52px}
-  .crumb{font-size:13px;font-weight:300;color:var(--faint);margin-bottom:28px}
-  .crumb a{color:var(--mute);transition:color .18s}
-  .crumb a:hover{color:var(--ink)}
-  h1{font-size:clamp(34px,5.4vw,56px);font-weight:200;line-height:1.1;letter-spacing:-.01em}
-  .lede{margin-top:24px;font-size:18px;font-weight:300;line-height:1.75;color:var(--body);max-width:56ch}
-
-  .label{max-width:1120px;margin:28px auto 24px;padding:0 32px;display:flex;align-items:center;gap:16px}
-  .label span{font-size:12px;font-weight:400;letter-spacing:.26em;text-transform:uppercase;color:var(--faint)}
-  .label b{font-weight:300;color:var(--mute);letter-spacing:.02em;text-transform:none;font-size:13px}
-  .label i{flex:1;height:1px;background:var(--hairline)}
-
-  .grid{max-width:1120px;margin:0 auto;padding:0 32px 112px;
-        display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:22px}
-  .card{display:flex;flex-direction:column;border:1px solid var(--hairline);border-radius:14px;overflow:hidden;
-        background:var(--canvas);transition:border-color .22s,box-shadow .22s,transform .22s}
-  .card:hover{border-color:var(--hairline-2);box-shadow:0 18px 48px -28px rgba(0,0,0,.3);transform:translateY(-3px)}
-  .shot{aspect-ratio:16/10;overflow:hidden;background:var(--soft2);border-bottom:1px solid var(--hairline)}
-  .shot img{width:100%;height:100%;object-fit:cover;object-position:top center;display:block;transition:transform .5s ease}
-  .card:hover .shot img{transform:scale(1.04)}
-  .meta{padding:18px 20px 20px;display:flex;align-items:flex-start;gap:14px}
-  .idx{font-size:12px;font-weight:300;color:var(--faint);letter-spacing:.05em;padding-top:3px;min-width:20px}
-  .txt{flex:1;min-width:0}
-  .txt h3{font-size:17px;font-weight:400;letter-spacing:-.01em;line-height:1.3}
-  .txt p{font-size:13px;font-weight:300;color:var(--mute);margin-top:4px;line-height:1.5}
-  .arr{color:var(--faint);font-size:15px;transition:color .22s,transform .22s;padding-top:2px}
-  .card:hover .arr{color:var(--ink);transform:translate(2px,-2px)}
-
-  footer{border-top:1px solid var(--hairline);padding:44px 32px}
-  footer .wrap{max-width:1120px;margin:0 auto;display:flex;flex-wrap:wrap;gap:12px;justify-content:space-between;align-items:center}
-  footer span{font-size:13px;font-weight:300;color:var(--mute)}
-  footer a{color:var(--accent)}
-</style>
+<link rel="stylesheet" href="../assets/site.css">
 </head>
 <body>
   <nav class="nav">
@@ -69,7 +15,7 @@
     <a class="repo" href="https://github.com/zhoushimiaov/agent-test" target="_blank" rel="noopener">GitHub ↗</a>
   </nav>
 
-  <section class="hero">
+  <section class="hero sub">
     <div class="crumb"><a href="../">首页</a> &nbsp;/&nbsp; 鹈鹕骑车</div>
     <h1>鹈鹕骑车</h1>
     <p class="lede">经典的大模型创意基准:让模型实现「一只骑自行车的鹈鹕」。下面按模型版本归档,缩略图为真实渲染效果,点击卡片查看可交互的在线页面。</p>
@@ -78,132 +24,132 @@
   <div class="label"><span>模型版本</span><b>Versions</b><i></i></div>
 
   <div class="grid">
-    <a class="card" href="gemini-3.8-flash.html">
-      <div class="shot"><img src="thumbs/gemini-3.8-flash.png" alt="Gemini 3.8 Flash 鹈鹕骑车预览" loading="lazy"></div>
+    <a class="ver" href="gemini-3.8-flash.html">
+      <div class="shot"><img src="thumbs/gemini-3.8-flash.png" alt="Gemini 3.8 Flash Coastal Pelican Cruiser · 海岸飞车 预览" loading="lazy"></div>
       <div class="meta">
         <div class="idx">01</div>
         <div class="txt"><h3>Gemini 3.8 Flash</h3><p>Coastal Pelican Cruiser · 海岸飞车</p></div>
-        <span class="arr">↗</span>
+        <span class="arr2">↗</span>
       </div>
     </a>
-    <a class="card" href="glm-5.3-flash.html">
-      <div class="shot"><img src="thumbs/glm-5.3-flash.png" alt="GLM 5.3 Flash 鹈鹕骑车预览" loading="lazy"></div>
+    <a class="ver" href="glm-5.3-flash.html">
+      <div class="shot"><img src="thumbs/glm-5.3-flash.png" alt="GLM 5.3 Flash Pelican Motor Club · 落日骑行 预览" loading="lazy"></div>
       <div class="meta">
         <div class="idx">02</div>
         <div class="txt"><h3>GLM 5.3 Flash</h3><p>Pelican Motor Club · 落日骑行</p></div>
-        <span class="arr">↗</span>
+        <span class="arr2">↗</span>
       </div>
     </a>
-    <a class="card" href="glm-5.3-3d.html">
-      <div class="shot"><img src="thumbs/glm-5.3-3d.png" alt="GLM 5.3 鹈鹕骑车预览" loading="lazy"></div>
+    <a class="ver" href="glm-5.3-3d.html">
+      <div class="shot"><img src="thumbs/glm-5.3-3d.png" alt="GLM 5.3 Three.js 3D 场景 预览" loading="lazy"></div>
       <div class="meta">
         <div class="idx">03</div>
         <div class="txt"><h3>GLM 5.3</h3><p>Three.js 3D 场景</p></div>
-        <span class="arr">↗</span>
+        <span class="arr2">↗</span>
       </div>
     </a>
-    <a class="card" href="tierflow-pro-router.html">
-      <div class="shot"><img src="thumbs/tierflow-pro-router.png" alt="Tierflow-Pro 自动路由 鹈鹕骑车预览" loading="lazy"></div>
+    <a class="ver" href="tierflow-pro-router.html">
+      <div class="shot"><img src="thumbs/tierflow-pro-router.png" alt="Tierflow-Pro 自动路由 glm / qwen / ds 自动路由 预览" loading="lazy"></div>
       <div class="meta">
         <div class="idx">04</div>
         <div class="txt"><h3>Tierflow-Pro 自动路由</h3><p>glm / qwen / ds 自动路由</p></div>
-        <span class="arr">↗</span>
+        <span class="arr2">↗</span>
       </div>
     </a>
-    <a class="card" href="tierflow-pro-router-3d.html">
-      <div class="shot"><img src="thumbs/tierflow-pro-router-3d.png" alt="Tierflow-Pro 自动路由 鹈鹕骑车预览" loading="lazy"></div>
+    <a class="ver" href="tierflow-pro-router-3d.html">
+      <div class="shot"><img src="thumbs/tierflow-pro-router-3d.png" alt="Tierflow-Pro 自动路由 glm / qwen / ds · 3D 预览" loading="lazy"></div>
       <div class="meta">
         <div class="idx">05</div>
         <div class="txt"><h3>Tierflow-Pro 自动路由</h3><p>glm / qwen / ds · 3D</p></div>
-        <span class="arr">↗</span>
+        <span class="arr2">↗</span>
       </div>
     </a>
-    <a class="card" href="mimo-2.6-pro.html">
-      <div class="shot"><img src="thumbs/mimo-2.6-pro.png" alt="MiMo 2.6 Pro 鹈鹕骑车预览" loading="lazy"></div>
+    <a class="ver" href="mimo-2.6-pro.html">
+      <div class="shot"><img src="thumbs/mimo-2.6-pro.png" alt="MiMo 2.6 Pro 小米 MiMo 预览" loading="lazy"></div>
       <div class="meta">
         <div class="idx">06</div>
         <div class="txt"><h3>MiMo 2.6 Pro</h3><p>小米 MiMo</p></div>
-        <span class="arr">↗</span>
+        <span class="arr2">↗</span>
       </div>
     </a>
-    <a class="card" href="qwen-3.8-max-tabbit.html">
-      <div class="shot"><img src="thumbs/qwen-3.8-max-tabbit.png" alt="Qwen 3.8 Max 鹈鹕骑车预览" loading="lazy"></div>
+    <a class="ver" href="qwen-3.8-max-tabbit.html">
+      <div class="shot"><img src="thumbs/qwen-3.8-max-tabbit.png" alt="Qwen 3.8 Max Tabbit · SVG 动画 预览" loading="lazy"></div>
       <div class="meta">
         <div class="idx">07</div>
         <div class="txt"><h3>Qwen 3.8 Max</h3><p>Tabbit · SVG 动画</p></div>
-        <span class="arr">↗</span>
+        <span class="arr2">↗</span>
       </div>
     </a>
-    <a class="card" href="qwen-3.8-max-qoder.html">
-      <div class="shot"><img src="thumbs/qwen-3.8-max-qoder.png" alt="Qwen 3.8 Max 鹈鹕骑车预览" loading="lazy"></div>
+    <a class="ver" href="qwen-3.8-max-qoder.html">
+      <div class="shot"><img src="thumbs/qwen-3.8-max-qoder.png" alt="Qwen 3.8 Max Qoder WorkCN 预览" loading="lazy"></div>
       <div class="meta">
         <div class="idx">08</div>
         <div class="txt"><h3>Qwen 3.8 Max</h3><p>Qoder WorkCN</p></div>
-        <span class="arr">↗</span>
+        <span class="arr2">↗</span>
       </div>
     </a>
-    <a class="card" href="deepseek-4.1-flash.html">
-      <div class="shot"><img src="thumbs/deepseek-4.1-flash.png" alt="DeepSeek 4.1 Flash 鹈鹕骑车预览" loading="lazy"></div>
+    <a class="ver" href="deepseek-4.1-flash.html">
+      <div class="shot"><img src="thumbs/deepseek-4.1-flash.png" alt="DeepSeek 4.1 Flash SVG 动画 预览" loading="lazy"></div>
       <div class="meta">
         <div class="idx">09</div>
         <div class="txt"><h3>DeepSeek 4.1 Flash</h3><p>SVG 动画</p></div>
-        <span class="arr">↗</span>
+        <span class="arr2">↗</span>
       </div>
     </a>
-    <a class="card" href="k2.8-preview.html">
-      <div class="shot"><img src="thumbs/k2.8-preview.png" alt="K2.8 Preview 鹈鹕骑车预览" loading="lazy"></div>
+    <a class="ver" href="k2.8-preview.html">
+      <div class="shot"><img src="thumbs/k2.8-preview.png" alt="K2.8 Preview 预览版 预览" loading="lazy"></div>
       <div class="meta">
         <div class="idx">10</div>
         <div class="txt"><h3>K2.8 Preview</h3><p>预览版</p></div>
-        <span class="arr">↗</span>
+        <span class="arr2">↗</span>
       </div>
     </a>
-    <a class="card" href="k3-raccoon.html">
-      <div class="shot"><img src="thumbs/k3-raccoon.png" alt="K3 鹈鹕骑车预览" loading="lazy"></div>
+    <a class="ver" href="k3-raccoon.html">
+      <div class="shot"><img src="thumbs/k3-raccoon.png" alt="K3 小浣熊 Raccoon 预览" loading="lazy"></div>
       <div class="meta">
         <div class="idx">11</div>
         <div class="txt"><h3>K3</h3><p>小浣熊 Raccoon</p></div>
-        <span class="arr">↗</span>
+        <span class="arr2">↗</span>
       </div>
     </a>
-    <a class="card" href="k3-crush.html">
-      <div class="shot"><img src="thumbs/k3-crush.png" alt="K3 鹈鹕骑车预览" loading="lazy"></div>
+    <a class="ver" href="k3-crush.html">
+      <div class="shot"><img src="thumbs/k3-crush.png" alt="K3 Crush 预览" loading="lazy"></div>
       <div class="meta">
         <div class="idx">12</div>
         <div class="txt"><h3>K3</h3><p>Crush</p></div>
-        <span class="arr">↗</span>
+        <span class="arr2">↗</span>
       </div>
     </a>
-    <a class="card" href="sonnet-5.5-tabbit.html">
-      <div class="shot"><img src="thumbs/sonnet-5.5-tabbit.png" alt="Claude Sonnet 5.5 鹈鹕骑车预览" loading="lazy"></div>
+    <a class="ver" href="sonnet-5.5-tabbit.html">
+      <div class="shot"><img src="thumbs/sonnet-5.5-tabbit.png" alt="Claude Sonnet 5.5 Tabbit 预览" loading="lazy"></div>
       <div class="meta">
         <div class="idx">13</div>
         <div class="txt"><h3>Claude Sonnet 5.5</h3><p>Tabbit</p></div>
-        <span class="arr">↗</span>
+        <span class="arr2">↗</span>
       </div>
     </a>
-    <a class="card" href="haiku-5.5-tabbit.html">
-      <div class="shot"><img src="thumbs/haiku-5.5-tabbit.png" alt="Claude Haiku 5.5 鹈鹕骑车预览" loading="lazy"></div>
+    <a class="ver" href="haiku-5.5-tabbit.html">
+      <div class="shot"><img src="thumbs/haiku-5.5-tabbit.png" alt="Claude Haiku 5.5 Tabbit 预览" loading="lazy"></div>
       <div class="meta">
         <div class="idx">14</div>
         <div class="txt"><h3>Claude Haiku 5.5</h3><p>Tabbit</p></div>
-        <span class="arr">↗</span>
+        <span class="arr2">↗</span>
       </div>
     </a>
-    <a class="card" href="muse-spark-1.3.html">
-      <div class="shot"><img src="thumbs/muse-spark-1.3.png" alt="Muse Spark 1.3 鹈鹕骑车预览" loading="lazy"></div>
+    <a class="ver" href="muse-spark-1.3.html">
+      <div class="shot"><img src="thumbs/muse-spark-1.3.png" alt="Muse Spark 1.3 Muse 预览" loading="lazy"></div>
       <div class="meta">
         <div class="idx">15</div>
         <div class="txt"><h3>Muse Spark 1.3</h3><p>Muse</p></div>
-        <span class="arr">↗</span>
+        <span class="arr2">↗</span>
       </div>
     </a>
-    <a class="card" href="space-bunny.html">
-      <div class="shot"><img src="thumbs/space-bunny.png" alt="Space-Bunny 鹈鹕骑车预览" loading="lazy"></div>
+    <a class="ver" href="space-bunny.html">
+      <div class="shot"><img src="thumbs/space-bunny.png" alt="Space-Bunny 匿名模型 Anonymous 预览" loading="lazy"></div>
       <div class="meta">
         <div class="idx">16</div>
         <div class="txt"><h3>Space-Bunny</h3><p>匿名模型 Anonymous</p></div>
-        <span class="arr">↗</span>
+        <span class="arr2">↗</span>
       </div>
     </a>
   </div>
