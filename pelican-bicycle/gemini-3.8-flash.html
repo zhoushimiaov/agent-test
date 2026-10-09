@@ -1,0 +1,1292 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>鹈鹕飞车之旅 · Coastal Pelican Cruiser</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Google Fonts: Inter & Outfit -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700;800;900&family=Noto+Sans+SC:wght@400;500;700;900&display=swap" rel="stylesheet">
+  
+  <style>
+    * {
+      box-sizing: border-box;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    body {
+      font-family: 'Outfit', 'Noto Sans SC', system-ui, sans-serif;
+      overflow-x: hidden;
+      touch-action: manipulation;
+    }
+    
+    /* Modern Glassmorphic Panels */
+    .glass-panel {
+      background: rgba(255, 255, 255, 0.22);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid rgba(255, 255, 255, 0.35);
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.12);
+    }
+    .glass-dark {
+      background: rgba(18, 24, 38, 0.65);
+      backdrop-filter: blur(18px);
+      -webkit-backdrop-filter: blur(18px);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      box-shadow: 0 12px 36px rgba(0, 0, 0, 0.35);
+    }
+
+    /* Custom range slider thumb styling */
+    input[type=range]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      height: 22px;
+      width: 22px;
+      border-radius: 50%;
+      background: #f59e0b;
+      cursor: pointer;
+      box-shadow: 0 0 12px rgba(245, 158, 11, 0.8), 0 2px 5px rgba(0,0,0,0.3);
+      border: 2px solid #ffffff;
+      transition: transform 0.1s ease, background 0.2s ease;
+    }
+    input[type=range]::-webkit-slider-thumb:hover {
+      transform: scale(1.15);
+      background: #fbbf24;
+    }
+
+    /* Button hover bounce */
+    .btn-bounce {
+      transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+    .btn-bounce:hover {
+      transform: translateY(-2px) scale(1.03);
+    }
+    .btn-bounce:active {
+      transform: translateY(1px) scale(0.96);
+    }
+
+    /* Soundwave ripple keyframe */
+    @keyframes bellRingRipple {
+      0% { transform: scale(0.8); opacity: 0.9; }
+      100% { transform: scale(2.2); opacity: 0; }
+    }
+    .ring-active {
+      animation: bellRingRipple 0.6s ease-out forwards;
+    }
+
+    /* Subtle breath glow */
+    @keyframes pulseGlow {
+      0%, 100% { filter: drop-shadow(0 0 4px rgba(251, 191, 36, 0.4)); }
+      50% { filter: drop-shadow(0 0 14px rgba(251, 191, 36, 0.8)); }
+    }
+    .glow-pulse {
+      animation: pulseGlow 2.5s infinite ease-in-out;
+    }
+  </style>
+</head>
+<body class="bg-slate-900 text-slate-100 min-h-screen flex flex-col justify-between overflow-hidden relative select-none">
+
+  <!-- TOP BAR: Title, Live Stats, and Quick Audio Switch -->
+  <header class="absolute top-0 left-0 right-0 z-30 px-4 sm:px-8 py-3 flex items-center justify-between pointer-events-none">
+    <div class="flex items-center space-x-3 pointer-events-auto">
+      <div class="w-10 h-10 rounded-2xl bg-amber-500/30 border border-amber-400/40 flex items-center justify-center text-xl shadow-lg shadow-amber-500/20 backdrop-blur-md">
+        🪶
+      </div>
+      <div>
+        <h1 class="text-base sm:text-lg font-black tracking-wide bg-clip-text text-transparent bg-gradient-to-r from-amber-200 via-yellow-300 to-amber-400 drop-shadow-sm">
+          PELICAN CRUISE · 鹈鹕海滨巡航
+        </h1>
+        <p class="text-xs text-white/60 font-medium">矢量物理联动 · 2.5D 深度视差动效</p>
+      </div>
+    </div>
+
+    <!-- Live Telemetry / Speedometer HUD -->
+    <div class="pointer-events-auto flex items-center space-x-2 sm:space-x-4">
+      <div class="glass-dark px-3 py-1.5 rounded-xl border border-white/10 flex items-center space-x-3 text-xs">
+        <div class="flex flex-col items-center">
+          <span class="text-[10px] text-white/50 uppercase tracking-wider">时速 SPEED</span>
+          <span id="speed-display" class="font-extrabold text-amber-400 text-sm font-mono">18.5 <span class="text-[10px] font-normal text-white/60">km/h</span></span>
+        </div>
+        <div class="w-[1px] h-6 bg-white/15"></div>
+        <div class="flex flex-col items-center">
+          <span class="text-[10px] text-white/50 uppercase tracking-wider">踏频 CADENCE</span>
+          <span id="cadence-display" class="font-extrabold text-teal-300 text-sm font-mono">68 <span class="text-[10px] font-normal text-white/60">RPM</span></span>
+        </div>
+        <div class="w-[1px] h-6 bg-white/15 hidden sm:block"></div>
+        <div class="hidden sm:flex flex-col items-center">
+          <span class="text-[10px] text-white/50 uppercase tracking-wider">里程 DISTANCE</span>
+          <span id="distance-display" class="font-extrabold text-indigo-300 text-sm font-mono">0.0 <span class="text-[10px] font-normal text-white/60">km</span></span>
+        </div>
+      </div>
+
+      <!-- Sound Toggle Button -->
+      <button id="sound-btn" class="glass-dark hover:bg-white/10 text-white/80 hover:text-white p-2.5 rounded-xl border border-white/10 btn-bounce text-sm shadow-md" title="开启/关闭音效">
+        <span id="sound-icon">🔊</span>
+      </button>
+    </div>
+  </header>
+
+  <main class="w-full h-screen relative flex items-center justify-center overflow-hidden">
+    <!-- Main Fullscreen SVG Graphics Engine -->
+    <svg id="scene-svg" class="w-full h-full object-cover transition-transform duration-300 ease-out" 
+         viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">
+      
+      <defs>
+        <!-- Dynamic Sky Gradients (Controlled by Day/Sunset/Night modes) -->
+        <linearGradient id="sky-gradient" x1="0%" y1="0%" x2="0%" y2="100%">
+          <stop id="sky-stop-top" offset="0%" stop-color="#38bdf8" />
+          <stop id="sky-stop-mid" offset="65%" stop-color="#bae6fd" />
+          <stop id="sky-stop-bot" offset="100%" stop-color="#fef08a" />
+        </linearGradient>
+
+        <!-- Ocean Gradients -->
+        <linearGradient id="sea-gradient" x1="0%" y1="0%" x2="0%" y2="100%">
+          <stop id="sea-stop-top" offset="0%" stop-color="#0284c7" />
+          <stop id="sea-stop-bot" offset="100%" stop-color="#0369a1" />
+        </linearGradient>
+
+        <!-- Road Asphalt Gradient -->
+        <linearGradient id="road-gradient" x1="0%" y1="0%" x2="0%" y2="100%">
+          <stop offset="0%" stop-color="#334155" />
+          <stop offset="25%" stop-color="#1e293b" />
+          <stop offset="100%" stop-color="#0f172a" />
+        </linearGradient>
+
+        <!-- Pelican Beak Pouch Gradient -->
+        <linearGradient id="pouch-grad" x1="0%" y1="0%" x2="0%" y2="100%">
+          <stop offset="0%" stop-color="#f59e0b" stop-opacity="0.95" />
+          <stop offset="60%" stop-color="#fbbf24" stop-opacity="0.85" />
+          <stop offset="100%" stop-color="#ea580c" stop-opacity="0.9" />
+        </linearGradient>
+
+        <!-- Headlight Beam Cone Gradient -->
+        <linearGradient id="headlight-beam" x1="0%" y1="50%" x2="100%" y2="50%">
+          <stop offset="0%" stop-color="#fef08a" stop-opacity="0.85" />
+          <stop offset="50%" stop-color="#fef08a" stop-opacity="0.25" />
+          <stop offset="100%" stop-color="#fef08a" stop-opacity="0" />
+        </linearGradient>
+
+        <!-- Vintage Mint Bicycle Paint Gradient -->
+        <linearGradient id="bike-mint" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stop-color="#5eead4" />
+          <stop offset="50%" stop-color="#14b8a6" />
+          <stop offset="100%" stop-color="#0f766e" />
+        </linearGradient>
+
+        <!-- Chrome Metallic Gradient -->
+        <linearGradient id="chrome-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stop-color="#ffffff" />
+          <stop offset="40%" stop-color="#cbd5e1" />
+          <stop offset="70%" stop-color="#64748b" />
+          <stop offset="100%" stop-color="#94a3b8" />
+        </linearGradient>
+
+        <!-- Soft Shadow Filter -->
+        <filter id="soft-shadow" x="-20%" y="-20%" width="140%" height="140%">
+          <feGaussianBlur in="SourceAlpha" stdDeviation="6" />
+          <feOffset dx="0" dy="8" />
+          <feComponentTransfer><feFuncA type="linear" slope="0.45" /></feComponentTransfer>
+          <feMerge>
+            <feMergeNode />
+            <feMergeNode in="SourceGraphic" />
+          </feMerge>
+        </filter>
+
+        <!-- Glow Filter for Headlight -->
+        <filter id="glow-filter" x="-30%" y="-30%" width="160%" height="160%">
+          <feGaussianBlur stdDeviation="8" result="blur" />
+          <feMerge>
+            <feMergeNode in="blur" />
+            <feMergeNode in="SourceGraphic" />
+          </feMerge>
+        </filter>
+
+        <!-- Clip path for pelican's elastic beak pouch so the tiny fish peeks through cleanly -->
+        <clipPath id="pouch-clip">
+          <path id="pouch-clip-shape" d="M 605 320 Q 645 365 675 325 Q 650 310 605 320 Z" />
+        </clipPath>
+      </defs>
+
+      <!-- ================= BACKGROUND PARALLAX LAYERS ================= -->
+      <!-- 1. Sky Base -->
+      <rect id="sky-bg" width="1600" height="900" fill="url(#sky-gradient)" />
+
+      <!-- Celestial Body (Sun / Sunset Sun / Moon) -->
+      <g id="celestial-group" transform="translate(1320, 160)">
+        <!-- Sun Corona -->
+        <circle id="celestial-glow" cx="0" cy="0" r="75" fill="#fef08a" opacity="0.35" filter="url(#glow-filter)" />
+        <circle id="celestial-core" cx="0" cy="0" r="48" fill="#fde047" />
+        <!-- Moon Craters (hidden during day) -->
+        <g id="moon-craters" opacity="0">
+          <circle cx="-12" cy="-14" r="8" fill="#cbd5e1" opacity="0.5" />
+          <circle cx="15" cy="8" r="10" fill="#cbd5e1" opacity="0.5" />
+          <circle cx="-6" cy="18" r="6" fill="#cbd5e1" opacity="0.4" />
+        </g>
+      </g>
+
+      <!-- Twinkling Night Stars Group -->
+      <g id="stars-group" opacity="0">
+        <!-- Rendered dynamically in JS -->
+      </g>
+
+      <!-- 2. Distant Clouds (Parallax Layer 1: Very Slow) -->
+      <g id="clouds-layer" opacity="0.85"></g>
+
+      <!-- 3. Distant Mountains & Islands (Parallax Layer 2: Slow) -->
+      <g id="distant-islands-layer">
+        <path id="distant-islands" d="" fill="#38bdf8" opacity="0.35" />
+      </g>
+
+      <!-- 4. Ocean Surface & Sparkles (Parallax Layer 3) -->
+      <rect id="ocean-surface" x="0" y="470" width="1600" height="150" fill="url(#sea-gradient)" />
+      
+      <!-- Ocean Horizon Highlights & Tiny Sailing Boats -->
+      <line x1="0" y1="470" x2="1600" y2="470" stroke="#bae6fd" stroke-width="2" opacity="0.8" />
+      <g id="sailboats-layer"></g>
+      <g id="ocean-sparkles-layer"></g>
+
+      <!-- 5. Midground Coastal Elements: Tropical Palms, Lampposts, Pier Railings (Parallax Layer 4) -->
+      <g id="midground-scenery-layer"></g>
+
+      <!-- Coastal Safety Fence / Railing -->
+      <g id="railing-layer"></g>
+
+      <!-- 6. Foreground Highway / Asphalt Road (Parallax Layer 5: Fast) -->
+      <rect id="road-asphalt" x="0" y="620" width="1600" height="280" fill="url(#road-gradient)" />
+      <!-- Road shoulder concrete line -->
+      <rect x="0" y="620" width="1600" height="8" fill="#e2e8f0" opacity="0.85" />
+      <rect x="0" y="628" width="1600" height="4" fill="#94a3b8" opacity="0.5" />
+      <!-- Fast moving dashed center road lines -->
+      <g id="road-dashes-layer"></g>
+
+      <!-- ================= CHARACTERS & BICYCLE RIG ================= -->
+      <g id="pelican-bike-rig" transform="translate(680, 480)">
+        
+        <!-- Dynamic Ground Contact Shadow (Squashes and stretches during bunny hops) -->
+        <ellipse id="bike-shadow" cx="0" cy="275" rx="210" ry="24" fill="#090d16" opacity="0.65" filter="url(#soft-shadow)" />
+
+        <!-- Headlight Projected Light Beam (Prominent at dusk/night) -->
+        <polygon id="headlight-beam-polygon" points="215,100 850,-40 850,290 215,120" 
+                 fill="url(#headlight-beam)" opacity="0.1" style="mix-blend-mode: screen;" />
+
+        <!-- ---------------- REAR BICYCLE WHEEL ---------------- -->
+        <g id="rear-wheel" transform="translate(-160, 185)">
+          <!-- Tire Rubber -->
+          <circle cx="0" cy="0" r="88" fill="none" stroke="#1e293b" stroke-width="20" />
+          <circle cx="0" cy="0" r="97" fill="none" stroke="#334155" stroke-width="2" stroke-dasharray="6 4" />
+          <!-- Vintage White Wall Rim Accent -->
+          <circle cx="0" cy="0" r="81" fill="none" stroke="#f8fafc" stroke-width="5" />
+          <!-- Chrome Rim Edge -->
+          <circle cx="0" cy="0" r="77" fill="none" stroke="#94a3b8" stroke-width="4" />
+          <!-- Spokes Group (Rotated via JS) -->
+          <g id="rear-spokes"></g>
+          <!-- Center Hub -->
+          <circle cx="0" cy="0" r="14" fill="url(#chrome-grad)" stroke="#475569" stroke-width="2" />
+        </g>
+
+        <!-- ---------------- FRONT BICYCLE WHEEL ---------------- -->
+        <g id="front-wheel" transform="translate(180, 185)">
+          <circle cx="0" cy="0" r="88" fill="none" stroke="#1e293b" stroke-width="20" />
+          <circle cx="0" cy="0" r="97" fill="none" stroke="#334155" stroke-width="2" stroke-dasharray="6 4" />
+          <circle cx="0" cy="0" r="81" fill="none" stroke="#f8fafc" stroke-width="5" />
+          <circle cx="0" cy="0" r="77" fill="none" stroke="#94a3b8" stroke-width="4" />
+          <g id="front-spokes"></g>
+          <circle cx="0" cy="0" r="14" fill="url(#chrome-grad)" stroke="#475569" stroke-width="2" />
+        </g>
+
+        <!-- ---------------- VINTAGE BICYCLE FRAMEWORK ---------------- -->
+        <!-- Rear Luggage Rack -->
+        <path d="M -160 185 L -150 95 L -60 95 L -75 185" fill="none" stroke="url(#bike-mint)" stroke-width="7" stroke-linecap="round" stroke-linejoin="round" />
+        <line x1="-165" y1="95" x2="-50" y2="95" stroke="url(#chrome-grad)" stroke-width="6" stroke-linecap="round" />
+        <line x1="-130" y1="95" x2="-140" y2="185" stroke="url(#chrome-grad)" stroke-width="4" />
+
+        <!-- Rear Chainstay & Seatstay -->
+        <path d="M -160 185 L 0 185 L -70 85 Z" fill="none" stroke="url(#bike-mint)" stroke-width="12" stroke-linecap="round" stroke-linejoin="round" />
+
+        <!-- Bottom Bracket & Chainring Guard -->
+        <circle cx="0" cy="185" r="28" fill="url(#chrome-grad)" stroke="#334155" stroke-width="3" />
+        <circle cx="0" cy="185" r="18" fill="none" stroke="#0f172a" stroke-width="3" stroke-dasharray="5 3" />
+        <line x1="0" y1="185" x2="-160" y2="185" stroke="#475569" stroke-width="5" opacity="0.6" />
+
+        <!-- Main Curved Vintage Cruiser Tubes -->
+        <!-- Curved Top Tube (Sweeping Dutch cruiser style) -->
+        <path d="M -70 85 C -20 70, 70 80, 150 75" fill="none" stroke="url(#bike-mint)" stroke-width="13" stroke-linecap="round" />
+        <!-- Bottom Down Tube -->
+        <path d="M 0 185 C 40 170, 100 140, 150 75" fill="none" stroke="url(#bike-mint)" stroke-width="13" stroke-linecap="round" />
+        <!-- Seat Tube -->
+        <line x1="0" y1="185" x2="-75" y2="70" stroke="url(#bike-mint)" stroke-width="13" stroke-linecap="round" />
+
+        <!-- Front Fork and Head Tube -->
+        <line x1="150" y1="75" x2="162" y2="35" stroke="url(#bike-mint)" stroke-width="13" stroke-linecap="round" />
+        <line x1="150" y1="75" x2="180" y2="185" stroke="url(#bike-mint)" stroke-width="11" stroke-linecap="round" />
+
+        <!-- Vintage Spring Saddle / Seat -->
+        <g id="bike-saddle" transform="translate(-80, 52)">
+          <!-- Chrome Springs -->
+          <circle cx="-12" cy="12" r="7" fill="none" stroke="url(#chrome-grad)" stroke-width="3" />
+          <circle cx="4" cy="12" r="7" fill="none" stroke="url(#chrome-grad)" stroke-width="3" />
+          <!-- Leather Saddle Cushion -->
+          <path d="M -30 6 C -20 -10, 15 -10, 32 4 C 18 14, -18 16, -30 6 Z" fill="#78350f" stroke="#451a03" stroke-width="2" />
+        </g>
+
+        <!-- Swept-back Cruiser Handlebars & Chrome Bell -->
+        <g id="handlebars-group" transform="translate(162, 35)">
+          <!-- Handlebar stem -->
+          <line x1="0" y1="0" x2="-8" y2="-35" stroke="url(#chrome-grad)" stroke-width="9" stroke-linecap="round" />
+          <!-- Curved chrome bar sweep -->
+          <path d="M -8 -35 C -25 -50, -50 -40, -45 -18" fill="none" stroke="url(#chrome-grad)" stroke-width="8" stroke-linecap="round" />
+          <!-- Rubber Grip -->
+          <path d="M -47 -24 L -43 -12" stroke="#78350f" stroke-width="11" stroke-linecap="round" />
+          
+          <!-- Vintage Chrome Bell with Soundwave Element -->
+          <g id="bicycle-bell" class="cursor-pointer" transform="translate(-18, -48)">
+            <ellipse cx="0" cy="0" rx="9" ry="7" fill="url(#chrome-grad)" stroke="#cbd5e1" stroke-width="1.5" />
+            <circle cx="2" cy="-2" r="2.5" fill="#ffffff" />
+            <!-- Bell soundwave ripple SVG elements (Triggered on click) -->
+            <g id="bell-waves" opacity="0">
+              <circle cx="0" cy="0" r="16" fill="none" stroke="#38bdf8" stroke-width="3" class="ring-pulse" />
+              <circle cx="0" cy="0" r="24" fill="none" stroke="#38bdf8" stroke-width="2" class="ring-pulse" />
+            </g>
+          </g>
+          
+          <!-- Chrome Headlight with glass lens -->
+          <g transform="translate(18, 0)">
+            <path d="M -4 -12 L 18 -18 L 18 18 L -4 12 Z" fill="url(#chrome-grad)" stroke="#64748b" stroke-width="1.5" />
+            <ellipse id="headlight-lens" cx="18" cy="0" rx="4" ry="18" fill="#fef08a" stroke="#f59e0b" stroke-width="2" filter="url(#glow-filter)" />
+          </g>
+        </g>
+
+        <!-- Rear (Left) Leg and Crank Mechanism (Drawn behind body) -->
+        <g id="left-pedal-leg-group">
+          <line id="left-crank" x1="0" y1="185" x2="0" y2="185" stroke="#475569" stroke-width="7" stroke-linecap="round" />
+          <rect id="left-pedal" x="-12" y="-4" width="24" height="8" rx="3" fill="#1e293b" stroke="#64748b" stroke-width="1.5" />
+          <!-- Left Leg IK Path (Darker shaded behind) -->
+          <path id="left-leg" d="" fill="none" stroke="#ea580c" stroke-width="16" stroke-linecap="round" stroke-linejoin="round" opacity="0.75" />
+          <path id="left-foot" d="" fill="#d97706" opacity="0.8" />
+        </g>
+
+        <!-- ---------------- PELICAN BODY & RIG ---------------- -->
+        <g id="pelican-character">
+          
+          <!-- Pelican Tail Feathers (Fluttering subtly) -->
+          <g id="pelican-tail" transform="translate(-135, 20)">
+            <path d="M 0 0 C -35 5, -55 -15, -45 -30 C -25 -25, -10 -15, 0 0 Z" fill="#e2e8f0" stroke="#cbd5e1" stroke-width="2" />
+            <path d="M -5 5 C -40 15, -60 -2, -50 -15 C -30 -10, -15 -5, -5 5 Z" fill="#cbd5e1" />
+          </g>
+
+          <!-- Pelican Plump Torso / Belly (Clean aerodynamic form) -->
+          <g id="pelican-torso">
+            <!-- Torso main body -->
+            <path d="M -90 40 C -120 -20, -50 -60, 20 -40 C 60 -30, 80 15, 60 55 C 30 85, -60 85, -90 40 Z" 
+                  fill="#f8fafc" stroke="#cbd5e1" stroke-width="3" />
+            <!-- Soft shaded breast belly -->
+            <path d="M -60 45 C -40 70, 20 70, 50 45 C 30 65, -30 65, -60 45 Z" fill="#e2e8f0" />
+          </g>
+
+          <!-- Flowing Red Aviator Scarf (Tail flows dynamically in the wind) -->
+          <g id="pelican-scarf" transform="translate(15, -48)">
+            <!-- Scarf Wind Ribbons (Points updated by JS sine wave) -->
+            <path id="scarf-ribbon-1" d="M 0 0 Q -50 -20 -90 -10 T -150 -15" fill="none" stroke="#ef4444" stroke-width="12" stroke-linecap="round" />
+            <path id="scarf-ribbon-2" d="M -5 8 Q -60 -5 -110 5 T -160 0" fill="none" stroke="#dc2626" stroke-width="8" stroke-linecap="round" />
+            <!-- Scarf Knot on Neck -->
+            <ellipse cx="6" cy="2" rx="14" ry="11" fill="#b91c1c" stroke="#991b1b" stroke-width="2" />
+          </g>
+
+          <!-- Pelican Long Curving S-Neck -->
+          <path id="pelican-neck" d="M 18 -45 C 35 -85, 60 -115, 82 -145 C 92 -160, 115 -165, 128 -148 C 135 -138, 125 -115, 105 -90 C 80 -60, 55 -30, 35 -35 Z" 
+                fill="#f8fafc" stroke="#cbd5e1" stroke-width="3" />
+
+          <!-- Pelican Head, Retro Aviator Goggles, and Giant Beak -->
+          <g id="pelican-head-group" transform="translate(108, -150)">
+            <!-- Skull / Head Crown -->
+            <ellipse cx="0" cy="0" rx="34" ry="28" fill="#f8fafc" stroke="#cbd5e1" stroke-width="3" />
+            
+            <!-- Cheeky Tuft of Crown Feathers -->
+            <path d="M -22 -20 Q -40 -35 -30 -42 Q -18 -32 -10 -24" fill="#f8fafc" stroke="#cbd5e1" stroke-width="2.5" />
+            <path d="M -16 -24 Q -32 -48 -20 -50 Q -8 -38 -4 -26" fill="#f8fafc" stroke="#cbd5e1" stroke-width="2.5" />
+
+            <!-- Retro Leather Aviator Helmet / Goggles Strap -->
+            <path d="M -30 -4 C -20 -28, 15 -28, 28 -8" fill="none" stroke="#78350f" stroke-width="8" stroke-linecap="round" />
+
+            <!-- BIG PELICAN BEAK & THROAT POUCH -->
+            <!-- Upper Hard Bill (Horn-yellow with hooked tip) -->
+            <path d="M 15 -12 L 155 -2 C 168 0, 172 14, 160 16 L 22 14 Z" 
+                  fill="#f59e0b" stroke="#d97706" stroke-width="2.5" />
+            <!-- Tip bill hook & nostril -->
+            <path d="M 155 -2 C 168 4, 168 14, 158 14" fill="#b45309" stroke="#b45309" stroke-width="3" stroke-linecap="round" />
+            <ellipse cx="40" cy="-2" rx="4" ry="1.5" fill="#78350f" />
+
+            <!-- Elastic Jiggling Throat Pouch -->
+            <g id="pouch-interactive" class="cursor-pointer">
+              <!-- Giant Pouch Curve (Drawn with dynamic spring vertex) -->
+              <path id="pelican-pouch-path" 
+                    d="M 22 14 C 45 95, 120 105, 158 14 Z" 
+                    fill="url(#pouch-grad)" stroke="#d97706" stroke-width="2.5" />
+              <!-- Pouch vascular / elastic fold lines -->
+              <path d="M 45 28 Q 75 75 110 35" fill="none" stroke="#ea580c" stroke-width="2" opacity="0.4" />
+              <path d="M 65 30 Q 90 85 130 30" fill="none" stroke="#ea580c" stroke-width="2" opacity="0.4" />
+
+              <!-- CUTE PEEKING SARDINE / FISH IN POUCH -->
+              <!-- The fish peeks its head out of the pouch mouth periodically -->
+              <g id="peeking-fish" transform="translate(112, 10) rotate(-15)">
+                <!-- Fish Body -->
+                <path d="M -6 18 C -18 5, -8 -15, 6 -20 C 18 -15, 20 5, 8 18 Z" fill="#38bdf8" stroke="#0284c7" stroke-width="2" />
+                <path d="M -2 18 C -2 0, 8 0, 8 18 Z" fill="#e0f2fe" />
+                <!-- Fish Fins -->
+                <path d="M -10 -5 C -18 -8, -16 -2, -10 -2" fill="#0284c7" />
+                <!-- Big Anime Cute Fish Eye -->
+                <circle cx="2" cy="-12" r="5" fill="#ffffff" stroke="#0369a1" stroke-width="1" />
+                <circle id="fish-pupil" cx="3" cy="-12" r="2.8" fill="#0f172a" />
+                <circle cx="1.5" cy="-13.5" r="1.2" fill="#ffffff" />
+                <!-- Fish Happy Smile -->
+                <path d="M -2 -6 Q 2 -3 6 -7" fill="none" stroke="#0369a1" stroke-width="1.5" stroke-linecap="round" />
+              </g>
+            </g>
+
+            <!-- Retro Aviator Goggles Eye Piece (Over Head) -->
+            <g id="goggles" transform="translate(8, -8)">
+              <!-- Brass Frame -->
+              <circle cx="0" cy="0" r="17" fill="#475569" stroke="#b45309" stroke-width="3" />
+              <!-- Tinted Glass Lens -->
+              <circle cx="0" cy="0" r="14" fill="#0284c7" opacity="0.65" />
+              <!-- Big Googly Cute Eye Beneath Glass -->
+              <circle cx="0" cy="0" r="12" fill="#ffffff" />
+              <!-- Iris & Pupil (Tracks mouse / tilt subtly) -->
+              <g id="pelican-iris" transform="translate(4, -1)">
+                <circle cx="0" cy="0" r="6.5" fill="#1e293b" />
+                <circle cx="2" cy="-2" r="2.5" fill="#ffffff" />
+                <circle cx="-2" cy="2" r="1.2" fill="#ffffff" />
+              </g>
+              <!-- Glass Specular Highlight Sheen -->
+              <path d="M -9 -7 Q -2 -13 8 -8" fill="none" stroke="#ffffff" stroke-width="2.5" stroke-linecap="round" opacity="0.8" />
+            </g>
+          </g>
+
+          <!-- Front (Right) Wing - Gripping Handlebar & Pumping -->
+          <g id="pelican-wing" transform="translate(-10, -5)">
+            <!-- Primary wing body -->
+            <path d="M 0 -20 C 50 -40, 100 -20, 125 15 C 80 35, 30 40, -10 20 Z" 
+                  fill="#ffffff" stroke="#cbd5e1" stroke-width="3" />
+            <!-- Feather Layer Lines -->
+            <path d="M 35 -15 C 70 -5, 105 10, 115 22" fill="none" stroke="#e2e8f0" stroke-width="2" />
+            <path d="M 20 0 C 55 10, 85 22, 95 30" fill="none" stroke="#e2e8f0" stroke-width="2" />
+            <!-- Wing tip hand grasping the handlebar -->
+            <ellipse cx="126" cy="18" rx="10" ry="8" fill="#f8fafc" stroke="#cbd5e1" stroke-width="2" />
+          </g>
+
+        </g> <!-- End pelican-character -->
+
+        <!-- Foreground (Right) Crank, Pedal, and Foot Mechanism -->
+        <g id="right-pedal-leg-group">
+          <!-- Crank Arm -->
+          <line id="right-crank" x1="0" y1="185" x2="0" y2="185" stroke="url(#chrome-grad)" stroke-width="9" stroke-linecap="round" />
+          <!-- Crank Cap Center -->
+          <circle cx="0" cy="185" r="10" fill="#64748b" stroke="#cbd5e1" stroke-width="2" />
+          <!-- Pedal Platform -->
+          <g id="right-pedal-pivot">
+            <rect id="right-pedal" x="-14" y="-5" width="28" height="10" rx="3.5" fill="#1e293b" stroke="#f59e0b" stroke-width="2" />
+            <!-- Pedal Orange Reflector -->
+            <line x1="-8" y1="0" x2="8" y2="0" stroke="#f59e0b" stroke-width="3" stroke-linecap="round" />
+          </g>
+          <!-- Foreground Leg IK Path (Thigh & Shin) -->
+          <path id="right-leg" d="" fill="none" stroke="#f97316" stroke-width="18" stroke-linecap="round" stroke-linejoin="round" />
+          <!-- Webbed Pelican Orange Foot -->
+          <path id="right-foot" d="" fill="#ea580c" stroke="#c2410c" stroke-width="1.5" />
+        </g>
+
+      </g> <!-- End pelican-bike-rig -->
+
+      <!-- Foreground Speed Wind Particles -->
+      <g id="wind-particles-layer" opacity="0.6"></g>
+
+    </svg>
+  </main>
+
+  <!-- ================= BOTTOM CONTROL DASHBOARD ================= -->
+  <footer class="absolute bottom-4 left-0 right-0 z-30 px-3 sm:px-6 flex justify-center pointer-events-none">
+    <div class="glass-dark border border-white/20 p-3 sm:p-4 rounded-3xl max-w-4xl w-full pointer-events-auto flex flex-col md:flex-row items-center justify-between gap-3 shadow-2xl">
+      
+      <!-- Speed Slider & Presets -->
+      <div class="flex items-center space-x-3 w-full md:w-auto flex-1 max-w-md">
+        <span class="text-xs font-bold text-amber-300 uppercase tracking-wider flex items-center gap-1.5 whitespace-nowrap">
+          <span>⚡ 巡航速度:</span>
+        </span>
+        <div class="flex-1 flex flex-col space-y-1">
+          <input id="speed-slider" type="range" min="0" max="65" value="22" step="0.5" 
+                 class="w-full h-2 bg-slate-700/80 rounded-lg appearance-none cursor-pointer accent-amber-500">
+          <div class="flex justify-between text-[10px] text-white/50 px-0.5">
+            <span>慢悠漫步</span>
+            <span>舒适巡航</span>
+            <span>全力冲刺</span>
+            <span>极速狂飙!</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Quick Action Buttons -->
+      <div class="flex items-center flex-wrap justify-center gap-2 w-full md:w-auto">
+        
+        <!-- Bicycle Bell Button -->
+        <button id="bell-action-btn" class="glass-panel hover:bg-amber-500/30 text-amber-300 font-bold px-3.5 py-2 rounded-2xl flex items-center space-x-1.5 border border-amber-400/40 btn-bounce text-xs shadow-md">
+          <span class="text-base">🔔</span>
+          <span>按车铃 (叮铃铃!)</span>
+        </button>
+
+        <!-- Bunny Hop Stunt Button -->
+        <button id="hop-action-btn" class="glass-panel hover:bg-emerald-500/30 text-emerald-300 font-bold px-3.5 py-2 rounded-2xl flex items-center space-x-1.5 border border-emerald-400/40 btn-bounce text-xs shadow-md">
+          <span class="text-base">🦘</span>
+          <span>兔跳特技 (Hop!)</span>
+        </button>
+
+        <!-- Pelican Honk / Fish Poke Button -->
+        <button id="fish-poke-btn" class="glass-panel hover:bg-cyan-500/30 text-cyan-300 font-bold px-3 py-2 rounded-2xl flex items-center space-x-1.5 border border-cyan-400/40 btn-bounce text-xs shadow-md">
+          <span class="text-base">🐟</span>
+          <span>逗小鱼</span>
+        </button>
+
+        <!-- Day / Sunset / Night Theme Switcher -->
+        <div class="flex bg-slate-800/90 p-1 rounded-2xl border border-white/10 space-x-1 text-xs">
+          <button id="mode-day" class="time-mode-btn px-2.5 py-1.5 rounded-xl bg-amber-500 text-slate-900 font-bold transition-all" title="日光浴晴天">
+            ☀️ 晴日
+          </button>
+          <button id="mode-sunset" class="time-mode-btn px-2.5 py-1.5 rounded-xl text-white/70 hover:text-white transition-all" title="落日余晖">
+            🌅 晚霞
+          </button>
+          <button id="mode-night" class="time-mode-btn px-2.5 py-1.5 rounded-xl text-white/70 hover:text-white transition-all" title="静谧月夜">
+            🌙 星夜
+          </button>
+        </div>
+
+      </div>
+
+    </div>
+  </footer>
+
+  <!-- Subtle onscreen shortcut hints -->
+  <div class="absolute bottom-24 right-6 hidden lg:flex flex-col items-end space-y-1 text-[11px] text-white/40 pointer-events-none">
+    <span>按 [空格键] 进行兔跳特技</span>
+    <span>按 [B 键] 鸣响自行车铃</span>
+    <span>按 [↑ / ↓] 调节巡航时速</span>
+  </div>
+
+  <script>
+    /**
+     * Web Audio API Synthesizer: Pure synthetic procedural sound effects
+     * No external sound assets required!
+     */
+    class SoundEngine {
+      constructor() {
+        this.ctx = null;
+        this.muted = false;
+      }
+
+      init() {
+        if (!this.ctx) {
+          const AudioContext = window.AudioContext || window.webkitAudioContext;
+          if (AudioContext) {
+            this.ctx = new AudioContext();
+          }
+        }
+        if (this.ctx && this.ctx.state === 'suspended') {
+          this.ctx.resume();
+        }
+      }
+
+      // Play double-strike authentic brass bicycle bell ("Ding-Ding!")
+      playBell() {
+        if (this.muted) return;
+        this.init();
+        if (!this.ctx) return;
+
+        const now = this.ctx.currentTime;
+        this.playSingleStrike(now, 2350, 0.4);
+        this.playSingleStrike(now + 0.12, 2860, 0.35);
+      }
+
+      playSingleStrike(startTime, freq, volume) {
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+
+        // Metallic overtone harmonic
+        const overtone = this.ctx.createOscillator();
+        const overtoneGain = this.ctx.createGain();
+
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(freq, startTime);
+        
+        overtone.type = 'triangle';
+        overtone.frequency.setValueAtTime(freq * 1.68, startTime);
+
+        gain.gain.setValueAtTime(volume, startTime);
+        gain.gain.exponentialRampToValueAtTime(0.0001, startTime + 1.2);
+
+        overtoneGain.gain.setValueAtTime(volume * 0.45, startTime);
+        overtoneGain.gain.exponentialRampToValueAtTime(0.0001, startTime + 0.4);
+
+        osc.connect(gain);
+        overtone.connect(overtoneGain);
+        gain.connect(this.ctx.destination);
+        overtoneGain.connect(this.ctx.destination);
+
+        osc.start(startTime);
+        overtone.start(startTime);
+        osc.stop(startTime + 1.25);
+        overtone.stop(startTime + 0.45);
+      }
+
+      // Fun cartoon pelican honk / quack
+      playHonk() {
+        if (this.muted) return;
+        this.init();
+        if (!this.ctx) return;
+
+        const now = this.ctx.currentTime;
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(260, now);
+        osc.frequency.exponentialRampToValueAtTime(140, now + 0.28);
+
+        gain.gain.setValueAtTime(0.3, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
+
+        osc.connect(gain);
+        gain.connect(this.ctx.destination);
+
+        osc.start(now);
+        osc.stop(now + 0.32);
+      }
+
+      // Fish splash / squeak bubble
+      playBubble() {
+        if (this.muted) return;
+        this.init();
+        if (!this.ctx) return;
+
+        const now = this.ctx.currentTime;
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(600, now);
+        osc.frequency.exponentialRampToValueAtTime(1200, now + 0.15);
+
+        gain.gain.setValueAtTime(0.25, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.16);
+
+        osc.connect(gain);
+        gain.connect(this.ctx.destination);
+
+        osc.start(now);
+        osc.stop(now + 0.18);
+      }
+
+      // Stunt Bunny Hop whoosh jump sound
+      playHop() {
+        if (this.muted) return;
+        this.init();
+        if (!this.ctx) return;
+
+        const now = this.ctx.currentTime;
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(180, now);
+        osc.frequency.exponentialRampToValueAtTime(540, now + 0.25);
+
+        gain.gain.setValueAtTime(0.25, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
+
+        osc.connect(gain);
+        gain.connect(this.ctx.destination);
+
+        osc.start(now);
+        osc.stop(now + 0.38);
+      }
+    }
+
+    const sound = new SoundEngine();
+
+    /* ================= SCENERY GENERATION & PARALLAX ENGINE ================= */
+    const svgScene = document.getElementById('scene-svg');
+    const cloudsLayer = document.getElementById('clouds-layer');
+    const midgroundLayer = document.getElementById('midground-scenery-layer');
+    const railingLayer = document.getElementById('railing-layer');
+    const roadDashesLayer = document.getElementById('road-dashes-layer');
+    const windLayer = document.getElementById('wind-particles-layer');
+    const sailboatsLayer = document.getElementById('sailboats-layer');
+    const starsGroup = document.getElementById('stars-group');
+
+    // Generate night sky stars
+    for (let i = 0; i < 48; i++) {
+      const star = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      star.setAttribute('cx', Math.random() * 1600);
+      star.setAttribute('cy', Math.random() * 450);
+      star.setAttribute('r', (Math.random() * 1.5 + 0.8).toFixed(1));
+      star.setAttribute('fill', '#ffffff');
+      star.setAttribute('opacity', (Math.random() * 0.7 + 0.3).toFixed(2));
+      starsGroup.appendChild(star);
+    }
+
+    // Dynamic Clouds Array
+    const clouds = [
+      { x: 100, y: 70, scale: 1.1 },
+      { x: 450, y: 130, scale: 0.85 },
+      { x: 800, y: 90, scale: 1.3 },
+      { x: 1250, y: 140, scale: 0.95 },
+      { x: 1620, y: 80, scale: 1.15 }
+    ];
+
+    clouds.forEach(c => {
+      const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+      g.innerHTML = `
+        <ellipse cx="0" cy="0" rx="60" ry="22" fill="#ffffff" />
+        <circle cx="-25" cy="-12" r="24" fill="#ffffff" />
+        <circle cx="15" cy="-15" r="30" fill="#ffffff" />
+        <circle cx="45" cy="-8" r="20" fill="#ffffff" />
+      `;
+      g.setAttribute('transform', `translate(${c.x}, ${c.y}) scale(${c.scale})`);
+      cloudsLayer.appendChild(g);
+      c.element = g;
+    });
+
+    // Sailboats on water
+    const boats = [
+      { x: 250, y: 472, scale: 0.75, speedFactor: 0.08 },
+      { x: 950, y: 478, scale: 0.6, speedFactor: 0.05 }
+    ];
+
+    boats.forEach(b => {
+      const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+      g.innerHTML = `
+        <polygon points="-14,8 14,8 9,16 -9,16" fill="#f8fafc" stroke="#334155" stroke-width="1" />
+        <polygon points="0,7 0,-18 12,5" fill="#38bdf8" />
+        <polygon points="-1,7 -1,-14 -10,6" fill="#ffffff" />
+      `;
+      g.setAttribute('transform', `translate(${b.x}, ${b.y}) scale(${b.scale})`);
+      sailboatsLayer.appendChild(g);
+      b.element = g;
+    });
+
+    // Midground Scenery (Palm trees, Classic street lamps)
+    const midgroundItems = [];
+    const SCENERY_TYPES = ['palm', 'lamppost', 'bush'];
+    
+    for (let x = 0; x < 2400; x += 280) {
+      const type = SCENERY_TYPES[Math.floor(Math.random() * SCENERY_TYPES.length)];
+      const item = { x: x + Math.random() * 40, type };
+      const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+
+      if (type === 'palm') {
+        g.innerHTML = `
+          <!-- Palm trunk -->
+          <path d="M 0 170 Q 20 80 -10 -5 M -10 -5 Q -15 -10 -2 -8" fill="none" stroke="#78350f" stroke-width="12" stroke-linecap="round" />
+          <path d="M 0 170 Q 20 80 -10 -5" fill="none" stroke="#92400e" stroke-width="6" stroke-dasharray="10 6" />
+          <!-- Fronds -->
+          <g transform="translate(-10, -5)">
+            <path d="M 0 0 Q -50 -40 -110 -15" fill="none" stroke="#16a34a" stroke-width="6" stroke-linecap="round" />
+            <path d="M 0 0 Q -30 -60 -75 -70" fill="none" stroke="#15803d" stroke-width="6" stroke-linecap="round" />
+            <path d="M 0 0 Q 30 -65 75 -60" fill="none" stroke="#16a34a" stroke-width="6" stroke-linecap="round" />
+            <path d="M 0 0 Q 55 -35 110 -5" fill="none" stroke="#15803d" stroke-width="6" stroke-linecap="round" />
+            <path d="M 0 0 Q -10 -70 15 -85" fill="none" stroke="#22c55e" stroke-width="5" stroke-linecap="round" />
+          </g>
+        `;
+        g.setAttribute('transform', `translate(${item.x}, 450) scale(0.9)`);
+      } else if (type === 'lamppost') {
+        g.innerHTML = `
+          <line x1="0" y1="170" x2="0" y2="0" stroke="#334155" stroke-width="7" stroke-linecap="round" />
+          <path d="M 0 10 Q 15 -25 35 -20" fill="none" stroke="#334155" stroke-width="5" stroke-linecap="round" />
+          <ellipse cx="35" cy="-16" rx="7" ry="12" fill="#fef08a" class="lamp-bulb" opacity="0.4" />
+          <path d="M 28 -24 L 42 -24 L 38 -10 L 32 -10 Z" fill="#1e293b" />
+        `;
+        g.setAttribute('transform', `translate(${item.x}, 450) scale(0.85)`);
+      } else {
+        g.innerHTML = `
+          <ellipse cx="0" cy="165" rx="36" ry="24" fill="#166534" />
+          <ellipse cx="-15" cy="155" rx="28" ry="20" fill="#15803d" />
+          <ellipse cx="16" cy="158" rx="26" ry="18" fill="#22c55e" />
+        `;
+        g.setAttribute('transform', `translate(${item.x}, 450) scale(0.9)`);
+      }
+
+      midgroundLayer.appendChild(g);
+      item.element = g;
+      midgroundItems.push(item);
+    }
+
+    // Coastal White Guardrail / Fence posts & rails
+    const fencePosts = [];
+    for (let x = 0; x < 2000; x += 110) {
+      const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+      g.innerHTML = `
+        <line x1="0" y1="620" x2="0" y2="585" stroke="#f8fafc" stroke-width="6" stroke-linecap="round" />
+        <circle cx="0" cy="582" r="5" fill="#e2e8f0" />
+      `;
+      railingLayer.appendChild(g);
+      fencePosts.push({ x, element: g });
+    }
+    // Rails horizontal bars
+    const railLine1 = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    railLine1.setAttribute('x1', '-100'); railLine1.setAttribute('y1', '594');
+    railLine1.setAttribute('x2', '1800'); railLine1.setAttribute('y2', '594');
+    railLine1.setAttribute('stroke', '#cbd5e1'); railLine1.setAttribute('stroke-width', '4');
+    railingLayer.appendChild(railLine1);
+
+    // Road White Dashes
+    const roadDashes = [];
+    for (let x = 0; x < 2200; x += 160) {
+      const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+      rect.setAttribute('x', x);
+      rect.setAttribute('y', 735);
+      rect.setAttribute('width', 90);
+      rect.setAttribute('height', 10);
+      rect.setAttribute('rx', 4);
+      rect.setAttribute('fill', '#f8fafc');
+      rect.setAttribute('opacity', '0.75');
+      roadDashesLayer.appendChild(rect);
+      roadDashes.push({ x, element: rect });
+    }
+
+    // Generate Spokes for Front & Rear Wheels (16 spokes each)
+    const rearSpokesGroup = document.getElementById('rear-spokes');
+    const frontSpokesGroup = document.getElementById('front-spokes');
+    for (let i = 0; i < 16; i++) {
+      const angle = (i * 360) / 16;
+      const rad = (angle * Math.PI) / 180;
+      const x2 = Math.cos(rad) * 76;
+      const y2 = Math.sin(rad) * 76;
+
+      const sp1 = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+      sp1.setAttribute('x1', '0'); sp1.setAttribute('y1', '0');
+      sp1.setAttribute('x2', x2.toFixed(1)); sp1.setAttribute('y2', y2.toFixed(1));
+      sp1.setAttribute('stroke', '#cbd5e1'); sp1.setAttribute('stroke-width', '1.8');
+      sp1.setAttribute('opacity', '0.85');
+      rearSpokesGroup.appendChild(sp1);
+
+      const sp2 = sp1.cloneNode();
+      frontSpokesGroup.appendChild(sp2);
+    }
+
+    /* ================= 2-BONE INVERSE KINEMATICS SOLVER =================
+     * Calculates knee position (x1, y1) given hip (x0, y0), pedal (x2, y2),
+     * thigh length L1 and shin length L2.
+     * Guaranteed forward-bending natural avian leg flexion.
+     */
+    function solveLegIK(x0, y0, x2, y2, L1, L2) {
+      const dx = x2 - x0;
+      const dy = y2 - y0;
+      let d = Math.hypot(dx, dy);
+      
+      // Clamp distance to avoid hyperextension singularity
+      const maxReach = (L1 + L2) * 0.999;
+      const minReach = Math.abs(L1 - L2) * 1.01;
+      if (d > maxReach) d = maxReach;
+      if (d < minReach) d = minReach;
+
+      // Base angle from hip to pedal
+      const baseAngle = Math.atan2(dy, dx);
+
+      // Law of Cosines for thigh-to-chord angle
+      const cosAngle1 = (L1 * L1 + d * d - L2 * L2) / (2 * L1 * d);
+      const angle1 = Math.acos(Math.max(-1, Math.min(1, cosAngle1)));
+
+      // Knee bending forward (+ angle offsets knee towards handlebars)
+      const kneeAngle = baseAngle + angle1;
+      const x1 = x0 + L1 * Math.cos(kneeAngle);
+      const y1 = y0 + L1 * Math.sin(kneeAngle);
+
+      return { x1, y1 };
+    }
+
+    /* ================= MAIN ANIMATION & STATE ENGINE ================= */
+    const state = {
+      speedKmh: 22,             // Live speed in km/h
+      crankAngle: 0,            // Rotation radians for bicycle drivetrain
+      wheelAngle: 0,            // Rotation radians for wheels
+      distanceKm: 0,            // Total distance traveled
+      timeMode: 'day',          // 'day' | 'sunset' | 'night'
+      
+      // Bunny Hop Stunt Physics
+      isHopping: false,
+      hopTimer: 0,
+      hopDuration: 0.65,        // seconds
+      hopHeight: 0,
+      hopRotation: 0,
+
+      // Pouch & Fish dynamics
+      pouchJellyOffset: 0,
+      fishPeekProgress: 0,
+      fishTimer: 0,
+
+      // Mouse Parallax Tilt
+      mouseTiltX: 0,
+      mouseTiltY: 0
+    };
+
+    // DOM Elements Cache
+    const speedSlider = document.getElementById('speed-slider');
+    const speedDisplay = document.getElementById('speed-display');
+    const cadenceDisplay = document.getElementById('cadence-display');
+    const distanceDisplay = document.getElementById('distance-display');
+
+    const rigGroup = document.getElementById('pelican-bike-rig');
+    const bikeShadow = document.getElementById('bike-shadow');
+    const rearSpokes = document.getElementById('rear-spokes');
+    const frontSpokes = document.getElementById('front-spokes');
+    
+    // Leg & Crank Elements
+    const leftCrank = document.getElementById('left-crank');
+    const leftPedal = document.getElementById('left-pedal');
+    const leftLeg = document.getElementById('left-leg');
+    const leftFoot = document.getElementById('left-foot');
+
+    const rightCrank = document.getElementById('right-crank');
+    const rightPedal = document.getElementById('right-pedal');
+    const rightPedalPivot = document.getElementById('right-pedal-pivot');
+    const rightLeg = document.getElementById('right-leg');
+    const rightFoot = document.getElementById('right-foot');
+
+    // Pelican Dynamic Parts
+    const pelicanHead = document.getElementById('pelican-head-group');
+    const pelicanPouch = document.getElementById('pelican-pouch-path');
+    const peekingFish = document.getElementById('peeking-fish');
+    const scarfRibbon1 = document.getElementById('scarf-ribbon-1');
+    const scarfRibbon2 = document.getElementById('scarf-ribbon-2');
+    const pelicanIris = document.getElementById('pelican-iris');
+    const bellWaves = document.getElementById('bell-waves');
+    const headlightBeam = document.getElementById('headlight-beam-polygon');
+
+    // Constant Dimensions of Bike & Pelican Rig
+    const CRANK_CENTER_X = 0;
+    const CRANK_CENTER_Y = 185;
+    const CRANK_RADIUS = 36;
+    const HIP_X = -65;
+    const HIP_Y = 65;
+    const THIGH_LEN = 70;
+    const SHIN_LEN = 75;
+
+    let lastTime = performance.now();
+
+    function renderLoop(currentTime) {
+      const dt = Math.min((currentTime - lastTime) / 1000, 0.05); // Delta time clamp
+      lastTime = currentTime;
+
+      // 1. Update Kinematics & Speed Rates
+      const speedNorm = state.speedKmh / 20; // 1.0 at standard 20 km/h
+      const crankSpeed = (state.speedKmh * 0.16) * Math.PI; // rad/sec
+      state.crankAngle += crankSpeed * dt;
+      state.wheelAngle += crankSpeed * 1.8 * dt; // Wheels spin faster than crank
+      state.distanceKm += (state.speedKmh * dt) / 3600;
+
+      // Update Telemetry Display
+      const liveCadenceRpm = Math.round((crankSpeed / (2 * Math.PI)) * 60);
+      speedDisplay.innerHTML = `${state.speedKmh.toFixed(1)} <span class="text-[10px] font-normal text-white/60">km/h</span>`;
+      cadenceDisplay.innerHTML = `${liveCadenceRpm} <span class="text-[10px] font-normal text-white/60">RPM</span>`;
+      distanceDisplay.innerHTML = `${state.distanceKm.toFixed(2)} <span class="text-[10px] font-normal text-white/60">km</span>`;
+
+      // 2. Bunny Hop Stunt Physics Update
+      if (state.isHopping) {
+        state.hopTimer += dt;
+        const p = state.hopTimer / state.hopDuration;
+        if (p >= 1) {
+          state.isHopping = false;
+          state.hopHeight = 0;
+          state.hopRotation = 0;
+        } else {
+          // Parabolic jump arc with rotation squash
+          state.hopHeight = Math.sin(p * Math.PI) * 115;
+          // Front wheel lifts first, lands smoothly
+          state.hopRotation = Math.sin(p * Math.PI * 1.4) * -7;
+        }
+      }
+
+      // 3. Pelican Body Bobbing (Synchronized with pedaling cadence)
+      // Pelican bobs down twice per crank rotation (one per foot press)
+      const bobbingY = Math.sin(state.crankAngle * 2) * (3.5 * Math.min(speedNorm, 2));
+      const bobbingAngle = Math.cos(state.crankAngle * 2) * 1.2;
+
+      // Apply transformation to Bike & Pelican Rig (Bunny hop + tilt + bob)
+      const baseRigY = 480 - state.hopHeight + bobbingY;
+      const baseRigRotation = state.hopRotation + bobbingAngle * 0.5 + state.mouseTiltX * 2;
+      rigGroup.setAttribute('transform', `translate(680, ${baseRigY}) rotate(${baseRigRotation})`);
+
+      // Ground Shadow deformation
+      const shadowScale = Math.max(0.4, 1 - state.hopHeight / 180);
+      const shadowOpacity = Math.max(0.18, 0.65 - (state.hopHeight / 160) * 0.45);
+      bikeShadow.setAttribute('transform', `translate(0, ${275 + state.hopHeight}) scale(${shadowScale})`);
+      bikeShadow.setAttribute('opacity', shadowOpacity.toFixed(2));
+
+      // 4. Rotate Bicycle Wheels Spokes
+      const wheelDeg = (state.wheelAngle * 180 / Math.PI) % 360;
+      rearSpokes.setAttribute('transform', `rotate(${wheelDeg})`);
+      frontSpokes.setAttribute('transform', `rotate(${wheelDeg})`);
+
+      // 5. Crank & Leg Kinematics (Right / Foreground Leg)
+      const rightPedalX = CRANK_CENTER_X + Math.cos(state.crankAngle) * CRANK_RADIUS;
+      const rightPedalY = CRANK_CENTER_Y + Math.sin(state.crankAngle) * CRANK_RADIUS;
+      rightCrank.setAttribute('x2', rightPedalX);
+      rightCrank.setAttribute('y2', rightPedalY);
+      rightPedalPivot.setAttribute('transform', `translate(${rightPedalX}, ${rightPedalY})`);
+
+      const rightIK = solveLegIK(HIP_X, HIP_Y, rightPedalX, rightPedalY, THIGH_LEN, SHIN_LEN);
+      rightLeg.setAttribute('d', `M ${HIP_X} ${HIP_Y} Q ${rightIK.x1} ${rightIK.y1} ${rightPedalX} ${rightPedalY}`);
+      // Foot flipper rests on pedal
+      rightFoot.setAttribute('d', `M ${rightPedalX - 14} ${rightPedalY + 4} L ${rightPedalX + 16} ${rightPedalY + 2} L ${rightPedalX + 12} ${rightPedalY + 12} Z`);
+
+      // 6. Crank & Leg Kinematics (Left / Background Leg - Phase offset PI)
+      const leftPedalAngle = state.crankAngle + Math.PI;
+      const leftPedalX = CRANK_CENTER_X + Math.cos(leftPedalAngle) * CRANK_RADIUS;
+      const leftPedalY = CRANK_CENTER_Y + Math.sin(leftPedalAngle) * CRANK_RADIUS;
+      leftCrank.setAttribute('x2', leftPedalX);
+      leftCrank.setAttribute('y2', leftPedalY);
+      leftPedal.setAttribute('x', leftPedalX - 12);
+      leftPedal.setAttribute('y', leftPedalY - 4);
+
+      const leftIK = solveLegIK(HIP_X, HIP_Y, leftPedalX, leftPedalY, THIGH_LEN, SHIN_LEN);
+      leftLeg.setAttribute('d', `M ${HIP_X} ${HIP_Y} Q ${leftIK.x1} ${leftIK.y1} ${leftPedalX} ${leftPedalY}`);
+      leftFoot.setAttribute('d', `M ${leftPedalX - 12} ${leftPedalY + 4} L ${leftPedalX + 14} ${leftPedalY + 2} L ${leftPedalX + 10} ${leftPedalY + 11} Z`);
+
+      // 7. Pelican Beak Jelly Elastic Wobble
+      // Wobbles with bobbing momentum and pedaling cadence
+      const jellyWobble = Math.sin(currentTime * 0.008 * speedNorm + state.crankAngle * 2) * (14 * Math.min(speedNorm, 2));
+      const pouchBottomY = 95 + jellyWobble;
+      pelicanPouch.setAttribute('d', `M 22 14 C 45 ${pouchBottomY}, 120 ${pouchBottomY + 10}, 158 14 Z`);
+
+      // 8. Fluttering Red Scarf Dynamics (Sine wave travelling backward)
+      const scarfFreq = 0.015 * Math.max(speedNorm, 0.4);
+      const waveAmp = 8 + speedNorm * 6;
+      const s1 = Math.sin(currentTime * scarfFreq) * waveAmp;
+      const s2 = Math.cos(currentTime * scarfFreq * 1.3) * (waveAmp * 1.2);
+      const s3 = Math.sin(currentTime * scarfFreq * 1.7) * (waveAmp * 1.5);
+      scarfRibbon1.setAttribute('d', `M 0 0 Q ${-50 + s1 * 0.3} ${-20 + s1} ${-95 + s2 * 0.3} ${-10 + s2} T ${-160 + s3 * 0.2} ${-12 + s3}`);
+      scarfRibbon2.setAttribute('d', `M -5 8 Q ${-60 + s2 * 0.3} ${-5 + s2} ${-110 + s1 * 0.3} ${5 + s1} T ${-170 + s3 * 0.2} ${-2 + s3}`);
+
+      // 9. Cute Peeking Fish periodic animation
+      state.fishTimer += dt;
+      if (state.fishTimer > 4.5) {
+        state.fishPeekProgress += dt * 3.5;
+        if (state.fishPeekProgress > Math.PI * 2) {
+          state.fishPeekProgress = 0;
+          state.fishTimer = Math.random() * 1.5; // Reset cycle
+        }
+      }
+      // Fish peeks head out
+      const fishPeekOffset = Math.sin(state.fishPeekProgress) * 20;
+      const fishWiggle = Math.sin(currentTime * 0.02) * 6;
+      peekingFish.setAttribute('transform', `translate(112, ${10 - Math.max(0, fishPeekOffset)}) rotate(${-15 + fishWiggle})`);
+
+      // 10. Pelican Eye Pupil gentle tracking
+      pelicanIris.setAttribute('transform', `translate(${4 + state.mouseTiltX * 3}, ${-1 + state.mouseTiltY * 2})`);
+
+      // 11. Parallax Layers Scrolling
+      const scrollSpeed = state.speedKmh * 18 * dt; // Base pixel velocity
+
+      // Clouds (Very slow, 0.08x)
+      clouds.forEach(c => {
+        c.x -= scrollSpeed * 0.08;
+        if (c.x < -120) c.x = 1720;
+        c.element.setAttribute('transform', `translate(${c.x}, ${c.y}) scale(${c.scale})`);
+      });
+
+      // Sailboats on horizon (0.12x)
+      boats.forEach(b => {
+        b.x -= scrollSpeed * b.speedFactor;
+        if (b.x < -100) b.x = 1700;
+        b.element.setAttribute('transform', `translate(${b.x}, ${b.y}) scale(${b.scale})`);
+      });
+
+      // Midground Palms & Lamps (0.45x)
+      midgroundItems.forEach(item => {
+        item.x -= scrollSpeed * 0.45;
+        if (item.x < -150) item.x = 1850;
+        item.element.setAttribute('transform', `translate(${item.x}, 450) scale(0.9)`);
+      });
+
+      // Railing posts (0.8x)
+      fencePosts.forEach(post => {
+        post.x -= scrollSpeed * 0.8;
+        if (post.x < -100) post.x = 1800;
+        post.element.setAttribute('transform', `translate(${post.x}, 0)`);
+      });
+
+      // Fast Foreground Road Dashes (1.8x)
+      roadDashes.forEach(dash => {
+        dash.x -= scrollSpeed * 1.8;
+        if (dash.x < -120) dash.x = 1800;
+        dash.element.setAttribute('x', dash.x);
+      });
+
+      requestAnimationFrame(renderLoop);
+    }
+
+    // Start 60fps render loop
+    requestAnimationFrame(renderLoop);
+
+    /* ================= USER INTERACTIONS & EVENTS ================= */
+    
+    // Speed Slider Input
+    speedSlider.addEventListener('input', (e) => {
+      state.speedKmh = parseFloat(e.target.value);
+    });
+
+    // Bicycle Bell Action
+    const bellBtn = document.getElementById('bell-action-btn');
+    const bellSvg = document.getElementById('bicycle-bell');
+    function triggerBell() {
+      sound.playBell();
+      bellWaves.setAttribute('opacity', '1');
+      bellWaves.classList.remove('ring-active');
+      void bellWaves.offsetWidth; // Trigger reflow
+      bellWaves.classList.add('ring-active');
+      setTimeout(() => bellWaves.setAttribute('opacity', '0'), 600);
+    }
+    bellBtn.addEventListener('click', triggerBell);
+    bellSvg.addEventListener('click', triggerBell);
+
+    // Bunny Hop Action
+    const hopBtn = document.getElementById('hop-action-btn');
+    function triggerHop() {
+      if (state.isHopping) return;
+      state.isHopping = true;
+      state.hopTimer = 0;
+      sound.playHop();
+    }
+    hopBtn.addEventListener('click', triggerHop);
+
+    // Poke Fish / Honk Actions
+    const fishPokeBtn = document.getElementById('fish-poke-btn');
+    const pouchInteractive = document.getElementById('pouch-interactive');
+    function triggerPokeFish() {
+      state.fishTimer = 5.0; // Force fish to pop up
+      state.fishPeekProgress = 0.1;
+      sound.playBubble();
+    }
+    fishPokeBtn.addEventListener('click', triggerPokeFish);
+    pouchInteractive.addEventListener('click', () => {
+      sound.playHonk();
+      triggerPokeFish();
+    });
+
+    // Audio Toggle Button
+    const soundBtn = document.getElementById('sound-btn');
+    const soundIcon = document.getElementById('sound-icon');
+    soundBtn.addEventListener('click', () => {
+      sound.muted = !sound.muted;
+      soundIcon.textContent = sound.muted ? '🔇' : '🔊';
+      if (!sound.muted) sound.init();
+    });
+
+    // Day / Sunset / Night Theme Switching
+    const modeDayBtn = document.getElementById('mode-day');
+    const modeSunsetBtn = document.getElementById('mode-sunset');
+    const modeNightBtn = document.getElementById('mode-night');
+
+    const skyStopTop = document.getElementById('sky-stop-top');
+    const skyStopMid = document.getElementById('sky-stop-mid');
+    const skyStopBot = document.getElementById('sky-stop-bot');
+    const seaStopTop = document.getElementById('sea-stop-top');
+    const seaStopBot = document.getElementById('sea-stop-bot');
+    const celestialCore = document.getElementById('celestial-core');
+    const celestialGlow = document.getElementById('celestial-glow');
+    const moonCraters = document.getElementById('moon-craters');
+
+    function setTimeMode(mode) {
+      state.timeMode = mode;
+      // Update UI button highlights
+      [modeDayBtn, modeSunsetBtn, modeNightBtn].forEach(b => {
+        b.className = 'time-mode-btn px-2.5 py-1.5 rounded-xl text-white/70 hover:text-white transition-all';
+      });
+
+      if (mode === 'day') {
+        modeDayBtn.className = 'time-mode-btn px-2.5 py-1.5 rounded-xl bg-amber-500 text-slate-900 font-bold shadow-md';
+        skyStopTop.setAttribute('stop-color', '#38bdf8');
+        skyStopMid.setAttribute('stop-color', '#bae6fd');
+        skyStopBot.setAttribute('stop-color', '#fef08a');
+        seaStopTop.setAttribute('stop-color', '#0284c7');
+        seaStopBot.setAttribute('stop-color', '#0369a1');
+        celestialCore.setAttribute('fill', '#fde047');
+        celestialGlow.setAttribute('fill', '#fef08a');
+        celestialGlow.setAttribute('opacity', '0.35');
+        moonCraters.setAttribute('opacity', '0');
+        starsGroup.setAttribute('opacity', '0');
+        headlightBeam.setAttribute('opacity', '0.08');
+        document.querySelectorAll('.lamp-bulb').forEach(el => el.setAttribute('opacity', '0.2'));
+      } else if (mode === 'sunset') {
+        modeSunsetBtn.className = 'time-mode-btn px-2.5 py-1.5 rounded-xl bg-rose-500 text-white font-bold shadow-md';
+        skyStopTop.setAttribute('stop-color', '#4c1d95');
+        skyStopMid.setAttribute('stop-color', '#f43f5e');
+        skyStopBot.setAttribute('stop-color', '#fb923c');
+        seaStopTop.setAttribute('stop-color', '#9f1239');
+        seaStopBot.setAttribute('stop-color', '#4c0519');
+        celestialCore.setAttribute('fill', '#fb923c');
+        celestialGlow.setAttribute('fill', '#f43f5e');
+        celestialGlow.setAttribute('opacity', '0.6');
+        moonCraters.setAttribute('opacity', '0');
+        starsGroup.setAttribute('opacity', '0.2');
+        headlightBeam.setAttribute('opacity', '0.35');
+        document.querySelectorAll('.lamp-bulb').forEach(el => el.setAttribute('opacity', '0.7'));
+      } else if (mode === 'night') {
+        modeNightBtn.className = 'time-mode-btn px-2.5 py-1.5 rounded-xl bg-indigo-600 text-white font-bold shadow-md';
+        skyStopTop.setAttribute('stop-color', '#090d16');
+        skyStopMid.setAttribute('stop-color', '#1e1b4b');
+        skyStopBot.setAttribute('stop-color', '#312e81');
+        seaStopTop.setAttribute('stop-color', '#172554');
+        seaStopBot.setAttribute('stop-color', '#0f172a');
+        celestialCore.setAttribute('fill', '#f8fafc');
+        celestialGlow.setAttribute('fill', '#e0f2fe');
+        celestialGlow.setAttribute('opacity', '0.5');
+        moonCraters.setAttribute('opacity', '0.85');
+        starsGroup.setAttribute('opacity', '0.9');
+        headlightBeam.setAttribute('opacity', '0.75');
+        document.querySelectorAll('.lamp-bulb').forEach(el => el.setAttribute('opacity', '1'));
+      }
+    }
+
+    modeDayBtn.addEventListener('click', () => setTimeMode('day'));
+    modeSunsetBtn.addEventListener('click', () => setTimeMode('sunset'));
+    modeNightBtn.addEventListener('click', () => setTimeMode('night'));
+
+    // Keyboard Controls
+    window.addEventListener('keydown', (e) => {
+      if (e.code === 'Space') {
+        e.preventDefault();
+        triggerHop();
+      } else if (e.code === 'KeyB') {
+        triggerBell();
+      } else if (e.code === 'ArrowUp') {
+        e.preventDefault();
+        state.speedKmh = Math.min(65, state.speedKmh + 4);
+        speedSlider.value = state.speedKmh;
+      } else if (e.code === 'ArrowDown') {
+        e.preventDefault();
+        state.speedKmh = Math.max(0, state.speedKmh - 4);
+        speedSlider.value = state.speedKmh;
+      }
+    });
+
+    // 2.5D Subtle Mouse Perspective Tilt
+    window.addEventListener('mousemove', (e) => {
+      const cx = window.innerWidth / 2;
+      const cy = window.innerHeight / 2;
+      state.mouseTiltX = (e.clientX - cx) / cx; // -1 to 1
+      state.mouseTiltY = (e.clientY - cy) / cy; // -1 to 1
+    });
+
+    // Touch Support for mobile tap hop
+    let touchStartY = 0;
+    window.addEventListener('touchstart', (e) => {
+      touchStartY = e.touches[0].clientY;
+    }, { passive: true });
+    window.addEventListener('touchend', (e) => {
+      const diffY = touchStartY - e.changedTouches[0].clientY;
+      if (diffY > 40) { // Swipe up to bunny hop
+        triggerHop();
+      }
+    }, { passive: true });
+  </script>
+</body>
+</html>
