@@ -1,0 +1,112 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>show_widget</title>
+</head>
+<body>
+<style>
+.wrap{width:100%;max-width:680px;margin:0 auto}
+svg{width:100%;height:auto;display:block;background:linear-gradient(#bfe6ff,#f4fbff 70%)}
+.wheel{animation:spin 1s linear infinite;transform-box:fill-box;transform-origin:center}
+.crank{animation:spin 1.2s linear infinite;transform-box:fill-box;transform-origin:center}
+.pedalL{animation:spinr 1.2s linear infinite;transform-box:fill-box;transform-origin:center}
+.bob{animation:bob .6s ease-in-out infinite alternate}
+.ground{animation:move 1s linear infinite}
+.cloud{animation:cloud 14s linear infinite}
+.pouch{animation:pouch .6s ease-in-out infinite alternate;transform-box:fill-box;transform-origin:top}
+.scarf{animation:wave .3s ease-in-out infinite alternate;transform-box:fill-box;transform-origin:left center}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes spinr{to{transform:rotate(-360deg)}}
+@keyframes bob{to{transform:translateY(-4px)}}
+@keyframes move{to{transform:translateX(-80px)}}
+@keyframes cloud{from{transform:translateX(700px)}to{transform:translateX(-200px)}}
+@keyframes pouch{to{transform:scaleY(1.12)}}
+@keyframes wave{to{transform:skewY(-12deg) scaleX(1.1)}}
+</style>
+<div class="wrap">
+<svg viewBox="0 0 680 400">
+<circle cx="580" cy="70" r="36" fill="#ffd95a"/>
+<g class="cloud"><ellipse cx="0" cy="80" rx="50" ry="16" fill="#fff"/><ellipse cx="25" cy="68" rx="30" ry="16" fill="#fff"/></g>
+<g class="cloud" style="animation-duration:20s;animation-delay:-8s"><ellipse cx="0" cy="140" rx="40" ry="12" fill="#fff"/><ellipse cx="-18" cy="130" rx="22" ry="12" fill="#fff"/></g>
+<path d="M0 300 Q170 250 340 290 T680 280 V400 H0Z" fill="#a8d98a"/>
+<rect y="320" width="680" height="80" fill="#7a7f87"/>
+<rect y="316" width="680" height="8" fill="#5f646b"/>
+<g class="ground" stroke="#fff" stroke-width="5" stroke-dasharray="40 40"><line x1="0" y1="365" x2="800" y2="365"/></g>
+<ellipse cx="340" cy="322" rx="170" ry="8" fill="#000" opacity=".2"/>
+
+<g class="bob">
+<!-- 自行车 -->
+<g fill="none" stroke="#e8453c" stroke-width="6" stroke-linecap="round" stroke-linejoin="round">
+<path d="M220 290 L320 290 L275 215 Z"/><path d="M275 215 L370 215 L400 290"/><path d="M370 215 L355 195"/><path d="M275 215 L268 195"/>
+</g>
+<line x1="355" y1="195" x2="385" y2="195" stroke="#333" stroke-width="6" stroke-linecap="round"/>
+<rect x="250" y="188" width="36" height="10" rx="5" fill="#333"/>
+<!-- 后腿(远) -->
+<g class="crank"><line x1="320" y1="290" x2="320" y2="320" stroke="#444" stroke-width="5"/><rect x="308" y="316" width="24" height="7" fill="#222"/></g>
+<!-- 鹈鹕身体 -->
+<ellipse cx="285" cy="160" rx="42" ry="34" fill="#fff" stroke="#ddd" stroke-width="2"/>
+<path d="M245 150 Q215 140 205 170 Q225 165 248 175Z" fill="#f2f2f2"/>
+<path d="M300 150 Q335 165 365 195" stroke="#f0f0f0" stroke-width="16" fill="none" stroke-linecap="round"/>
+<ellipse cx="300" cy="158" rx="22" ry="14" fill="#e9eef2" transform="rotate(25 300 158)"/>
+<!-- 脖子头 -->
+<path d="M310 135 Q335 110 335 85" stroke="#fff" stroke-width="20" fill="none" stroke-linecap="round"/>
+<circle cx="340" cy="75" r="20" fill="#fff" stroke="#ddd" stroke-width="2"/>
+<circle cx="347" cy="70" r="4" fill="#222"/><circle cx="348" cy="69" r="1.3" fill="#fff"/>
+<!-- 围巾 -->
+<path d="M322 98 Q335 108 350 98" stroke="#e8453c" stroke-width="8" fill="none"/>
+<g class="scarf"><path d="M322 100 L290 108 L292 120 L324 112Z" fill="#e8453c"/></g>
+<!-- 嘴 -->
+<path d="M355 70 L425 76 L355 84Z" fill="#f6a623"/>
+<g class="pouch"><path d="M355 82 Q395 120 425 78Z" fill="#ffcf5c" stroke="#e08e0b" stroke-width="2"/></g>
+<path d="M425 76 q6 2 0 5" stroke="#d17a00" stroke-width="3" fill="none"/>
+<!-- 头盔 -->
+<path d="M320 68 Q340 40 362 62 L360 68Z" fill="#3b82f6"/>
+<!-- 前腿 -->
+<g class="crank"><line x1="320" y1="290" x2="320" y2="260" stroke="#f6a623" stroke-width="6"/></g>
+<path d="M300 185 L312 235" stroke="#f6a623" stroke-width="7" stroke-linecap="round"/>
+<path d="M312 235 L320 288" stroke="#f6a623" stroke-width="7" stroke-linecap="round"/>
+<ellipse cx="327" cy="292" rx="14" ry="5" fill="#f6a623"/>
+<circle cx="320" cy="290" r="9" fill="#999" stroke="#333" stroke-width="3"/>
+</g>
+
+<!-- 轮子 -->
+<g><g class="wheel" id="w1"><circle cx="220" cy="290" r="48" fill="none" stroke="#222" stroke-width="7"/><circle cx="220" cy="290" r="4" fill="#222"/>
+<g stroke="#888" stroke-width="2"><line x1="172" y1="290" x2="268" y2="290"/><line x1="220" y1="242" x2="220" y2="338"/><line x1="186" y1="256" x2="254" y2="324"/><line x1="254" y1="256" x2="186" y2="324"/></g></g>
+<g class="wheel"><circle cx="400" cy="290" r="48" fill="none" stroke="#222" stroke-width="7"/><circle cx="400" cy="290" r="4" fill="#222"/>
+<g stroke="#888" stroke-width="2"><line x1="352" y1="290" x2="448" y2="290"/><line x1="400" y1="242" x2="400" y2="338"/><line x1="366" y1="256" x2="434" y2="324"/><line x1="434" y1="256" x2="366" y2="324"/></g></g></g>
+</svg></div><script data-tabbit-widget-diagnostics="true">
+(function(){
+  if (window.__tabbitWidgetDiagnosticsInstalled) return;
+  window.__tabbitWidgetDiagnosticsInstalled = true;
+  window.__TABBIT_WIDGET_ERRORS__ = window.__TABBIT_WIDGET_ERRORS__ || [];
+  function emit(level, args) {
+    var payload = {
+      type: "tabbit_widget_diagnostics",
+      level: level,
+      message: Array.prototype.slice.call(args || []).map(function(item) {
+        if (item && item.stack) return item.stack;
+        if (typeof item === "string") return item;
+        try { return JSON.stringify(item); } catch (_) { return String(item); }
+      }).join(" "),
+      timestamp: Date.now()
+    };
+    window.__TABBIT_WIDGET_ERRORS__.push(payload);
+    try { window.parent && window.parent.postMessage(payload, "*"); } catch (_) {}
+  }
+  var originalError = console.error;
+  console.error = function() {
+    emit("error", arguments);
+    return originalError && originalError.apply(console, arguments);
+  };
+  window.addEventListener("error", function(event) {
+    emit("error", [event.message || "Script error", event.filename || "", event.lineno || ""]);
+  });
+  window.addEventListener("unhandledrejection", function(event) {
+    emit("unhandledrejection", [event.reason || "Unhandled promise rejection"]);
+  });
+})();
+</script>
+</body>
+</html>

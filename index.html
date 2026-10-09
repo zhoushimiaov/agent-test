@@ -4,101 +4,101 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Agent Test · 智能体能力测试</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500&family=Noto+Sans+SC:wght@200;300;400;500&display=swap" rel="stylesheet">
 <style>
   :root{
-    --ink:#171717; --body:#4d4d4d; --mute:#888888;
-    --hairline:#ebebeb; --hairline-strong:#a1a1a1;
-    --canvas:#ffffff; --canvas-soft:#fafafa; --canvas-soft-2:#f5f5f5;
-    --link:#0070f3;
-    --g-dev-a:#007cf0; --g-dev-b:#00dfd8;
-    --g-prev-a:#7928ca; --g-prev-b:#ff0080;
-    --g-ship-a:#ff4d4d; --g-ship-b:#f9cb28;
-    --font:'Geist',Inter,system-ui,-apple-system,'PingFang SC','Microsoft YaHei',sans-serif;
-    --mono:'Geist Mono',ui-monospace,SFMono-Regular,Menlo,Monaco,monospace;
+    --ink:#171717; --body:#4d4d4d; --mute:#8a8a8a; --faint:#b3b3b3;
+    --hairline:#ececec; --hairline-2:#dcdcdc;
+    --canvas:#ffffff; --soft:#fafafa; --soft2:#f6f6f6;
+    --accent:#0070f3;
+    --font:'Inter','Noto Sans SC',system-ui,-apple-system,sans-serif;
   }
   *{box-sizing:border-box;margin:0;padding:0}
   html{-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
-  body{font-family:var(--font);background:var(--canvas);color:var(--ink);line-height:1.5}
-  ::selection{background:var(--ink);color:#f2f2f2}
+  body{font-family:var(--font);font-weight:300;background:var(--canvas);color:var(--ink);line-height:1.6;letter-spacing:.01em}
+  ::selection{background:var(--ink);color:#fff}
   a{color:inherit;text-decoration:none}
 
   .nav{height:64px;display:flex;align-items:center;justify-content:space-between;
-       padding:12px 24px;border-bottom:1px solid var(--hairline);position:sticky;top:0;background:rgba(255,255,255,.8);backdrop-filter:saturate(180%) blur(10px);z-index:10}
-  .brand{display:flex;align-items:center;gap:10px;font-weight:600;font-size:15px;letter-spacing:-.28px}
-  .brand .mark{width:22px;height:22px;border-radius:6px;background:#171717;color:#fff;display:grid;place-items:center;font-size:13px}
-  .nav .repo{font-family:var(--mono);font-size:12px;color:var(--body);border:1px solid var(--hairline);
-             border-radius:6px;padding:6px 12px;transition:border-color .15s,color .15s}
-  .nav .repo:hover{border-color:var(--hairline-strong);color:var(--ink)}
+       padding:0 32px;border-bottom:1px solid var(--hairline);position:sticky;top:0;
+       background:rgba(255,255,255,.72);backdrop-filter:saturate(180%) blur(12px);z-index:10}
+  .brand{display:flex;align-items:center;gap:10px;font-weight:400;font-size:15px;letter-spacing:.02em}
+  .brand .mark{width:24px;height:24px;border-radius:7px;background:var(--ink);color:#fff;display:grid;place-items:center;font-size:13px;font-weight:400}
+  .nav .repo{font-size:13px;font-weight:300;color:var(--mute);transition:color .18s}
+  .nav .repo:hover{color:var(--ink)}
 
-  .wrap{max-width:1200px;margin:0 auto;padding:0 24px}
+  .wrap{max-width:1120px;margin:0 auto;padding:0 32px}
 
-  .hero{padding:96px 24px 64px;max-width:1200px;margin:0 auto;position:relative}
-  .eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:.04em;color:var(--mute);text-transform:uppercase;margin-bottom:20px}
-  h1{font-size:clamp(40px,7vw,72px);line-height:1.02;letter-spacing:-2.4px;font-weight:600;max-width:16ch}
-  h1 .mesh{background:linear-gradient(90deg,var(--g-dev-a),var(--g-dev-b) 32%,var(--g-prev-a) 60%,var(--g-prev-b) 82%,var(--g-ship-b));
-           -webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
-  .lede{margin-top:24px;font-size:18px;line-height:28px;color:var(--body);max-width:60ch}
+  .hero{max-width:1120px;margin:0 auto;padding:112px 32px 72px}
+  .eyebrow{font-size:12px;font-weight:400;letter-spacing:.34em;color:var(--faint);text-transform:uppercase;margin-bottom:28px}
+  h1{font-size:clamp(38px,6vw,66px);font-weight:200;line-height:1.14;letter-spacing:-.01em;color:var(--ink);max-width:17ch}
+  h1 em{font-style:normal;font-weight:300;background:linear-gradient(100deg,#007cf0,#7928ca 55%,#ff0080);
+        -webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+  .lede{margin-top:28px;font-size:18px;font-weight:300;line-height:1.75;color:var(--body);max-width:52ch}
 
-  .section-label{font-family:var(--mono);font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:var(--mute);
-                 padding:0 24px;max-width:1200px;margin:40px auto 20px;display:flex;align-items:center;gap:12px}
-  .section-label::after{content:"";flex:1;height:1px;background:var(--hairline)}
+  .label{max-width:1120px;margin:36px auto 22px;padding:0 32px;display:flex;align-items:center;gap:16px}
+  .label span{font-size:12px;font-weight:400;letter-spacing:.26em;text-transform:uppercase;color:var(--faint)}
+  .label::after{content:"";flex:1;height:1px;background:var(--hairline)}
 
-  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:16px;padding:0 24px 96px;max-width:1200px;margin:0 auto}
-  .card{display:flex;flex-direction:column;background:var(--canvas);border:1px solid var(--hairline);
-        border-radius:12px;padding:24px;transition:border-color .18s,box-shadow .18s,transform .18s;min-height:200px}
-  .card:hover{border-color:var(--hairline-strong);box-shadow:0 10px 30px -16px rgba(0,0,0,.22);transform:translateY(-2px)}
-  .card.disabled{opacity:.6}
-  .card.disabled:hover{border-color:var(--hairline);box-shadow:none;transform:none;cursor:default}
-  .thumb{height:72px;border-radius:8px;margin-bottom:20px;position:relative;overflow:hidden;background:var(--canvas-soft-2)}
-  .thumb.g1{background:linear-gradient(120deg,var(--g-dev-a),var(--g-dev-b))}
-  .thumb.g2{background:linear-gradient(120deg,var(--canvas-soft-2),var(--canvas-soft))}
-  .thumb .emoji{position:absolute;inset:0;display:grid;place-items:center;font-size:34px}
-  .card h3{font-size:20px;letter-spacing:-.6px;font-weight:600;margin-bottom:8px}
-  .card p{font-size:14px;line-height:20px;color:var(--body);flex:1}
-  .foot{margin-top:20px;display:flex;align-items:center;justify-content:space-between}
-  .count{font-family:var(--mono);font-size:12px;color:var(--mute);background:var(--canvas-soft);border:1px solid var(--hairline);
-         border-radius:100px;padding:4px 10px}
-  .go{font-size:14px;font-weight:500;color:var(--ink);display:inline-flex;align-items:center;gap:6px}
-  .card:hover .go .arrow{transform:translateX(3px)}
-  .arrow{transition:transform .18s}
+  .grid{max-width:1120px;margin:0 auto;padding:0 32px 112px;display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:24px}
+  .cat{display:flex;flex-direction:column;border:1px solid var(--hairline);border-radius:14px;overflow:hidden;
+       background:var(--canvas);transition:border-color .22s,box-shadow .22s,transform .22s}
+  .cat:hover{border-color:var(--hairline-2);box-shadow:0 18px 48px -28px rgba(0,0,0,.3);transform:translateY(-3px)}
+  .cat .cover{aspect-ratio:16/9;overflow:hidden;background:var(--soft2);border-bottom:1px solid var(--hairline)}
+  .cat .cover img{width:100%;height:100%;object-fit:cover;object-position:center;display:block;transition:transform .5s ease}
+  .cat:hover .cover img{transform:scale(1.03)}
+  .cat .pad{padding:24px 26px 26px}
+  .cat h3{font-size:21px;font-weight:400;letter-spacing:-.01em;margin-bottom:9px}
+  .cat p{font-size:14.5px;font-weight:300;line-height:1.65;color:var(--body)}
+  .cat .foot{margin-top:20px;display:flex;align-items:center;justify-content:space-between}
+  .count{font-size:13px;font-weight:300;color:var(--mute)}
+  .go{font-size:14px;font-weight:400;color:var(--ink);display:inline-flex;gap:7px;align-items:center}
+  .go .arr{transition:transform .22s}
+  .cat:hover .go .arr{transform:translateX(4px)}
 
-  footer{border-top:1px solid var(--hairline);padding:40px 24px;color:var(--body);font-size:14px}
-  footer .wrap{display:flex;flex-wrap:wrap;gap:12px;justify-content:space-between;align-items:center}
-  footer a{color:var(--link)}
-  footer .mono{font-family:var(--mono);font-size:12px;color:var(--mute)}
+  .cat.soon{opacity:.72}
+  .cat.soon:hover{border-color:var(--hairline);box-shadow:none;transform:none;cursor:default}
+  .cat.soon .cover{display:grid;place-items:center;background:
+      linear-gradient(135deg,var(--soft),var(--soft2));color:var(--faint);font-weight:200;font-size:34px}
+
+  footer{border-top:1px solid var(--hairline);padding:44px 32px}
+  footer .wrap{display:flex;flex-wrap:wrap;gap:12px;justify-content:space-between;align-items:center;padding:0}
+  footer span{font-size:13px;font-weight:300;color:var(--mute)}
+  footer a{color:var(--accent)}
 </style>
 </head>
 <body>
   <nav class="nav">
     <div class="brand"><span class="mark">A</span>Agent Test</div>
-    <a class="repo" href="https://github.com/zhoushimiaov/agent-test" target="_blank" rel="noopener">github.com/zhoushimiaov/agent-test ↗</a>
+    <a class="repo" href="https://github.com/zhoushimiaov/agent-test" target="_blank" rel="noopener">GitHub ↗</a>
   </nav>
 
   <section class="hero">
-    <div class="eyebrow">Model &amp; Agent Benchmarks</div>
-    <h1>看不同模型<br><span class="mesh">同题同框</span>的真实表现</h1>
-    <p class="lede">用一组经典、直观的任务,横向对比不同大模型 / Agent 的实际输出。每个大类下按模型版本归档,点进去即可查看在线效果。</p>
+    <div class="eyebrow">Agent Test</div>
+    <h1>同一道题,<br>看不同模型的<em>真实手艺</em></h1>
+    <p class="lede">用一组经典、直观的任务,横向对比不同大模型与 Agent 的实际输出。每个大类下按模型版本归档,点进去即是可交互的在线效果。</p>
   </section>
 
-  <div class="section-label">栏目 · Categories</div>
+  <div class="label"><span>栏目 Categories</span></div>
 
   <div class="grid">
-    <a class="card" href="pelican-bicycle/">
-      <div class="thumb g1"><div class="emoji">🦩🚲</div></div>
-      <h3>鹈鹕骑车</h3>
-      <p>经典 LLM 创意基准:让模型实现「一只骑自行车的鹈鹕」,考验空间想象与前端实现。</p>
-      <div class="foot">
-        <span class="count">2 个版本</span>
-        <span class="go">查看栏目 <span class="arrow">→</span></span>
+    <a class="cat" href="pelican-bicycle/">
+      <div class="cover"><img src="pelican-bicycle/thumbs/gemini-3.8-flash.png" alt="鹈鹕骑车预览" loading="lazy"></div>
+      <div class="pad">
+        <h3>鹈鹕骑车</h3>
+        <p>经典的大模型创意基准 —— 让模型实现「一只骑自行车的鹈鹕」,考验空间想象与前端功力。</p>
+        <div class="foot"><span class="count">16 个版本</span><span class="go">进入栏目 <span class="arr">→</span></span></div>
       </div>
     </a>
 
-    <div class="card disabled">
-      <div class="thumb g2"><div class="emoji">🧩</div></div>
-      <h3>更多大类</h3>
-      <p>后续陆续加入更多测试栏目,如代码重构、数据可视化、小游戏实现等。</p>
-      <div class="foot">
-        <span class="count">敬请期待</span>
+    <div class="cat soon">
+      <div class="cover">+</div>
+      <div class="pad">
+        <h3>更多大类</h3>
+        <p>后续陆续加入更多测试栏目,如代码重构、数据可视化、小游戏实现等。</p>
+        <div class="foot"><span class="count">敬请期待</span></div>
       </div>
     </div>
   </div>
@@ -106,7 +106,7 @@
   <footer>
     <div class="wrap">
       <span>Agent Test · 智能体能力测试合集</span>
-      <span class="mono">Hosted on GitHub Pages · agentest.shimiao.work</span>
+      <span>Hosted on GitHub Pages · agentest.shimiao.work</span>
     </div>
   </footer>
 </body>
