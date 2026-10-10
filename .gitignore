@@ -1,0 +1,12 @@
+# 密钥 / 本地环境变量 —— 永远不要提交
+.env
+.env.*
+!.env.example
+
+# 评分脚本的临时产物 / 截图草稿
+**/_*.png
+*.tmp
+
+# 系统杂物
+.DS_Store
+Thumbs.db
