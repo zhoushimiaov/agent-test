@@ -44,6 +44,8 @@ const pelicanVersions = [
   ["hy4", "HY4", "SVG 动画 · 伪 3D 视角"],
   ["gemma4", "Gemma 4", "SVG 动画"],
   ["gpt6-luna", "GPT-6", "Luna · SVG 动画"],
+  ["ling-3.1-flash", "Ling 3.1 Flash", "SVG 动画"],
+  ["sensenova-6.8-flash", "SenseNova 6.8 Flash", "商汤小浣熊 · SVG 动画"],
 ].map(([slug, name, sub]) => ({ slug, name, sub }));
 
 // Categories in hub order. `cover` = thumbnail (if versions exist); else emoji.
@@ -196,10 +198,13 @@ function verCard(v, i, score, dimLabels) {
     rank = `<span class="rk${rcls}">#${score.rank}</span>`;
     badge = `<span class="score${cls}"><b>${score.total}</b><span class="j">Jev</span></span>`;
     const order = ["pelican", "bicycle", "riding", "scene"];
+    const tier = (f) => (f >= 0.8 ? "hi" : f < 0.5 ? "lo" : "mid");
     dims = `\n      <div class="dims">${order
-      .map((k) => `<div class="d"><span>${dimLabels[k]}</span><div class="tr"><div class="fl" style="width:${Math.round(
-        score.dims[k].frac * 100
-      )}%"></div></div></div>`)
+      .map((k) => {
+        const v = Math.round(score.dims[k].frac * 100);
+        const t = tier(score.dims[k].frac);
+        return `<div class="d"><div class="dh"><span>${dimLabels[k]}</span><em class="${t}">${v}</em></div><div class="tr"><div class="fl ${t}" style="width:${v}%"></div></div></div>`;
+      })
       .join("")}</div>`;
   }
   const idx = score ? "" : `<div class="idx">${pad2(i + 1)}</div>`;
