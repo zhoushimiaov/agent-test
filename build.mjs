@@ -107,7 +107,11 @@ const categories = [
     emoji: "🦏",
     blurb: "犀牛沿轨道绕行地球,考的是轨道运动与天体尺度关系的表达。",
     exam: "环绕轨道的运动曲线、犀牛与地球的尺度关系,以及公转节奏的表达。",
-    versions: [],
+    lede: "一头犀牛沿轨道绕行地球,考的是轨道运动曲线、犀牛与地球的尺度关系,以及公转节奏的表达。下面按模型版本归档,缩略图为真实渲染效果,点击卡片查看可交互的在线页面。",
+    versions: [
+      ["glm-5.3", "GLM-5.3", "Three.js 3D"],
+      ["opus-4.8", "Claude Opus 4.8", "Three.js 3D"],
+    ].map(([slug, name, sub]) => ({ slug, name, sub })),
   },
   {
     slug: "lion-fire-hoop",
