@@ -46,6 +46,8 @@ const pelicanVersions = [
   ["gpt6-luna", "GPT-6", "Luna · SVG 动画"],
   ["ling-3.1-flash", "Ling 3.1 Flash", "SVG 动画"],
   ["sensenova-6.8-flash", "SenseNova 6.8 Flash", "商汤小浣熊 · SVG 动画"],
+  ["solar-mini-4", "Solar Mini 4", "SVG 动画"],
+  ["opus-4.8", "Claude Opus 4.8", "SVG + SMIL 动画"],
 ].map(([slug, name, sub]) => ({ slug, name, sub }));
 
 // Categories in hub order. `cover` = thumbnail (if versions exist); else emoji.
