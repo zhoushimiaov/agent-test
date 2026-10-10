@@ -1,0 +1,709 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Equilibrium · 象之平衡</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background-color: #0d1017;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+    #canvas-container {
+      width: 100%;
+      height: 100%;
+      position: absolute;
+      top: 0;
+      left: 0;
+    }
+    /* 电影画幅暗角与极简胶片质感遮罩 */
+    .cinematic-vignette {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      background: radial-gradient(circle at 50% 50%, transparent 55%, rgba(6, 8, 12, 0.65) 100%);
+      box-shadow: inset 0 0 80px rgba(0, 0, 0, 0.4);
+    }
+  </style>
+  <!-- 引入 Three.js -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+<body>
+  <div id="canvas-container"></div>
+  <div class="cinematic-vignette"></div>
+
+  <script>
+    /* ==========================================================================
+       1. 场景底座与渲染器设置
+       ========================================================================== */
+    const container = document.getElementById('canvas-container');
+    const scene = new THREE.Scene();
+    
+    // 沉静的高空暮色雾效：随距离渐隐至深邃的冷灰蓝暮色
+    const FOG_COLOR = 0x181c24;
+    scene.fog = new THREE.FogExp2(FOG_COLOR, 0.014);
+
+    const camera = new THREE.PerspectiveCamera(42, window.innerWidth / window.innerHeight, 0.1, 400);
+    camera.position.set(0, 7.5, 22);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.08;
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    container.appendChild(renderer.domElement);
+
+    /* ==========================================================================
+       2. 纯算法程序化贴图生成 (零外部资源依赖，防跨域)
+       ========================================================================== */
+    // 大象皮肤皱褶噪点贴图
+    function generateSkinTexture() {
+      const cvs = document.createElement('canvas');
+      cvs.width = cvs.height = 512;
+      const ctx = cvs.getContext('2d');
+      ctx.fillStyle = '#62666d';
+      ctx.fillRect(0, 0, 512, 512);
+
+      for (let i = 0; i < 4000; i++) {
+        const x = Math.random() * 512;
+        const y = Math.random() * 512;
+        const r = Math.random() * 3 + 1;
+        const shade = Math.floor(Math.random() * 40 - 20);
+        ctx.fillStyle = `rgb(${98 + shade}, ${102 + shade}, ${109 + shade})`;
+        ctx.beginPath();
+        ctx.arc(x, y, r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      // 细微的褶皱纹理线条
+      ctx.strokeStyle = 'rgba(45, 48, 54, 0.25)';
+      ctx.lineWidth = 1.2;
+      for (let i = 0; i < 180; i++) {
+        ctx.beginPath();
+        let px = Math.random() * 512;
+        let py = Math.random() * 512;
+        ctx.moveTo(px, py);
+        ctx.bezierCurveTo(px + 30, py + 10, px + 40, py + 40, px + 70, py + 30);
+        ctx.stroke();
+      }
+      return new THREE.CanvasTexture(cvs);
+    }
+
+    // 混凝土巨塔清水模纹理
+    function generateConcreteTexture() {
+      const cvs = document.createElement('canvas');
+      cvs.width = 512;
+      cvs.height = 1024;
+      const ctx = cvs.getContext('2d');
+      ctx.fillStyle = '#484c52';
+      ctx.fillRect(0, 0, 512, 1024);
+
+      // 分缝与对拉螺栓孔
+      for (let y = 0; y < 1024; y += 128) {
+        ctx.strokeStyle = '#2b2e33';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(512, y);
+        ctx.stroke();
+
+        ctx.fillStyle = '#22252a';
+        ctx.beginPath();
+        ctx.arc(64, y + 64, 4, 0, Math.PI * 2);
+        ctx.arc(448, y + 64, 4, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      // 斑驳质感
+      for (let i = 0; i < 2000; i++) {
+        ctx.fillStyle = Math.random() > 0.5 ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.04)';
+        ctx.fillRect(Math.random() * 512, Math.random() * 1024, Math.random() * 6, Math.random() * 6);
+      }
+      const tex = new THREE.CanvasTexture(cvs);
+      tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+      tex.repeat.set(1, 4);
+      return tex;
+    }
+
+    // 柔和云团粒子贴图
+    function generateCloudTexture() {
+      const cvs = document.createElement('canvas');
+      cvs.width = cvs.height = 128;
+      const ctx = cvs.getContext('2d');
+      const grad = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
+      grad.addColorStop(0, 'rgba(230, 235, 245, 0.85)');
+      grad.addColorStop(0.35, 'rgba(190, 200, 220, 0.4)');
+      grad.addColorStop(0.7, 'rgba(140, 150, 170, 0.1)');
+      grad.addColorStop(1, 'rgba(24, 28, 36, 0)');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, 128, 128);
+      return new THREE.CanvasTexture(cvs);
+    }
+
+    const skinTexture = generateSkinTexture();
+    const concreteTexture = generateConcreteTexture();
+    const cloudTexture = generateCloudTexture();
+
+    /* ==========================================================================
+       3. 材质定义 (PBR物理质感)
+       ========================================================================== */
+    const skinMaterial = new THREE.MeshStandardMaterial({
+      color: 0x585c64,
+      map: skinTexture,
+      roughness: 0.88,
+      metalness: 0.08,
+      bumpMap: skinTexture,
+      bumpScale: 0.04
+    });
+
+    const tuskMaterial = new THREE.MeshStandardMaterial({
+      color: 0xded7c4,
+      roughness: 0.35,
+      metalness: 0.12
+    });
+
+    const poleMaterial = new THREE.MeshStandardMaterial({
+      color: 0x1a1c20,
+      roughness: 0.3,
+      metalness: 0.85
+    });
+
+    const brassMaterial = new THREE.MeshStandardMaterial({
+      color: 0xd4a754,
+      roughness: 0.25,
+      metalness: 0.9
+    });
+
+    const steelWireMaterial = new THREE.MeshStandardMaterial({
+      color: 0x242830,
+      roughness: 0.35,
+      metalness: 0.95
+    });
+
+    const concreteMaterial = new THREE.MeshStandardMaterial({
+      color: 0x5a6068,
+      map: concreteTexture,
+      roughness: 0.92,
+      metalness: 0.05
+    });
+
+    /* ==========================================================================
+       4. 灯光系统 (电影级冷暖双色侧向光照)
+       ========================================================================== */
+    const ambientLight = new THREE.HemisphereLight(0x768ba6, 0x1f232c, 0.7);
+    scene.add(ambientLight);
+
+    // 破晓暖色主光：斜照大象，拉出修长雕塑光影
+    const sunLight = new THREE.DirectionalLight(0xffdfb8, 2.4);
+    sunLight.position.set(-24, 18, 15);
+    sunLight.castShadow = true;
+    sunLight.shadow.mapSize.width = 2048;
+    sunLight.shadow.mapSize.height = 2048;
+    sunLight.shadow.camera.near = 5;
+    sunLight.shadow.camera.far = 70;
+    sunLight.shadow.camera.left = -16;
+    sunLight.shadow.camera.right = 16;
+    sunLight.shadow.camera.top = 16;
+    sunLight.shadow.camera.bottom = -16;
+    sunLight.shadow.bias = -0.0008;
+    scene.add(sunLight);
+
+    // 幽冷逆向边缘轮廓光：勾勒象背、象牙与钢索反光
+    const rimLight = new THREE.DirectionalLight(0x6aa2d8, 1.6);
+    rimLight.position.set(20, -5, -20);
+    scene.add(rimLight);
+
+    /* ==========================================================================
+       5. 场景构造：两座高空巨塔与悬垂钢索
+       ========================================================================== */
+    const TOWER_SPAN = 38;  // 两塔间距 (X 轴)
+    const WIRE_Y_ANCHOR = 8.5; // 锚固高度
+    const WIRE_SAG = 2.4;    // 大象体重造成的中央垂荡量
+
+    // 锚固巨塔（极简野兽派混凝土巨柱）
+    function createPylon(xPos) {
+      const pylonGroup = new THREE.Group();
+      const towerGeo = new THREE.BoxGeometry(6, 90, 8);
+      const tower = new THREE.Mesh(towerGeo, concreteMaterial);
+      tower.position.set(0, -38, 0);
+      tower.castShadow = true;
+      tower.receiveShadow = true;
+      pylonGroup.add(tower);
+
+      // 塔顶钢索铰接基座
+      const mountGeo = new THREE.CylinderGeometry(0.5, 0.8, 1.8, 16);
+      const mount = new THREE.Mesh(mountGeo, steelWireMaterial);
+      mount.position.set(xPos > 0 ? -2.2 : 2.2, 7.8, 0);
+      mount.rotation.z = Math.PI / 2;
+      pylonGroup.add(mount);
+
+      pylonGroup.position.set(xPos, 0, 0);
+      scene.add(pylonGroup);
+    }
+    createPylon(-TOWER_SPAN);
+    createPylon(TOWER_SPAN);
+
+    // 钢索计算模型与动态网格
+    const WIRE_SEGMENTS = 120;
+    let wireCurve;
+    let wireMesh;
+
+    function getWirePoint(t, centerSagOffset = 0) {
+      // 真实悬链线近似抛物线，大象位于 t = 0.5 (x = 0)
+      const x = (t - 0.5) * (TOWER_SPAN * 2);
+      const normalizedX = x / TOWER_SPAN; // -1 to 1
+      const sag = (WIRE_SAG + centerSagOffset) * (1 - normalizedX * normalizedX);
+      const y = WIRE_Y_ANCHOR - sag;
+      return new THREE.Vector3(x, y, 0);
+    }
+
+    function createWireGeometry(sagOffset = 0) {
+      const points = [];
+      for (let i = 0; i <= WIRE_SEGMENTS; i++) {
+        points.push(getWirePoint(i / WIRE_SEGMENTS, sagOffset));
+      }
+      wireCurve = new THREE.CatmullRomCurve3(points);
+      return new THREE.TubeGeometry(wireCurve, 120, 0.045, 10, false);
+    }
+
+    wireMesh = new THREE.Mesh(createWireGeometry(0), steelWireMaterial);
+    wireMesh.castShadow = true;
+    wireMesh.receiveShadow = true;
+    scene.add(wireMesh);
+
+    /* ==========================================================================
+       6. 3D 大象模型装配 (解剖学特征、结构分层与骨骼链接)
+       ========================================================================== */
+    const elephantRoot = new THREE.Group();
+    scene.add(elephantRoot);
+
+    // 平衡晃动主轴节点 (以脚底接触钢索处为轴心倾摆)
+    const balancePivot = new THREE.Group();
+    elephantRoot.add(balancePivot);
+
+    // 6.1 象身躯干
+    const bodyGroup = new THREE.Group();
+    balancePivot.add(bodyGroup);
+
+    // 腹腔与胸腔 (主躯体)
+    const bellyGeo = new THREE.SphereGeometry(1.6, 24, 20);
+    const belly = new THREE.Mesh(bellyGeo, skinMaterial);
+    belly.scale.set(1.15, 1.35, 1.85);
+    belly.position.set(0, 3.4, 0);
+    belly.castShadow = true;
+    belly.receiveShadow = true;
+    bodyGroup.add(belly);
+
+    // 雄浑的前肩耸立骨骼
+    const shoulderGeo = new THREE.SphereGeometry(1.25, 20, 18);
+    const shoulder = new THREE.Mesh(shoulderGeo, skinMaterial);
+    shoulder.scale.set(1.18, 1.25, 1.15);
+    shoulder.position.set(0, 4.0, 0.85);
+    shoulder.castShadow = true;
+    bodyGroup.add(shoulder);
+
+    // 臀部骨盆弧度
+    const hipGeo = new THREE.SphereGeometry(1.18, 20, 18);
+    const hip = new THREE.Mesh(hipGeo, skinMaterial);
+    hip.scale.set(1.1, 1.2, 1.1);
+    hip.position.set(0, 3.8, -0.95);
+    hip.castShadow = true;
+    bodyGroup.add(hip);
+
+    // 6.2 象头与五官
+    const headGroup = new THREE.Group();
+    headGroup.position.set(0, 4.25, 1.8);
+    bodyGroup.add(headGroup);
+
+    // 头颅与额头双峰
+    const skullGeo = new THREE.SphereGeometry(1.05, 22, 20);
+    const skull = new THREE.Mesh(skullGeo, skinMaterial);
+    skull.scale.set(0.95, 1.15, 1.05);
+    skull.position.set(0, 0.2, 0.2);
+    skull.castShadow = true;
+    headGroup.add(skull);
+
+    // 象耳 (通过贝塞尔曲面拉伸形成真实叶片状耳廓)
+    function createEar(isLeft) {
+      const earGroup = new THREE.Group();
+      const earShape = new THREE.Shape();
+      earShape.moveTo(0, 0);
+      earShape.bezierCurveTo(-0.6, 0.8, -1.6, 0.9, -2.1, 0.3);
+      earShape.bezierCurveTo(-2.5, -0.5, -2.2, -1.6, -1.4, -2.1);
+      earShape.bezierCurveTo(-0.7, -2.4, -0.2, -1.5, 0, -0.7);
+
+      const extrudeSettings = { depth: 0.05, bevelEnabled: true, bevelSegments: 3, steps: 1, bevelSize: 0.04, bevelThickness: 0.03 };
+      const earGeo = new THREE.ExtrudeGeometry(earShape, extrudeSettings);
+      earGeo.center();
+      const earMesh = new THREE.Mesh(earGeo, skinMaterial);
+      earMesh.castShadow = true;
+      earGroup.add(earMesh);
+
+      const sign = isLeft ? 1 : -1;
+      earGroup.position.set(sign * 0.9, 0.15, -0.15);
+      earGroup.rotation.set(-0.1, sign * -0.45, sign * 0.15);
+      return { group: earGroup, mesh: earMesh, sign: sign };
+    }
+    const leftEar = createEar(true);
+    const rightEar = createEar(false);
+    headGroup.add(leftEar.group);
+    headGroup.add(rightEar.group);
+
+    // 象牙 (优美向前上方挑出的锥体)
+    function createTusk(isLeft) {
+      const sign = isLeft ? 1 : -1;
+      const tuskCurve = new THREE.QuadraticBezierCurve3(
+        new THREE.Vector3(0, 0, 0),
+        new THREE.Vector3(sign * 0.15, -0.5, 0.9),
+        new THREE.Vector3(sign * 0.28, 0.35, 1.6)
+      );
+      const tuskGeo = new THREE.TubeGeometry(tuskCurve, 24, 0.11, 10, false);
+      const tuskMesh = new THREE.Mesh(tuskGeo, tuskMaterial);
+      tuskMesh.position.set(sign * 0.42, -0.5, 0.55);
+      tuskMesh.castShadow = true;
+      return tuskMesh;
+    }
+    headGroup.add(createTusk(true));
+    headGroup.add(createTusk(false));
+
+    // 象鼻 (由 9 节环环相扣的关节链构成，能动态卷曲与呼吸)
+    const trunkSegments = [];
+    let parentJoint = headGroup;
+    const TRUNK_PIECES = 9;
+    for (let i = 0; i < TRUNK_PIECES; i++) {
+      const tProgress = i / (TRUNK_PIECES - 1);
+      const radiusTop = 0.38 * (1 - tProgress * 0.65);
+      const radiusBottom = 0.38 * (1 - (i + 1) / TRUNK_PIECES * 0.65);
+      const segLength = 0.36;
+
+      const segGeo = new THREE.CylinderGeometry(radiusTop, radiusBottom, segLength, 14);
+      segGeo.translate(0, -segLength / 2, 0);
+      const segMesh = new THREE.Mesh(segGeo, skinMaterial);
+      segMesh.castShadow = true;
+
+      const joint = new THREE.Group();
+      if (i === 0) {
+        joint.position.set(0, -0.45, 0.85);
+        joint.rotation.x = 0.45;
+      } else {
+        joint.position.set(0, -segLength, 0);
+      }
+      joint.add(segMesh);
+      parentJoint.add(joint);
+      trunkSegments.push(joint);
+      parentJoint = joint;
+    }
+
+    // 尾巴 (细长下垂，微风中轻拂)
+    const tailGroup = new THREE.Group();
+    tailGroup.position.set(0, 3.4, -1.85);
+    tailGroup.rotation.x = -0.3;
+    const tailBoneGeo = new THREE.CylinderGeometry(0.06, 0.03, 1.6, 8);
+    tailBoneGeo.translate(0, -0.8, 0);
+    const tailBone = new THREE.Mesh(tailBoneGeo, skinMaterial);
+    tailGroup.add(tailBone);
+    // 尾梢毛发
+    const tailTuftGeo = new THREE.ConeGeometry(0.1, 0.4, 8);
+    tailTuftGeo.translate(0, -1.7, 0);
+    const tailTuft = new THREE.Mesh(tailTuftGeo, poleMaterial);
+    tailGroup.add(tailTuft);
+    bodyGroup.add(tailGroup);
+
+    // 6.3 四柱之腿与精准踩线之蹄
+    // 关键细节：走钢丝时四蹄呈一字排开，前后对准钢索中心轴 (X = 0)
+    function createElephantLeg(zAnchor, isFront, isLeftLeg) {
+      const legRoot = new THREE.Group();
+      legRoot.position.set(0, 3.2, zAnchor);
+
+      // 上腿 (柱形大腿肌腱)
+      const upperGeo = new THREE.CylinderGeometry(0.48, 0.42, 1.7, 16);
+      upperGeo.translate(0, -0.85, 0);
+      const upperMesh = new THREE.Mesh(upperGeo, skinMaterial);
+      upperMesh.castShadow = true;
+      legRoot.add(upperMesh);
+
+      // 膝关节及下腿
+      const lowerLeg = new THREE.Group();
+      lowerLeg.position.set(0, -1.6, 0);
+      const lowerGeo = new THREE.CylinderGeometry(0.42, 0.44, 1.4, 16);
+      lowerGeo.translate(0, -0.7, 0);
+      const lowerMesh = new THREE.Mesh(lowerGeo, skinMaterial);
+      lowerMesh.castShadow = true;
+      lowerLeg.add(lowerMesh);
+      legRoot.add(lowerLeg);
+
+      // 蹄脚 (肉垫圆台，稳稳踏于钢索正上方)
+      const footGeo = new THREE.CylinderGeometry(0.42, 0.46, 0.35, 18);
+      const footMesh = new THREE.Mesh(footGeo, skinMaterial);
+      footMesh.position.set(0, -1.45, 0);
+      footMesh.castShadow = true;
+      lowerLeg.add(footMesh);
+
+      bodyGroup.add(legRoot);
+      return { root: legRoot, lower: lowerLeg };
+    }
+
+    // 四足严格落于 X=0 的钢索上，前后交错保持抓线姿态
+    const legFL = createElephantLeg( 0.95, true,  true);  // 右前足靠前
+    const legFR = createElephantLeg( 0.30, true,  false); // 左前足紧随其后
+    const legRL = createElephantLeg(-0.40, false, true);  // 右后足中段
+    const legRR = createElephantLeg(-1.15, false, false); // 左后足压阵
+
+    /* ==========================================================================
+       7. 传奇平衡杆 (长达22米的柔性重力稳定翼与悬垂摆锤)
+       ========================================================================== */
+    const poleGroup = new THREE.Group();
+    // 位于象鼻环抱托举的高度
+    poleGroup.position.set(0, 3.1, 1.45);
+    balancePivot.add(poleGroup);
+
+    // 平衡杆物理外形：呈优美的向下弧形弯曲 (降低系统质心)
+    const POLE_SPAN = 22; // 22米长翼展
+    const polePoints = [];
+    for (let i = 0; i <= 60; i++) {
+      const px = (i / 60 - 0.5) * POLE_SPAN;
+      // 抛物线下弯
+      const py = -0.009 * (px * px);
+      polePoints.push(new THREE.Vector3(px, py, 0));
+    }
+    const poleCurve = new THREE.CatmullRomCurve3(polePoints);
+    const poleGeo = new THREE.TubeGeometry(poleCurve, 64, 0.075, 12, false);
+    const poleMesh = new THREE.Mesh(poleGeo, poleMaterial);
+    poleMesh.castShadow = true;
+    poleGroup.add(poleMesh);
+
+    // 平衡杆两端悬挂的黄铜配重水滴铅锤 (增强视觉稳定感)
+    function createBob(xPos) {
+      const bobGroup = new THREE.Group();
+      const endY = -0.009 * (xPos * xPos);
+      bobGroup.position.set(xPos, endY, 0);
+
+      // 吊线
+      const stringGeo = new THREE.CylinderGeometry(0.015, 0.015, 2.2, 6);
+      stringGeo.translate(0, -1.1, 0);
+      const stringMesh = new THREE.Mesh(stringGeo, steelWireMaterial);
+      bobGroup.add(stringMesh);
+
+      // 纯铜水滴坠饰
+      const weightGeo = new THREE.ConeGeometry(0.32, 0.85, 16);
+      weightGeo.translate(0, -2.4, 0);
+      weightGeo.rotateX(Math.PI);
+      const weightMesh = new THREE.Mesh(weightGeo, brassMaterial);
+      weightMesh.castShadow = true;
+      bobGroup.add(weightMesh);
+
+      poleGroup.add(bobGroup);
+      return bobGroup;
+    }
+    const leftBob = createBob(-POLE_SPAN / 2);
+    const rightBob = createBob(POLE_SPAN / 2);
+
+    /* ==========================================================================
+       8. 崇高感环境造景：脚下万丈云海、远古山脊与流动微尘
+       ========================================================================== */
+    // 8.1 深渊低空起伏流动的巨幅云海
+    const cloudParticles = [];
+    const cloudGroup = new THREE.Group();
+    scene.add(cloudGroup);
+    const cloudMat = new THREE.SpriteMaterial({
+      map: cloudTexture,
+      transparent: true,
+      opacity: 0.28,
+      depthWrite: false
+    });
+
+    for (let i = 0; i < 90; i++) {
+      const sprite = new THREE.Sprite(cloudMat);
+      const scale = Math.random() * 22 + 18;
+      sprite.scale.set(scale, scale * 0.6, 1);
+      sprite.position.set(
+        (Math.random() - 0.5) * 120,
+        -10 - Math.random() * 8, // 位于钢索下方10-18米的深渊处
+        (Math.random() - 0.5) * 80
+      );
+      sprite.userData = {
+        speed: Math.random() * 0.015 + 0.008,
+        baseX: sprite.position.x
+      };
+      cloudGroup.add(sprite);
+      cloudParticles.push(sprite);
+    }
+
+    // 8.2 远方隐于烟霭中的极简山脉剪影
+    for (let i = 0; i < 6; i++) {
+      const peakGeo = new THREE.ConeGeometry(Math.random() * 20 + 25, Math.random() * 30 + 35, 4);
+      const peakMat = new THREE.MeshBasicMaterial({
+        color: 0x12151c,
+        wireframe: false
+      });
+      const peak = new THREE.Mesh(peakGeo, peakMat);
+      peak.position.set(
+        (i - 2.5) * 35 + (Math.random() * 10 - 5),
+        -15,
+        -55 - Math.random() * 25
+      );
+      peak.rotation.y = Math.random() * Math.PI;
+      scene.add(peak);
+    }
+
+    // 8.3 空中漂浮的微风光斑粒子
+    const DUST_COUNT = 240;
+    const dustGeo = new THREE.BufferGeometry();
+    const dustPositions = new Float32Array(DUST_COUNT * 3);
+    for (let i = 0; i < DUST_COUNT * 3; i += 3) {
+      dustPositions[i] = (Math.random() - 0.5) * 50;
+      dustPositions[i + 1] = Math.random() * 20 - 2;
+      dustPositions[i + 2] = (Math.random() - 0.5) * 35;
+    }
+    dustGeo.setAttribute('position', new THREE.BufferAttribute(dustPositions, 3));
+    const dustMat = new THREE.PointsMaterial({
+      color: 0xd8e4f5,
+      size: 0.12,
+      transparent: true,
+      opacity: 0.65,
+      blending: THREE.AdditiveBlending
+    });
+    const dustPoints = new THREE.Points(dustGeo, dustMat);
+    scene.add(dustPoints);
+
+    /* ==========================================================================
+       9. 动力学模拟引擎：重心控制、微震颤与电影运镜
+       ========================================================================== */
+    const clock = new THREE.Clock();
+
+    // 状态量 (阻尼与惯性)
+    let elephantRoll = 0;       // 左右倾斜角 (Roll)
+    let elephantPitch = 0;      // 前后微倾角 (Pitch)
+    let bobSwayAngle = 0;       // 铅锤物理迟滞摆动
+
+    function animate() {
+      requestAnimationFrame(animate);
+
+      const time = clock.getElapsedTime();
+
+      /* ------------------------------------------------------------------------
+         9.1 重心动力学：低频复合微扰与平衡杆代偿
+         ------------------------------------------------------------------------ */
+      // 模拟高空气流带来的随机扰动与大象慢速神经调节 (多组非对称正弦叠加)
+      const targetRoll = 
+        Math.sin(time * 0.42) * 0.038 + 
+        Math.sin(time * 0.88 + 1.3) * 0.022 + 
+        Math.cos(time * 0.18) * 0.028;
+
+      const targetPitch = 
+        Math.sin(time * 0.31 + 0.8) * 0.012 + 
+        Math.cos(time * 0.65) * 0.008;
+
+      // 沉重身躯的平滑惯性趋近
+      elephantRoll += (targetRoll - elephantRoll) * 0.035;
+      elephantPitch += (targetPitch - elephantPitch) * 0.04;
+
+      // 主倾斜应用 (以足底为轴心左右晃动)
+      balancePivot.rotation.z = elephantRoll;
+      balancePivot.rotation.x = elephantPitch;
+
+      // 平衡杆反向调平衡法则：
+      // 当象体向左倾 (+Roll)，平衡杆主动向右反扣调整重心 (-Roll * 1.7)
+      poleGroup.rotation.z = -elephantRoll * 1.75 + Math.sin(time * 1.1) * 0.01;
+      poleGroup.position.x = -elephantRoll * 0.8; // 微小横向质心推移
+
+      // 平衡杆两端重锤根据惯性滞后摆动 (模拟弹簧阻尼摆动)
+      bobSwayAngle = Math.sin(time * 1.25) * 0.08 + (-elephantRoll * 2.2);
+      leftBob.rotation.z = bobSwayAngle;
+      rightBob.rotation.z = bobSwayAngle * 0.95;
+
+      /* ------------------------------------------------------------------------
+         9.2 象体各部位的生命机能与风动反馈
+         ------------------------------------------------------------------------ */
+      // 呼吸起伏：胸腔与腹部规律微缩
+      const breath = Math.sin(time * 1.15) * 0.018;
+      belly.scale.set(1.15 * (1 + breath), 1.35 * (1 + breath * 1.2), 1.85);
+
+      // 耳廓迎风扇动与姿态滞后响应
+      const earWind = Math.sin(time * 2.1) * 0.05 + 0.05;
+      leftEar.group.rotation.y = -0.45 + earWind - elephantRoll * 0.6;
+      rightEar.group.rotation.y = 0.45 - earWind - elephantRoll * 0.6;
+
+      // 象鼻逐级正弦波微卷动 (稳健抓握平衡杆的微调肌肉感)
+      for (let i = 0; i < trunkSegments.length; i++) {
+        const seg = trunkSegments[i];
+        const phase = i * 0.35;
+        seg.rotation.x = 0.12 + Math.sin(time * 1.4 + phase) * 0.035;
+        seg.rotation.z = -elephantRoll * 0.25 + Math.sin(time * 0.8 + phase) * 0.02;
+      }
+
+      // 尾巴随风飘逸
+      tailGroup.rotation.z = Math.sin(time * 1.8) * 0.12 - elephantRoll * 0.4;
+      tailGroup.rotation.x = -0.3 + Math.sin(time * 2.4) * 0.08;
+
+      /* ------------------------------------------------------------------------
+         9.3 悬索微震颤与接触面定位
+         ------------------------------------------------------------------------ */
+      // 大象足底始终与钢索在 X=0 处的最低点严格咬合
+      const cableCenterY = WIRE_Y_ANCHOR - WIRE_SAG;
+      // 微小体重沉浮与平衡调整带来的纵向压感
+      const verticalDip = Math.sin(time * 1.15) * 0.025 + Math.abs(elephantRoll) * 0.1;
+      elephantRoot.position.set(0, cableCenterY - 0.02 - verticalDip, 0);
+
+      // 云海缓慢平移流动
+      for (let i = 0; i < cloudParticles.length; i++) {
+        const cloud = cloudParticles[i];
+        cloud.position.x += cloud.userData.speed;
+        if (cloud.position.x > 60) {
+          cloud.position.x = -60;
+        }
+      }
+
+      // 微尘悬浮流窜
+      const posArr = dustGeo.attributes.position.array;
+      for (let i = 1; i < DUST_COUNT * 3; i += 3) {
+        posArr[i] -= 0.012; // 缓落
+        if (posArr[i] < -4) posArr[i] = 18;
+      }
+      dustGeo.attributes.position.needsUpdate = true;
+
+      /* ------------------------------------------------------------------------
+         9.4 电影级镜头运镜轨迹 (环绕、俯仰与万丈深渊的透视张力)
+         ------------------------------------------------------------------------ */
+      // 极慢速宏大运镜周期 (110秒环绕大回廊)
+      const camAngle = time * 0.055;
+      const camRadius = 23 + Math.sin(time * 0.08) * 5; // 18m 到 28m 景深推进
+      
+      // 摄影机高度在低仰视 (强调大象与钢丝的崇高) 与中高俯视 (展现云海深渊) 之间从容切换
+      const camHeight = 7.8 + Math.sin(time * 0.045) * 3.8;
+
+      camera.position.x = Math.sin(camAngle) * camRadius;
+      camera.position.z = Math.cos(camAngle) * camRadius;
+      camera.position.y = camHeight;
+
+      // 焦点始终定于大象躯体核心，辅以微弱手持呼吸晃动
+      const lookTarget = new THREE.Vector3(
+        Math.sin(time * 0.4) * 0.15,
+        cableCenterY + 3.4,
+        0
+      );
+      camera.lookAt(lookTarget);
+
+      renderer.render(scene, camera);
+    }
+
+    // 自适应窗口缩放
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    // 启动动画循环
+    animate();
+  </script>
+</body>
+</html>

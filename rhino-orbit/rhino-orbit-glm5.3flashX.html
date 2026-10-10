@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>Rhino Orbit · 犀牛绕地球公转</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root { --earth-size: min(380px, 56vmin); }
+
+  html, body {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: radial-gradient(ellipse at 50% 120%, #101033 0%, #06060f 55%, #020208 100%);
+  }
+
+  .scene {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  /* ---------- 星空 ---------- */
+  #stars { position: absolute; inset: 0; overflow: hidden; }
+  .star {
+    position: absolute;
+    border-radius: 50%;
+    background: #fff;
+    animation: twinkle var(--d, 3s) ease-in-out var(--delay, 0s) infinite;
+    opacity: .7;
+  }
+  @keyframes twinkle {
+    0%, 100% { opacity: .15; transform: scale(.7); }
+    50%      { opacity: .95; transform: scale(1.15); }
+  }
+  .nebula {
+    position: absolute;
+    border-radius: 50%;
+    filter: blur(90px);
+    opacity: .16;
+  }
+  .nebula.pink  { width: 46vmax; height: 30vmax; left: -8vmax; top: 4vmax;  background: #b23aa6; }
+  .nebula.teal  { width: 40vmax; height: 26vmax; right: -6vmax; bottom: -4vmax; background: #1c6fb8; }
+
+  .shooting {
+    position: absolute;
+    width: 130px; height: 2px;
+    background: linear-gradient(90deg, rgba(255,255,255,.9), transparent);
+    border-radius: 2px;
+    transform: rotate(-28deg);
+    animation: shoot 9s linear infinite;
+    animation-delay: 4s;
+    opacity: 0;
+  }
+  @keyframes shoot {
+    0%   { transform: translate(8vw, 6vh) rotate(-28deg); opacity: 0; }
+    2%   { opacity: 1; }
+    9%   { transform: translate(34vw, 22vh) rotate(-28deg); opacity: 0; }
+    100% { opacity: 0; }
+  }
+
+  /* ---------- 轨道 ---------- */
+  .stage { position: relative; width: 100%; height: 100%; }
+
+  .orbit {
+    position: absolute;
+    left: 50%; top: 50%;
+    width: 900px; height: 300px;
+    margin: -150px 0 0 -450px;
+    border: 2px dashed rgba(255, 255, 255, .14);
+    border-radius: 50%;
+  }
+
+  /* ---------- 地球 ---------- */
+  .earth-wrap {
+    position: absolute;
+    left: 50%; top: 50%;
+    width: var(--earth-size); height: var(--earth-size);
+    margin: calc(var(--earth-size) / -2) 0 0 calc(var(--earth-size) / -2);
+  }
+  .earth-glow {
+    position: absolute; inset: -46px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(80,160,255,.32) 0%, rgba(80,160,255,0) 68%);
+  }
+  .earth {
+    position: absolute; inset: 0;
+    border-radius: 50%;
+    overflow: hidden;
+    background: radial-gradient(circle at 34% 30%, #7fd8ff 0%, #2f8fe6 34%, #1359b8 62%, #0a2f74 88%, #071f52 100%);
+    box-shadow: 0 0 70px rgba(70, 150, 255, .5), inset -34px -30px 70px rgba(0, 8, 40, .75);
+  }
+  .continent {
+    position: absolute;
+    background: #3fbe6e;
+    border-radius: 46% 54% 58% 42% / 52% 44% 56% 48%;
+    opacity: .92;
+  }
+  .continent::after {
+    content: "";
+    position: absolute; inset: 0;
+    border-radius: inherit;
+    background: linear-gradient(120deg, rgba(255,255,255,.14), transparent 55%);
+  }
+  .c1 { width: 150px; height: 110px; left: 60px;  top: 70px;  animation: drift 60s linear -6s infinite; }
+  .c2 { width: 90px;  height: 70px;  left: 150px; top: 150px; border-radius: 60% 40% 45% 55% / 50% 60% 40% 50%; animation: drift 60s linear -18s infinite; }
+  .c3 { width: 130px; height: 80px;  left: 40px;  top: 260px; border-radius: 55% 45% 40% 60% / 45% 55% 60% 40%; animation: drift 60s linear -30s infinite; }
+  .c4 { width: 70px;  height: 55px;  left: 120px; top: 55px;  animation: drift 60s linear -42s infinite; }
+  .c5 { width: 60px;  height: 44px;  left: 90px;  top: 215px; animation: drift 60s linear -54s infinite; }
+  @keyframes drift {
+    /* 起止点均在圆盘之外，循环衔接无跳变 */
+    from { transform: translateX(-440px); }
+    to   { transform: translateX(440px); }
+  }
+
+  .clouds {
+    position: absolute; inset: -20%;
+    opacity: .5;
+    animation: cloudSpin 90s linear infinite;
+  }
+  .clouds i {
+    position: absolute;
+    background: rgba(255,255,255,.85);
+    border-radius: 50px;
+    filter: blur(3px);
+  }
+  @keyframes cloudSpin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+  .earth-shade {
+    position: absolute; inset: 0;
+    border-radius: 50%;
+    background: radial-gradient(circle at 33% 30%, transparent 40%, rgba(2, 8, 32, .55) 72%, rgba(1, 4, 22, .9) 100%);
+  }
+
+  /* ---------- 月球 ---------- */
+  .moon {
+    position: absolute;
+    left: 50%; top: 50%;
+    width: 56px; height: 56px;
+    margin: -28px 0 0 -28px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 36% 34%, #fffef2, #d8d4c4 55%, #a8a392 100%);
+    box-shadow: 0 0 22px rgba(255,255,240,.4);
+    animation: moonOrbit 26s linear infinite;
+  }
+  @keyframes moonOrbit {
+    from { transform: rotate(0deg)   translateX(300px) rotate(0deg); }
+    to   { transform: rotate(360deg) translateX(300px) rotate(-360deg); }
+  }
+
+  /* ---------- 犀牛 ---------- */
+  .rhino-layer { position: absolute; inset: 0; pointer-events: none; }
+  .rhino {
+    position: absolute;
+    width: 250px;
+    margin-left: -125px;
+    margin-top: -105px;
+    will-change: transform;
+    filter: drop-shadow(0 14px 16px rgba(0,0,0,.45));
+  }
+  .rhino .body-wobble { transform-origin: 50% 85%; animation: wobble 2.6s ease-in-out infinite; }
+  @keyframes wobble {
+    0%, 100% { transform: rotate(-2.2deg); }
+    50%      { transform: rotate(2.2deg); }
+  }
+</style>
+</head>
+<body>
+<div class="scene">
+  <div id="stars">
+    <div class="nebula pink"></div>
+    <div class="nebula teal"></div>
+    <div class="shooting"></div>
+  </div>
+
+  <div class="stage">
+    <div class="orbit" id="orbit"></div>
+    <div class="moon"></div>
+
+    <!-- 地球（犀牛在其前方时位于同层之下由 z-index 控制遮挡） -->
+    <div class="earth-wrap" id="earth">
+      <div class="earth-glow"></div>
+      <div class="earth">
+        <div class="continent c1"></div>
+        <div class="continent c2"></div>
+        <div class="continent c3"></div>
+        <div class="continent c4"></div>
+        <div class="continent c5"></div>
+        <div class="clouds">
+          <i style="width:110px;height:20px;left:12%;top:22%"></i>
+          <i style="width:80px;height:16px;left:52%;top:12%"></i>
+          <i style="width:130px;height:22px;left:34%;top:52%"></i>
+          <i style="width:70px;height:14px;left:70%;top:70%"></i>
+          <i style="width:95px;height:18px;left:8%;top:74%"></i>
+        </div>
+        <div class="earth-shade"></div>
+      </div>
+    </div>
+
+    <!-- 公转的犀牛 -->
+    <div class="rhino-layer">
+      <div class="rhino" id="rhino">
+        <div class="body-wobble">
+          <svg viewBox="0 0 260 220" xmlns="http://www.w3.org/2000/svg">
+            <!-- 后腿 -->
+            <ellipse cx="82" cy="186" rx="30" ry="26" fill="#7b5ea8"/>
+            <ellipse cx="88" cy="196" rx="22" ry="14" fill="#5e4488"/>
+            <!-- 尾巴 -->
+            <path d="M28 118 Q4 128 12 152" stroke="#6a4f96" stroke-width="9" fill="none" stroke-linecap="round"/>
+            <circle cx="12" cy="154" r="9" fill="#5e4488"/>
+            <!-- 前腿 -->
+            <ellipse cx="176" cy="190" rx="28" ry="24" fill="#8d6fbd"/>
+            <ellipse cx="182" cy="199" rx="20" ry="13" fill="#6a4f96"/>
+            <!-- 身体：圆滚滚的大块头 -->
+            <ellipse cx="118" cy="118" rx="96" ry="80" fill="#9a7bce"/>
+            <!-- 肚皮高光 -->
+            <ellipse cx="130" cy="140" rx="66" ry="44" fill="#c4aef0" opacity=".85"/>
+            <!-- 皮褶 -->
+            <path d="M52 92 Q66 102 54 118" stroke="#7a5cae" stroke-width="7" fill="none" stroke-linecap="round"/>
+            <path d="M92 60 Q104 74 92 88" stroke="#7a5cae" stroke-width="7" fill="none" stroke-linecap="round"/>
+            <path d="M140 66 Q150 80 140 92" stroke="#7a5cae" stroke-width="7" fill="none" stroke-linecap="round"/>
+            <!-- 臀部斑点 -->
+            <circle cx="58" cy="150" r="10" fill="#8a67bd"/>
+            <circle cx="78" cy="166" r="7" fill="#8a67bd"/>
+            <circle cx="44" cy="126" r="6" fill="#8a67bd"/>
+            <!-- 头部 -->
+            <g class="head">
+              <!-- 后角 -->
+              <path d="M198 62 Q204 30 220 26 Q216 52 210 70 Z" fill="#f6f1e6"/>
+              <!-- 前大角：夸张主视觉 -->
+              <path d="M226 74 Q238 34 262 20 Q254 58 242 84 Z" fill="#fffdf4" stroke="#e8dfc8" stroke-width="2"/>
+              <!-- 耳朵 -->
+              <ellipse cx="178" cy="44" rx="20" ry="14" fill="#8d6fbd" transform="rotate(-24 178 44)"/>
+              <ellipse cx="179" cy="45" rx="11" ry="7"  fill="#e3b8d8" transform="rotate(-24 179 45)"/>
+              <!-- 脸 -->
+              <path d="M150 78 Q196 46 232 84 Q244 98 240 116 Q228 146 186 146 Q152 142 144 116 Q140 94 150 78 Z" fill="#a98ad6"/>
+              <!-- 脸颊高光 -->
+              <ellipse cx="196" cy="102" rx="34" ry="24" fill="#c9b2ef" opacity=".7"/>
+              <!-- 眼睛 -->
+              <circle cx="206" cy="92" r="11" fill="#fff"/>
+              <circle cx="209" cy="94" r="6" fill="#241a3d"/>
+              <circle cx="211.5" cy="91.5" r="2.2" fill="#fff"/>
+              <!-- 得意的眉毛 -->
+              <path d="M195 74 Q206 68 218 74" stroke="#5e4488" stroke-width="5" fill="none" stroke-linecap="round"/>
+              <!-- 鼻孔 -->
+              <ellipse cx="236" cy="116" rx="5" ry="7" fill="#5e4488" transform="rotate(-18 236 116)"/>
+              <!-- 嘴：咧嘴笑 -->
+              <path d="M212 126 Q226 136 238 124" stroke="#5e4488" stroke-width="5" fill="none" stroke-linecap="round"/>
+            </g>
+          </svg>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  // ---------- 星空生成 ----------
+  const starBox = document.getElementById('stars');
+  for (let i = 0; i < 160; i++) {
+    const s = document.createElement('div');
+    s.className = 'star';
+    const size = Math.random() * 2.4 + .6;
+    s.style.width = s.style.height = size + 'px';
+    s.style.left = Math.random() * 100 + '%';
+    s.style.top = Math.random() * 100 + '%';
+    s.style.setProperty('--d', (Math.random() * 4 + 2) + 's');
+    s.style.setProperty('--delay', (Math.random() * 5) + 's');
+    starBox.appendChild(s);
+  }
+
+  // ---------- 犀牛公转 ----------
+  const rhino = document.getElementById('rhino');
+  const earth = document.getElementById('earth');
+  const PERIOD = 11;            // 公转周期（秒）
+
+  const cx = () => window.innerWidth  / 2;
+  const cy = () => window.innerHeight / 2;
+
+  // 轨道随视口自适应，保证犀牛任何时刻都在画面内
+  const orbitEl = document.getElementById('orbit');
+  function orbitRadii() {
+    const rx = Math.min(450, window.innerWidth  / 2 - 140);
+    const ry = Math.min(150, window.innerHeight / 2 - 170);
+    const r = { rx: Math.max(rx, 140), ry: Math.max(ry, 90) };
+    orbitEl.style.width  = r.rx * 2 + 'px';
+    orbitEl.style.height = r.ry * 2 + 'px';
+    orbitEl.style.margin = -r.ry + 'px 0 0 ' + (-r.rx) + 'px';
+    return r;
+  }
+
+  function frame(now) {
+    const t = (now / 1000 / PERIOD) % 1;
+    const ang = t * Math.PI * 2;
+
+    // 椭圆轨道位置：sin>0 在下方（前方），sin<0 在上方（后方）
+    const sinA = Math.sin(ang), cosA = Math.cos(ang);
+    const { rx, ry } = orbitRadii();
+    const x = cx() + rx * cosA;
+    const y = cy() + ry * sinA;
+
+    // 深度：0（最远）→ 1（最近）
+    const depth = (sinA + 1) / 2;
+
+    // 近大远小：远处 0.55 倍，近处 1.15 倍
+    const scale = 0.55 + 0.6 * depth;
+
+    // 姿态：沿轨道切线方向轻微俯仰 + 面朝运动方向
+    const tangent = Math.atan2(ry * cosA, rx * -sinA); // 速度方向角
+    const facingRight = -sinA > 0 || (sinA === 0 && cosA < 0); // 水平速度分量决定朝向
+    const tilt = -Math.sin(tangent) * 14; // 限制倾斜幅度，保持卡通感
+
+    // scaleX 翻转实现面朝运动方向；rotate 做轻微俯仰
+    rhino.style.transform =
+      `translate(${x}px, ${y}px) ` +
+      `scaleX(${scale * (facingRight ? 1 : -1)}) scaleY(${scale}) ` +
+      `rotate(${facingRight ? tilt : -tilt}deg)`;
+
+    // 遮挡关系：转到地球后方时被地球挡住
+    const front = sinA >= 0;
+    rhino.parentElement.style.zIndex = front ? 30 : 10;
+    earth.style.zIndex = front ? 20 : 40;
+
+    // 后方时略微压暗，增强空间感
+    rhino.style.filter = front
+      ? 'drop-shadow(0 14px 16px rgba(0,0,0,.45))'
+      : 'drop-shadow(0 8px 10px rgba(0,0,0,.6)) brightness(.72)';
+
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+</script>
+</body>
+</html>

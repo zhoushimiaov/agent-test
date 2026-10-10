@@ -91,7 +91,10 @@ const categories = [
     emoji: "🐘",
     blurb: "庞大身躯踩在钢丝上,平衡杆与钢丝下垂张力带来强烈反差感。",
     exam: "重量感与平衡杆的配重、钢丝受力下垂的张力曲线,反差越大越见功力。",
-    versions: [],
+    lede: "庞大的身躯踩在一根钢丝上,靠一根长长的平衡杆维持平衡,考的是重量感、平衡杆的配重反扣,以及钢丝受力下垂的张力曲线 —— 反差越大越见功力。下面按模型版本归档,缩略图为真实渲染效果,点击卡片查看可交互的在线页面。",
+    versions: [
+      ["gemini-3.8-flash", "Gemini 3.8 Flash", "Three.js 3D"],
+    ].map(([slug, name, sub]) => ({ slug, name, sub })),
   },
   {
     slug: "octopus-drummer",
