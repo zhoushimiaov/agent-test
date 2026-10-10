@@ -130,6 +130,36 @@ const categories = [
 
 const pad2 = (n) => String(n).padStart(2, "0");
 
+// Floating "返回首页" button injected into every version page. Version pages are
+// raw model outputs (not generated here), so we post-process them: strip any
+// previously injected block and re-insert a fresh one, which keeps the markup
+// idempotent and lets the styling stay current across rebuilds. The button is
+// fully self-contained (scoped class + inline <style>, max z-index) so it never
+// clashes with or depends on whatever the page itself defines.
+const HOME_BTN_BLOCK =
+  `<!--zc-home:start--><style>.zc-home-btn{position:fixed;top:16px;left:16px;z-index:2147483647;` +
+  `display:inline-flex;align-items:center;gap:6px;padding:8px 14px;` +
+  `font:500 13px/1.1 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Noto Sans SC",sans-serif;` +
+  `color:#111;background:rgba(255,255,255,.86);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);` +
+  `border:1px solid rgba(0,0,0,.08);border-radius:999px;text-decoration:none;box-shadow:0 2px 12px rgba(0,0,0,.2);` +
+  `transition:background .2s ease,transform .2s ease,box-shadow .2s ease}` +
+  `.zc-home-btn:hover{background:#fff;transform:translateY(-1px);box-shadow:0 4px 18px rgba(0,0,0,.26)}</style>` +
+  `<a class="zc-home-btn" href="../">← 返回首页</a><!--zc-home:end-->`;
+const HOME_BTN_RE = /<!--zc-home:start-->[\s\S]*?<!--zc-home:end-->\s*/g;
+
+function injectHomeButton(file) {
+  if (!existsSync(file)) return false;
+  let html = readFileSync(file, "utf8").replace(HOME_BTN_RE, "");
+  if (/<\/body>/i.test(html)) {
+    html = html.replace(/<\/body>/i, `${HOME_BTN_BLOCK}\n</body>`);
+  } else {
+    html += `\n${HOME_BTN_BLOCK}\n`;
+  }
+  writeFileSync(file, html);
+  return true;
+}
+
+
 // ---- hub (index.html) ----
 function hubCard(cat) {
   const n = cat.versions.length;
@@ -310,5 +340,15 @@ for (const cat of categories) {
   writeFileSync(join(dir, "index.html"), renderCategory(cat));
   n++;
 }
-console.log(`Generated hub + ${n} category pages (${categories.length} categories).`);
+
+// Inject the "返回首页" button into every curated version page (the raw model
+// outputs linked from each category). Index/hub pages already carry their own
+// navigation, so they are left alone.
+let btn = 0;
+for (const cat of categories) {
+  for (const v of cat.versions) {
+    if (injectHomeButton(join(ROOT, cat.slug, v.slug + ".html"))) btn++;
+  }
+}
+console.log(`Generated hub + ${n} category pages (${categories.length} categories); home button on ${btn} version pages.`);
 
