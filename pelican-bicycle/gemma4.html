@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>骑车的鹈鹕 - SVG动画</title>
+    <style>
+        body {
+            margin: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: #e0f7fa;
+            overflow: hidden;
+            font-family: sans-serif;
+        }
+
+        .container {
+            text-align: center;
+        }
+
+        svg {
+            width: 600px;
+            height: 400px;
+            filter: drop-shadow(0 10px 15px rgba(0,0,0,0.1));
+        }
+
+        /* --- 动画定义 --- */
+
+        /* 车轮旋转 */
+        .wheel {
+            animation: rotate 1s linear infinite;
+            transform-origin: center;
+            transform-box: fill-box;
+        }
+
+        @keyframes rotate {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+
+        /* 身体上下颠簸 */
+        .pelican-body {
+            animation: bobbing 0.6s ease-in-out infinite alternate;
+        }
+
+        @keyframes bobbing {
+            from { transform: translateY(0); }
+            to { transform: translateY(-5px); }
+        }
+
+        /* 脚踏板旋转 */
+        .pedal-group {
+            animation: rotate 1s linear infinite;
+            transform-origin: 280px 260px; /* 对应踏板轴心位置 */
+        }
+
+        /* 云朵飘移 */
+        .cloud {
+            animation: drift 8s linear infinite;
+        }
+
+        @keyframes drift {
+            from { transform: translateX(650px); }
+            to { transform: translateX(-200px); }
+        }
+
+        /* 道路线条移动 */
+        .road-line {
+            animation: road-move 0.5s linear infinite;
+        }
+
+        @keyframes road-move {
+            from { stroke-dashoffset: 40; }
+            to { stroke-dashoffset: 0; }
+        }
+
+        h1 {
+            color: #006064;
+            position: absolute;
+            top: 50px;
+            width: 100%;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>骑行的鹈鹕 🚲</h1>
+
+    <div class="container">
+        <svg viewBox="0 0 600 400" xmlns="http://www.w3.org/2000/svg">
+            <!-- 背景：云朵 -->
+            <g class="cloud" style="animation-delay: 0s;">
+                <ellipse cx="100" cy="80" rx="40" ry="20" fill="white" opacity="0.8" />
+                <circle cx="80" cy="70" r="20" fill="white" opacity="0.8" />
+                <circle cx="120" cy="70" r="20" fill="white" opacity="0.8" />
+            </g>
+            <g class="cloud" style="animation-delay: 3s;">
+                <ellipse cx="200" cy="120" rx="30" ry="15" fill="white" opacity="0.8" />
+                <circle cx="180" cy="110" r="15" fill="white" opacity="0.8" />
+                <circle cx="220" cy="110" r="15" fill="white" opacity="0.8" />
+            </g>
+
+            <!-- 地面 -->
+            <line x1="0" y1="320" x2="600" y2="320" stroke="#81d4fa" stroke-width="4" />
+            <line class="road-line" x1="0" y1="330" x2="600" y2="330" 
+                  stroke="#b3e5fc" stroke-width="4" stroke-dasharray="20,20" />
+
+            <!-- 自行车部分 -->
+            <g id="bicycle">
+                <!-- 车轮 (后轮) -->
+                <g class="wheel" style="transform-box: fill-box; transform-origin: 200px 270px;">
+                    <circle cx="200" cy="270" r="40" fill="none" stroke="#333" stroke-width="6" />
+                    <line x1="200" y1="230" x2="200" y2="310" stroke="#333" stroke-width="2" />
+                    <line x1="160" y1="270" x2="240" y2="270" stroke="#333" stroke-width="2" />
+                </g>
+
+                <!-- 车轮 (前轮) -->
+                <g class="wheel" style="transform-box: fill-box; transform-origin: 400px 270px;">
+                    <circle cx="400" cy="270" r="40" fill="none" stroke="#333" stroke-width="6" />
+                    <line x1="400" y1="230" x2="400" y2="310" stroke="#333" stroke-width="2" />
+                    <line x1="360" y1="270" x2="440" y2="270" stroke="#333" stroke-width="2" />
+                </g>
+
+                <!-- 车架 -->
+                <path d="M200 270 L300 270 L380 200 L400 270" fill="none" stroke="#e91e63" stroke-width="8" stroke-linejoin="round" />
+                <path d="M300 270 L280 200 L380 200" fill="none" stroke="#e91e63" stroke-width="8" stroke-linejoin="round" />
+                <line x1="380" y1="200" x2="380" y2="170" stroke="#333" stroke-width="6" /> <!-- 把手立杆 -->
+                <line x1="360" y1="170" x2="400" y2="170" stroke="#333" stroke-width="6" stroke-linecap="round" /> <!-- 把手 -->
+                <line x1="280" y1="200" x2="260" y2="170" stroke="#333" stroke-width="6" stroke-linecap="round" /> <!-- 坐垫 -->
+            </g>
+
+            <!-- 鹈鹕部分 -->
+            <g class="pelican-body">
+                <!-- 腿 -->
+                <line x1="280" y1="230" x2="280" y2="260" stroke="#ffb74d" stroke-width="4" />
+                
+                <!-- 身体 (椭圆) -->
+                <ellipse cx="270" cy="210" rx="35" ry="25" fill="white" stroke="#ddd" stroke-width="1" />
+                
+                <!-- 翅膀 -->
+                <path d="M250 210 Q230 200 250 190" fill="none" stroke="#eee" stroke-width="4" stroke-linecap="round" />
+
+                <!-- 脖子和头 -->
+                <path d="M295 200 Q320 200 320 160" fill="none" stroke="white" stroke-width="15" stroke-linecap="round" />
+                <circle cx="320" cy="150" r="15" fill="white" />
+                <circle cx="325" cy="145" r="2" fill="black" /> <!-- 眼睛 -->
+
+                <!-- 特征：巨大的喙 -->
+                <path d="M330 150 Q370 150 370 170 Q370 190 330 180 Z" fill="#ffca28" stroke="#fbc02d" stroke-width="2" />
+            </g>
+
+            <!-- 脚踏板动画组 -->
+            <g class="pedal-group">
+                <line x1="280" y1="260" x2="280" y2="280" stroke="#555" stroke-width="4" />
+                <rect x="270" y="280" width="20" height="5" rx="2" fill="#333" />
+            </g>
+        </svg>
+    </div>
+
+</body>
+</html>

@@ -21,7 +21,7 @@ const FONTS =
   '<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>\n' +
   '<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500&family=Noto+Sans+SC:wght@200;300;400;500&display=swap" rel="stylesheet">';
 
-// Pelican versions, in display order (preserves the existing 16 cards).
+// Pelican versions, in display order (leaderboard re-sorts by Jev score).
 const pelicanVersions = [
   ["gemini-3.8-flash", "Gemini 3.8 Flash", "Coastal Pelican Cruiser · 海岸飞车"],
   ["glm-5.3-flash", "GLM 5.3 Flash", "Pelican Motor Club · 落日骑行"],
@@ -41,6 +41,9 @@ const pelicanVersions = [
   ["haiku-5.5-tabbit", "Claude Haiku 5.5", "Tabbit"],
   ["muse-spark-1.3", "Muse Spark 1.3", "Muse"],
   ["space-bunny", "Space-Bunny", "匿名模型 Anonymous"],
+  ["hy4", "HY4", "SVG 动画 · 伪 3D 视角"],
+  ["gemma4", "Gemma 4", "SVG 动画"],
+  ["gpt6-luna", "GPT-6", "Luna · SVG 动画"],
 ].map(([slug, name, sub]) => ({ slug, name, sub }));
 
 // Categories in hub order. `cover` = thumbnail (if versions exist); else emoji.
