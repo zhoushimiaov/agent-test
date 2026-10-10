@@ -107,10 +107,12 @@ const categories = [
     emoji: "🦏",
     blurb: "犀牛沿轨道绕行地球,考的是轨道运动与天体尺度关系的表达。",
     exam: "环绕轨道的运动曲线、犀牛与地球的尺度关系,以及公转节奏的表达。",
-    lede: "一头犀牛沿轨道绕行地球,考的是轨道运动曲线、犀牛与地球的尺度关系,以及公转节奏的表达。下面按模型版本归档,缩略图为真实渲染效果,点击卡片查看可交互的在线页面。",
+    lede: "一头犀牛绕着地球公转。这题刻意不比「犀牛相对地球有多小」,而是看犀牛造型的表现力、轨道运动曲线与公转节奏,以及地球质感与太空场景的氛围。下面按模型版本归档,缩略图为真实渲染效果,点击卡片查看可交互的在线页面。",
     versions: [
       ["glm-5.3", "GLM-5.3", "Three.js 3D"],
       ["opus-4.8", "Claude Opus 4.8", "Three.js 3D"],
+      ["gemini-3.8-flash", "Gemini 3.8 Flash", "Three.js 3D"],
+      ["agnes-3.0-flash", "Agnes 3.0 Flash", "Three.js 3D"],
     ].map(([slug, name, sub]) => ({ slug, name, sub })),
   },
   {
@@ -203,7 +205,7 @@ function verCard(v, i, score, dimLabels) {
     const rcls = score.rank === 1 ? " g1" : "";
     rank = `<span class="rk${rcls}">#${score.rank}</span>`;
     badge = `<span class="score${cls}"><b>${score.total}</b><span class="j">Jev</span></span>`;
-    const order = ["pelican", "bicycle", "riding", "scene"];
+    const order = Object.keys(dimLabels);
     const tier = (f) => (f >= 0.8 ? "hi" : f < 0.5 ? "lo" : "mid");
     dims = `\n      <div class="dims">${order
       .map((k) => {
@@ -236,10 +238,13 @@ function renderCategory(cat) {
   let note = "";
   if (scores) {
     const w = scores.weights;
+    const wline = Object.keys(dimLabels)
+      .map((k) => `<b>${dimLabels[k]}</b> ${w[k]}`)
+      .join(" · ");
     note = `\n  <div class="note">
     <span class="tag">TypeSafe Jev 评分</span>
     <span class="k">由 System One 判定模型 <b>${scores.model}</b> 根据每个版本的真实渲染结果打分(满分 100)</span>
-    <span class="k"><b>${dimLabels.pelican}</b> ${w.pelican} · <b>${dimLabels.bicycle}</b> ${w.bicycle} · <b>${dimLabels.riding}</b> ${w.riding} · <b>${dimLabels.scene}</b> ${w.scene}</span>
+    <span class="k">${wline}</span>
   </div>`;
   }
   const body = hasVers

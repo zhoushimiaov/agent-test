@@ -1,0 +1,884 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Celestial Orbit: The Cosmic Rhinoceros</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+        body, html {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #020308;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        }
+        #webgl-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+    </style>
+    <!-- Three.js Library -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+<body>
+    <canvas id="webgl-canvas"></canvas>
+
+    <script>
+        // Core rendering components
+        let scene, camera, renderer;
+        let earthGroup, earthMesh, cloudsMesh, atmosphereMesh;
+        let rhinoRoot, rhinoBody, rhinoHead, rhinoTail;
+        let frontLeftLeg, frontRightLeg, backLeftLeg, backRightLeg;
+        let stardustSystem, stardustGeometry;
+        const PARTICLE_COUNT = 320;
+        const particlePositions = new Float32Array(PARTICLE_COUNT * 3);
+        const particleAlphas = new Float32Array(PARTICLE_COUNT);
+        const particleScales = new Float32Array(PARTICLE_COUNT);
+        const particleVelocities = [];
+
+        // Orbital trajectory parameters
+        const ORBIT_A = 27.5;      // Semi-major axis
+        const ORBIT_B = 21.0;      // Semi-minor axis
+        const ORBIT_TILT_X = 0.42; // Inclination angle X (~24 deg)
+        const ORBIT_TILT_Z = 0.25; // Inclination angle Z (~14 deg)
+        let orbitProgress = 0.0;
+        const ORBIT_SPEED = 0.055; // Orbit angular speed
+
+        // Time and cinematic camera director state
+        const clock = new THREE.Clock();
+        const cameraFocusPoint = new THREE.Vector3();
+        const targetCameraPosition = new THREE.Vector3();
+
+        // Compact 2D/3D pseudo-simplex noise for continental geography and cloud formations
+        const NoiseGen = (function() {
+            const p = new Uint8Array(512);
+            for (let i = 0; i < 256; i++) p[i] = i;
+            for (let i = 255; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                const tmp = p[i]; p[i] = p[j]; p[j] = tmp;
+            }
+            for (let i = 0; i < 256; i++) p[256 + i] = p[i];
+
+            function grad(hash, x, y, z) {
+                const h = hash & 15;
+                const u = h < 8 ? x : y;
+                const v = h < 4 ? y : (h === 12 || h === 14 ? x : z);
+                return ((h & 1) === 0 ? u : -u) + ((h & 2) === 0 ? v : -v);
+            }
+
+            return {
+                perlin3D: function(x, y, z) {
+                    const X = Math.floor(x) & 255, Y = Math.floor(y) & 255, Z = Math.floor(z) & 255;
+                    x -= Math.floor(x); y -= Math.floor(y); z -= Math.floor(z);
+                    const u = x * x * x * (x * (x * 6 - 15) + 10);
+                    const v = y * y * y * (y * (y * 6 - 15) + 10);
+                    const w = z * z * z * (z * (z * 6 - 15) + 10);
+                    const A = p[X] + Y, AA = p[A] + Z, AB = p[A + 1] + Z;
+                    const B = p[X + 1] + Y, BA = p[B] + Z, BB = p[B + 1] + Z;
+
+                    return (
+                        (1 - w) * (
+                            (1 - v) * ((1 - u) * grad(p[AA], x, y, z) + u * grad(p[BA], x - 1, y, z)) +
+                            v * ((1 - u) * grad(p[AB], x, y - 1, z) + u * grad(p[BB], x - 1, y - 1, z))
+                        ) +
+                        w * (
+                            (1 - v) * ((1 - u) * grad(p[AA + 1], x, y, z - 1) + u * grad(p[BA + 1], x - 1, y, z - 1)) +
+                            v * ((1 - u) * grad(p[AB + 1], x, y - 1, z - 1) + u * grad(p[BB + 1], x - 1, y - 1, z - 1))
+                        )
+                    );
+                },
+                fbm: function(x, y, z, octaves) {
+                    let total = 0, frequency = 1, amplitude = 1, maxValue = 0;
+                    for (let i = 0; i < octaves; i++) {
+                        total += this.perlin3D(x * frequency, y * frequency, z * frequency) * amplitude;
+                        maxValue += amplitude;
+                        amplitude *= 0.5;
+                        frequency *= 2.05;
+                    }
+                    return total / maxValue;
+                }
+            };
+        })();
+
+        function generateEarthTexture() {
+            const width = 1024, height = 512;
+            const canvas = document.createElement('canvas');
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            const imgData = ctx.createImageData(width, height);
+            const data = imgData.data;
+
+            for (let y = 0; y < height; y++) {
+                const lat = (y / height) * Math.PI;
+                const sinLat = Math.sin(lat);
+                const cosLat = Math.cos(lat);
+
+                for (let x = 0; x < width; x++) {
+                    const lon = (x / width) * 2 * Math.PI;
+                    const nx = Math.cos(lon) * sinLat;
+                    const ny = cosLat;
+                    const nz = Math.sin(lon) * sinLat;
+
+                    // Sample multi-octave 3D spherical noise (no polar distortion seams)
+                    const n = NoiseGen.fbm(nx * 1.8 + 1.2, ny * 1.8 + 2.5, nz * 1.8 + 3.1, 5);
+                    const elevation = (n + 1.0) * 0.5; // Map to 0..1
+                    const polarDist = Math.abs(ny);
+
+                    let r, g, b;
+
+                    // Polar ice caps
+                    if (polarDist > 0.83 + elevation * 0.08) {
+                        r = 230 + Math.floor(elevation * 25);
+                        g = 240 + Math.floor(elevation * 15);
+                        b = 252;
+                    } else if (elevation < 0.51) {
+                        // Ocean depth gradation
+                        const depth = elevation / 0.51;
+                        r = Math.floor(10 + depth * 22);
+                        g = Math.floor(38 + depth * 55);
+                        b = Math.floor(88 + depth * 75);
+                    } else if (elevation < 0.535) {
+                        // Coastlines / sandy beaches
+                        r = 188; g = 172; b = 132;
+                    } else if (elevation < 0.72) {
+                        // Vegetation / continental landmass
+                        const veg = (elevation - 0.535) / (0.72 - 0.535);
+                        r = Math.floor(38 + veg * 55);
+                        g = Math.floor(92 + veg * 45);
+                        b = Math.floor(42 + veg * 28);
+                    } else if (elevation < 0.84) {
+                        // Arid highlands / plateaus
+                        const h = (elevation - 0.72) / (0.84 - 0.72);
+                        r = Math.floor(115 + h * 30);
+                        g = Math.floor(100 + h * 20);
+                        b = Math.floor(75 + h * 15);
+                    } else {
+                        // Mountain summits & peaks
+                        r = 215; g = 218; b = 222;
+                    }
+
+                    const idx = (y * width + x) * 4;
+                    data[idx] = Math.min(255, Math.max(0, r));
+                    data[idx + 1] = Math.min(255, Math.max(0, g));
+                    data[idx + 2] = Math.min(255, Math.max(0, b));
+                    data[idx + 3] = 255;
+                }
+            }
+            ctx.putImageData(imgData, 0, 0);
+
+            const texture = new THREE.CanvasTexture(canvas);
+            texture.wrapS = THREE.RepeatWrapping;
+            texture.wrapT = THREE.ClampToEdgeWrapping;
+            return texture;
+        }
+
+        function generateCloudsTexture() {
+            const width = 1024, height = 512;
+            const canvas = document.createElement('canvas');
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            const imgData = ctx.createImageData(width, height);
+            const data = imgData.data;
+
+            for (let y = 0; y < height; y++) {
+                const lat = (y / height) * Math.PI;
+                const sinLat = Math.sin(lat);
+                const cosLat = Math.cos(lat);
+
+                for (let x = 0; x < width; x++) {
+                    const lon = (x / width) * 2 * Math.PI;
+                    const nx = Math.cos(lon) * sinLat;
+                    const ny = cosLat;
+                    const nz = Math.sin(lon) * sinLat;
+
+                    // Swirling cloud currents using displaced noise
+                    const swirl = NoiseGen.fbm(nx * 2.2, ny * 2.2, nz * 2.2, 4);
+                    const density = (swirl + 1.0) * 0.5;
+
+                    const idx = (y * width + x) * 4;
+                    data[idx] = 255;
+                    data[idx + 1] = 255;
+                    data[idx + 2] = 255;
+                    // Cloud threshold cut and soft edge
+                    const alpha = density > 0.48 ? Math.min(255, (density - 0.48) * 4.2 * 255) : 0;
+                    data[idx + 3] = Math.floor(alpha * 0.85);
+                }
+            }
+            ctx.putImageData(imgData, 0, 0);
+
+            const texture = new THREE.CanvasTexture(canvas);
+            texture.wrapS = THREE.RepeatWrapping;
+            texture.wrapT = THREE.ClampToEdgeWrapping;
+            return texture;
+        }
+
+        function generateStarParticleTexture() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 64;
+            canvas.height = 64;
+            const ctx = canvas.getContext('2d');
+            const grad = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+            grad.addColorStop(0.0, 'rgba(255, 255, 255, 1.0)');
+            grad.addColorStop(0.2, 'rgba(215, 235, 255, 0.85)');
+            grad.addColorStop(0.5, 'rgba(120, 180, 255, 0.35)');
+            grad.addColorStop(1.0, 'rgba(0, 0, 0, 0)');
+            ctx.fillStyle = grad;
+            ctx.fillRect(0, 0, 64, 64);
+            return new THREE.CanvasTexture(canvas);
+        }
+
+        function buildCosmicStarfield() {
+            const starsCount = 4200;
+            const starGeo = new THREE.BufferGeometry();
+            const positions = new Float32Array(starsCount * 3);
+            const colors = new Float32Array(starsCount * 3);
+
+            const colorPalette = [
+                new THREE.Color(0xdceaff), // Pale icy blue
+                new THREE.Color(0xffffff), // Pure starlight white
+                new THREE.Color(0xfff1dc), // Warm gold
+                new THREE.Color(0x9fc5ff), // Deep cyan star
+                new THREE.Color(0xd9b8ff)  // Faint violet star
+            ];
+
+            for (let i = 0; i < starsCount; i++) {
+                const radius = 250 + Math.random() * 200;
+                const theta = Math.random() * Math.PI * 2;
+                const phi = Math.acos(2 * Math.random() - 1);
+
+                positions[i * 3] = radius * Math.sin(phi) * Math.cos(theta);
+                positions[i * 3 + 1] = radius * Math.sin(phi) * Math.sin(theta);
+                positions[i * 3 + 2] = radius * Math.cos(phi);
+
+                const c = colorPalette[Math.floor(Math.random() * colorPalette.length)];
+                colors[i * 3] = c.r;
+                colors[i * 3 + 1] = c.g;
+                colors[i * 3 + 2] = c.b;
+            }
+
+            starGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            starGeo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
+            const starMat = new THREE.PointsMaterial({
+                size: 1.8,
+                vertexColors: true,
+                map: generateStarParticleTexture(),
+                transparent: true,
+                opacity: 0.9,
+                depthWrite: false,
+                blending: THREE.AdditiveBlending
+            });
+
+            const stars = new THREE.Points(starGeo, starMat);
+            scene.add(stars);
+
+            // Subtle luminous nebula dust sprites
+            const nebulaGroup = new THREE.Group();
+            for (let i = 0; i < 7; i++) {
+                const nebulaCanvas = document.createElement('canvas');
+                nebulaCanvas.width = 128;
+                nebulaCanvas.height = 128;
+                const nctx = nebulaCanvas.getContext('2d');
+                const nGrad = nctx.createRadialGradient(64, 64, 0, 64, 64, 64);
+                const col = i % 2 === 0 ? 'rgba(32, 64, 140, ' : 'rgba(92, 42, 128, ';
+                nGrad.addColorStop(0.0, col + '0.18)');
+                nGrad.addColorStop(0.5, col + '0.07)');
+                nGrad.addColorStop(1.0, 'rgba(0,0,0,0)');
+                nctx.fillStyle = nGrad;
+                nctx.fillRect(0, 0, 128, 128);
+
+                const nebTex = new THREE.CanvasTexture(nebulaCanvas);
+                const nebMat = new THREE.SpriteMaterial({
+                    map: nebTex,
+                    transparent: true,
+                    blending: THREE.AdditiveBlending,
+                    depthWrite: false
+                });
+                const nebSprite = new THREE.Sprite(nebMat);
+                nebSprite.scale.set(160, 160, 1);
+                nebSprite.position.set(
+                    (Math.random() - 0.5) * 300,
+                    (Math.random() - 0.5) * 200,
+                    -120 + (Math.random() - 0.5) * 150
+                );
+                nebulaGroup.add(nebSprite);
+            }
+            scene.add(nebulaGroup);
+        }
+
+        function buildEarth() {
+            earthGroup = new THREE.Group();
+            // Real Earth axial tilt: 23.4 degrees
+            earthGroup.rotation.z = THREE.MathUtils.degToRad(-23.4);
+            scene.add(earthGroup);
+
+            const earthRadius = 9.8;
+
+            // 1. Solid Earth Sphere
+            const earthGeo = new THREE.SphereGeometry(earthRadius, 64, 64);
+            const earthTexture = generateEarthTexture();
+            const earthMat = new THREE.MeshStandardMaterial({
+                map: earthTexture,
+                roughness: 0.65,
+                metalness: 0.12,
+                bumpScale: 0.08
+            });
+            earthMesh = new THREE.Mesh(earthGeo, earthMat);
+            earthMesh.castShadow = true;
+            earthMesh.receiveShadow = true;
+            earthGroup.add(earthMesh);
+
+            // 2. Swirling Cloud Sphere
+            const cloudsGeo = new THREE.SphereGeometry(earthRadius + 0.14, 64, 64);
+            const cloudsTexture = generateCloudsTexture();
+            const cloudsMat = new THREE.MeshStandardMaterial({
+                map: cloudsTexture,
+                transparent: true,
+                opacity: 0.82,
+                blending: THREE.NormalBlending,
+                roughness: 0.9,
+                depthWrite: false
+            });
+            cloudsMesh = new THREE.Mesh(cloudsGeo, cloudsMat);
+            earthGroup.add(cloudsMesh);
+
+            // 3. Atmospheric Rim Glow (Custom Fresnel Shader)
+            const atmosphereGeo = new THREE.SphereGeometry(earthRadius + 0.42, 64, 64);
+            const atmosphereMat = new THREE.ShaderMaterial({
+                vertexShader: `
+                    varying vec3 vNormal;
+                    varying vec3 vViewDir;
+                    void main() {
+                        vNormal = normalize(normalMatrix * normal);
+                        vec4 mvPos = modelViewMatrix * vec4(position, 1.0);
+                        vViewDir = normalize(-mvPos.xyz);
+                        gl_Position = projectionMatrix * mvPos;
+                    }
+                `,
+                fragmentShader: `
+                    varying vec3 vNormal;
+                    varying vec3 vViewDir;
+                    void main() {
+                        float rim = 1.0 - max(dot(vNormal, vViewDir), 0.0);
+                        float glow = pow(rim, 3.2);
+                        vec3 skyGlow = vec3(0.25, 0.65, 1.0) * glow * 1.95;
+                        gl_FragColor = vec4(skyGlow, glow * 0.9);
+                    }
+                `,
+                blending: THREE.AdditiveBlending,
+                side: THREE.BackSide,
+                transparent: true,
+                depthWrite: false
+            });
+            atmosphereMesh = new THREE.Mesh(atmosphereGeo, atmosphereMat);
+            earthGroup.add(atmosphereMesh);
+        }
+
+        function buildRhinoceros() {
+            rhinoRoot = new THREE.Group();
+            scene.add(rhinoRoot);
+
+            // Sculpture materials: Sophisticated deep titanium slate + Radiant celestial gold
+            const armorMaterial = new THREE.MeshStandardMaterial({
+                color: 0x47515f,
+                roughness: 0.32,
+                metalness: 0.42,
+                flatShading: true
+            });
+
+            const armorPlateDark = new THREE.MeshStandardMaterial({
+                color: 0x363e4a,
+                roughness: 0.28,
+                metalness: 0.55,
+                flatShading: true
+            });
+
+            const goldenHornMaterial = new THREE.MeshStandardMaterial({
+                color: 0xf5bf42,
+                roughness: 0.18,
+                metalness: 0.88,
+                flatShading: true
+            });
+
+            const eyeMaterial = new THREE.MeshStandardMaterial({
+                color: 0x050912,
+                roughness: 0.1,
+                metalness: 0.9
+            });
+
+            // Rhino Main Core / Torso Pivot
+            rhinoBody = new THREE.Group();
+            rhinoRoot.add(rhinoBody);
+
+            // Heavy Muscular Withers / Shoulder Hump
+            const humpGeo = new THREE.CylinderGeometry(0.85, 1.35, 1.7, 7);
+            humpGeo.rotateX(Math.PI / 2);
+            const shoulderHump = new THREE.Mesh(humpGeo, armorMaterial);
+            shoulderHump.position.set(0, 1.1, 0.4);
+            shoulderHump.scale.set(1.05, 1.25, 1.0);
+            rhinoBody.add(shoulderHump);
+
+            // Mid Torso (Ribcage and flank)
+            const flankGeo = new THREE.BoxGeometry(1.5, 1.55, 1.9);
+            const flank = new THREE.Mesh(flankGeo, armorPlateDark);
+            flank.position.set(0, 0.85, -0.6);
+            rhinoBody.add(flank);
+
+            // Rump / Pelvic armor
+            const pelvicGeo = new THREE.CylinderGeometry(1.15, 1.35, 1.5, 7);
+            pelvicGeo.rotateX(Math.PI / 2);
+            const pelvis = new THREE.Mesh(pelvicGeo, armorMaterial);
+            pelvis.position.set(0, 0.95, -1.6);
+            pelvis.scale.set(0.95, 1.1, 0.95);
+            rhinoBody.add(pelvis);
+
+            // Folded Shoulder Armor Crests (Prehistoric sculptural plate)
+            const plateLeftGeo = new THREE.BoxGeometry(0.2, 1.1, 1.3);
+            const plateLeft = new THREE.Mesh(plateLeftGeo, armorPlateDark);
+            plateLeft.position.set(0.78, 1.05, 0.3);
+            plateLeft.rotation.z = -0.22;
+            rhinoBody.add(plateLeft);
+
+            const plateRight = plateLeft.clone();
+            plateRight.position.set(-0.78, 1.05, 0.3);
+            plateRight.rotation.z = 0.22;
+            rhinoBody.add(plateRight);
+
+            // Neck Assembly
+            const neckGroup = new THREE.Group();
+            neckGroup.position.set(0, 1.05, 1.3);
+            rhinoBody.add(neckGroup);
+
+            const neckGeo = new THREE.CylinderGeometry(0.7, 1.05, 1.1, 6);
+            neckGeo.rotateX(Math.PI / 3.2);
+            const neck = new THREE.Mesh(neckGeo, armorMaterial);
+            neck.position.set(0, 0.15, 0.35);
+            neckGroup.add(neck);
+
+            // Sculptural Head
+            rhinoHead = new THREE.Group();
+            rhinoHead.position.set(0, 0.4, 0.8);
+            neckGroup.add(rhinoHead);
+
+            // Tapered Snout and Skull
+            const headGeo = new THREE.CylinderGeometry(0.48, 0.85, 1.5, 6);
+            headGeo.rotateX(Math.PI / 2.3);
+            const skull = new THREE.Mesh(headGeo, armorMaterial);
+            skull.position.set(0, -0.1, 0.6);
+            rhinoHead.add(skull);
+
+            // Iconic Large Celestial Front Horn (Curved forward)
+            const mainHornGeo = new THREE.ConeGeometry(0.28, 1.6, 7);
+            mainHornGeo.rotateX(Math.PI / 4.6);
+            const mainHorn = new THREE.Mesh(mainHornGeo, goldenHornMaterial);
+            mainHorn.position.set(0, 0.72, 1.25);
+            rhinoHead.add(mainHorn);
+
+            // Secondary Forehead Horn
+            const secondHornGeo = new THREE.ConeGeometry(0.22, 0.85, 6);
+            secondHornGeo.rotateX(Math.PI / 5.2);
+            const secondHorn = new THREE.Mesh(secondHornGeo, goldenHornMaterial);
+            secondHorn.position.set(0, 0.58, 0.65);
+            rhinoHead.add(secondHorn);
+
+            // Left & Right Pointed Sculpted Ears
+            const earGeo = new THREE.ConeGeometry(0.12, 0.45, 4);
+            const leftEar = new THREE.Mesh(earGeo, armorPlateDark);
+            leftEar.position.set(0.45, 0.48, 0.1);
+            leftEar.rotation.set(-0.35, 0, -0.6);
+            rhinoHead.add(leftEar);
+
+            const rightEar = leftEar.clone();
+            rightEar.position.set(-0.45, 0.48, 0.1);
+            rightEar.rotation.set(-0.35, 0, 0.6);
+            rhinoHead.add(rightEar);
+
+            // Eyes
+            const eyeGeo = new THREE.SphereGeometry(0.08, 6, 6);
+            const leftEye = new THREE.Mesh(eyeGeo, eyeMaterial);
+            leftEye.position.set(0.48, 0.12, 0.7);
+            rhinoHead.add(leftEye);
+
+            const rightEye = leftEye.clone();
+            rightEye.position.set(-0.48, 0.12, 0.7);
+            rhinoHead.add(rightEye);
+
+            function buildLeg(isFront, isRight) {
+                const legRoot = new THREE.Group();
+                const signX = isRight ? 1 : -1;
+
+                // Shoulder / Upper thigh
+                const upperGeo = new THREE.BoxGeometry(0.45, 0.95, 0.55);
+                const upper = new THREE.Mesh(upperGeo, armorMaterial);
+                upper.position.y = -0.4;
+                legRoot.add(upper);
+
+                // Knee / Elbow articulation pivot
+                const kneeJoint = new THREE.Group();
+                kneeJoint.position.set(0, -0.85, 0);
+                legRoot.add(kneeJoint);
+
+                // Lower Leg / Cannon bone
+                const lowerGeo = new THREE.BoxGeometry(0.35, 0.85, 0.4);
+                const lower = new THREE.Mesh(lowerGeo, armorPlateDark);
+                lower.position.y = -0.38;
+                kneeJoint.add(lower);
+
+                // Solid Geometric Hoof
+                const hoofGeo = new THREE.CylinderGeometry(0.24, 0.32, 0.3, 5);
+                const hoof = new THREE.Mesh(hoofGeo, goldenHornMaterial);
+                hoof.position.set(0, -0.82, 0.05);
+                kneeJoint.add(hoof);
+
+                legRoot.userData = { kneeJoint: kneeJoint };
+                return legRoot;
+            }
+
+            // Front Left & Right
+            frontLeftLeg = buildLeg(true, false);
+            frontLeftLeg.position.set(-0.7, 0.4, 0.6);
+            rhinoBody.add(frontLeftLeg);
+
+            frontRightLeg = buildLeg(true, true);
+            frontRightLeg.position.set(0.7, 0.4, 0.6);
+            rhinoBody.add(frontRightLeg);
+
+            // Back Left & Right
+            backLeftLeg = buildLeg(false, false);
+            backLeftLeg.position.set(-0.65, 0.45, -1.5);
+            rhinoBody.add(backLeftLeg);
+
+            backRightLeg = buildLeg(false, true);
+            backRightLeg.position.set(0.65, 0.45, -1.5);
+            rhinoBody.add(backRightLeg);
+
+            // Tail assembly
+            rhinoTail = new THREE.Group();
+            rhinoTail.position.set(0, 0.75, -2.25);
+            rhinoBody.add(rhinoTail);
+
+            const tailGeo = new THREE.CylinderGeometry(0.08, 0.04, 0.85, 5);
+            const tailMesh = new THREE.Mesh(tailGeo, armorPlateDark);
+            tailMesh.position.set(0, -0.38, -0.15);
+            tailMesh.rotation.x = -0.42;
+            rhinoTail.add(tailMesh);
+
+            const tuftGeo = new THREE.ConeGeometry(0.12, 0.35, 5);
+            const tuft = new THREE.Mesh(tuftGeo, goldenHornMaterial);
+            tuft.position.set(0, -0.8, -0.32);
+            tuft.rotation.x = -0.45;
+            rhinoTail.add(tuft);
+
+            // Scale whole rhino to stately planetary proportions
+            rhinoRoot.scale.set(1.4, 1.4, 1.4);
+        }
+
+        function buildOrbitRingAndParticles() {
+            // 1. Semi-transparent glowing trajectory ring
+            const curvePoints = [];
+            const segments = 160;
+            for (let i = 0; i <= segments; i++) {
+                const angle = (i / segments) * Math.PI * 2;
+                const pos = calculateOrbitPosition(angle);
+                curvePoints.push(pos);
+            }
+            const orbitCurve = new THREE.CatmullRomCurve3(curvePoints, true);
+            const tubeGeo = new THREE.TubeGeometry(orbitCurve, 200, 0.055, 6, true);
+            const tubeMat = new THREE.MeshBasicMaterial({
+                color: 0x6be5ff,
+                transparent: true,
+                opacity: 0.35,
+                blending: THREE.AdditiveBlending
+            });
+            const orbitRingMesh = new THREE.Mesh(tubeGeo, tubeMat);
+            scene.add(orbitRingMesh);
+
+            // 2. Trailing Stardust Embers Particle System
+            stardustGeometry = new THREE.BufferGeometry();
+            for (let i = 0; i < PARTICLE_COUNT; i++) {
+                particlePositions[i * 3] = 0;
+                particlePositions[i * 3 + 1] = -9999; // initially offscreen
+                particlePositions[i * 3 + 2] = 0;
+                particleAlphas[i] = 0.0;
+                particleScales[i] = 1.0;
+                particleVelocities.push(new THREE.Vector3());
+            }
+
+            stardustGeometry.setAttribute('position', new THREE.BufferAttribute(particlePositions, 3));
+            stardustGeometry.setAttribute('alpha', new THREE.BufferAttribute(particleAlphas, 1));
+
+            const stardustMaterial = new THREE.PointsMaterial({
+                size: 2.4,
+                map: generateStarParticleTexture(),
+                transparent: true,
+                opacity: 0.75,
+                vertexColors: false,
+                color: 0xffd97d,
+                blending: THREE.AdditiveBlending,
+                depthWrite: false
+            });
+
+            stardustSystem = new THREE.Points(stardustGeometry, stardustMaterial);
+            scene.add(stardustSystem);
+        }
+
+        // Calculate tilted 3D elliptical coordinates for an orbit angle
+        function calculateOrbitPosition(theta) {
+            // Base ellipse on XZ plane
+            let x = ORBIT_A * Math.cos(theta);
+            let z = ORBIT_B * Math.sin(theta);
+            let y = 0;
+
+            // Apply inclination tilt around Z then X axes
+            const tiltedPos = new THREE.Vector3(x, y, z);
+            tiltedPos.applyAxisAngle(new THREE.Vector3(1, 0, 0), ORBIT_TILT_X);
+            tiltedPos.applyAxisAngle(new THREE.Vector3(0, 0, 1), ORBIT_TILT_Z);
+
+            return tiltedPos;
+        }
+
+        // Emit new cosmic dust particles from rhino hooves into space
+        let nextParticleIndex = 0;
+        function emitStardust(originPos) {
+            const idx = nextParticleIndex;
+            particlePositions[idx * 3] = originPos.x + (Math.random() - 0.5) * 0.4;
+            particlePositions[idx * 3 + 1] = originPos.y + (Math.random() - 0.5) * 0.4;
+            particlePositions[idx * 3 + 2] = originPos.z + (Math.random() - 0.5) * 0.4;
+            particleAlphas[idx] = 1.0;
+
+            // Give subtle expanding cosmic drift
+            particleVelocities[idx].set(
+                (Math.random() - 0.5) * 0.04,
+                (Math.random() - 0.5) * 0.04,
+                (Math.random() - 0.5) * 0.04
+            );
+
+            nextParticleIndex = (nextParticleIndex + 1) % PARTICLE_COUNT;
+        }
+
+        function setupCinematicLighting() {
+            // Deep cosmic ambient illumination
+            const ambientLight = new THREE.AmbientLight(0x0a1020, 0.45);
+            scene.add(ambientLight);
+
+            // Distant Sun: Primary sharp, dramatic directional key light
+            const sunLight = new THREE.DirectionalLight(0xfff6eb, 2.6);
+            sunLight.position.set(70, 32, 55);
+            scene.add(sunLight);
+
+            // Subtle Earthshine bounce light: cool azure radiance reflected from the oceans
+            const earthshine = new THREE.DirectionalLight(0x28659e, 0.55);
+            earthshine.position.set(-20, -10, -25);
+            scene.add(earthshine);
+
+            // Delicate celestial rim light for sculptural edge contrast
+            const rimLight = new THREE.DirectionalLight(0x9cb8f0, 0.75);
+            rimLight.position.set(-60, 45, 10);
+            scene.add(rimLight);
+        }
+
+        function initScene() {
+            const canvas = document.getElementById('webgl-canvas');
+
+            scene = new THREE.Scene();
+            scene.fog = new THREE.FogExp2(0x020308, 0.0018);
+
+            camera = new THREE.PerspectiveCamera(42, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.set(45, 22, 45);
+
+            renderer = new THREE.WebGLRenderer({
+                canvas: canvas,
+                antialias: true,
+                powerPreference: "high-performance"
+            });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            renderer.toneMapping = THREE.ACESFilmicToneMapping;
+            renderer.toneMappingExposure = 1.15;
+
+            // Build all visual layers
+            buildCosmicStarfield();
+            buildEarth();
+            buildRhinoceros();
+            buildOrbitRingAndParticles();
+            setupCinematicLighting();
+
+            // Responsive window resizing
+            window.addEventListener('resize', onWindowResize, false);
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        function updateCinematicCamera(elapsedTime, rhinoPos, tangentVec) {
+            // 4 distinct cinematic cruise angles cycling seamlessly every 64 seconds (16s each)
+            const CYCLE_DURATION = 64.0;
+            const cycleProgress = (elapsedTime % CYCLE_DURATION) / CYCLE_DURATION; // 0..1
+            const phase = cycleProgress * 4.0;
+            const currentShot = Math.floor(phase);
+            const shotBlend = phase - currentShot; // 0..1 within current shot
+
+            // Smooth cosine transition ease
+            const ease = (1 - Math.cos(shotBlend * Math.PI)) * 0.5;
+
+            const desiredPos = new THREE.Vector3();
+            const desiredLookAt = new THREE.Vector3();
+
+            // Coordinate offsets relative to the rhino's velocity & up vector
+            const forward = tangentVec.clone().normalize();
+            const up = rhinoPos.clone().normalize();
+            const right = new THREE.Vector3().crossVectors(forward, up).normalize();
+
+            if (currentShot === 0) {
+                // Shot 1: "The Cosmic Perspective" - Majestic wide establishing sweep
+                desiredPos.set(
+                    rhinoPos.x * 0.45 + 38.0 * Math.cos(elapsedTime * 0.04),
+                    22.0 + Math.sin(elapsedTime * 0.05) * 4.0,
+                    rhinoPos.z * 0.45 + 38.0 * Math.sin(elapsedTime * 0.04)
+                );
+                desiredLookAt.copy(rhinoPos).multiplyScalar(0.65); // Framing both Rhino and Earth limb
+            } else if (currentShot === 1) {
+                // Shot 2: "Close Orbital Chase" - Tracking just off the golden rhino's right shoulder
+                const chaseOffset = right.clone().multiplyScalar(5.5)
+                    .add(up.clone().multiplyScalar(3.0))
+                    .sub(forward.clone().multiplyScalar(8.5));
+                desiredPos.copy(rhinoPos).add(chaseOffset);
+                desiredLookAt.copy(rhinoPos).add(forward.clone().multiplyScalar(3.0));
+            } else if (currentShot === 2) {
+                // Shot 3: "Planetary Horizon Transit" - Low-angle stationary limb view as rhino gallops overhead
+                const limbPos = new THREE.Vector3(12.0 * Math.cos(elapsedTime * 0.03), 8.5, 12.0 * Math.sin(elapsedTime * 0.03));
+                desiredPos.copy(limbPos);
+                desiredLookAt.copy(rhinoPos);
+            } else {
+                // Shot 4: "Majestic Vanguard" - Leading front-quarter view revealing twin golden horns
+                const frontLeadOffset = forward.clone().multiplyScalar(7.5)
+                    .add(right.clone().multiplyScalar(4.0))
+                    .add(up.clone().multiplyScalar(1.5));
+                desiredPos.copy(rhinoPos).add(frontLeadOffset);
+                desiredLookAt.copy(rhinoPos).sub(forward.clone().multiplyScalar(1.0));
+            }
+
+            // Smooth damping for graceful cinematic camera glide
+            targetCameraPosition.lerp(desiredPos, 0.035);
+            cameraFocusPoint.lerp(desiredLookAt, 0.045);
+
+            camera.position.copy(targetCameraPosition);
+            camera.lookAt(cameraFocusPoint);
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            const delta = clock.getDelta();
+            const elapsed = clock.getElapsedTime();
+
+            // 1. Earth and cloud rotation
+            if (earthMesh) earthMesh.rotation.y += 0.0018;
+            if (cloudsMesh) cloudsMesh.rotation.y += 0.0026; // Clouds swirl slightly faster than surface
+
+            // 2. Advance rhino along elliptical orbit
+            orbitProgress += ORBIT_SPEED * delta;
+            const currentOrbitPos = calculateOrbitPosition(orbitProgress);
+            const aheadOrbitPos = calculateOrbitPosition(orbitProgress + 0.015);
+            const tangent = new THREE.Vector3().subVectors(aheadOrbitPos, currentOrbitPos).normalize();
+
+            // Position and align rhino orientation with orbit velocity tangent
+            rhinoRoot.position.copy(currentOrbitPos);
+
+            // Orient the rhino to face along tangent with feet biased towards Earth center (natural banking)
+            const upRadial = currentOrbitPos.clone().normalize();
+            const matrix = new THREE.Matrix4();
+            const zDir = tangent.clone().negate(); // In Three.js model forward is often +Z or -Z
+            const xDir = new THREE.Vector3().crossVectors(upRadial, tangent).normalize();
+            const yDir = new THREE.Vector3().crossVectors(tangent, xDir).normalize();
+            matrix.makeBasis(xDir, yDir, tangent);
+            rhinoRoot.quaternion.setFromRotationMatrix(matrix);
+
+            // 3. Procedural Zero-Gravity Floating Gallop Animation
+            const gallopFreq = elapsed * 3.4; // Graceful, slow-motion cosmic stride cadence
+
+            // Alternating legs with natural offset
+            const strideL1 = Math.sin(gallopFreq);
+            const strideR1 = Math.sin(gallopFreq + Math.PI);
+            const strideL2 = Math.sin(gallopFreq - 1.2);
+            const strideR2 = Math.sin(gallopFreq - 1.2 + Math.PI);
+
+            // Front Legs swing and fold
+            frontLeftLeg.rotation.x = strideL1 * 0.45;
+            frontLeftLeg.userData.kneeJoint.rotation.x = Math.max(0, -strideL1 * 0.6);
+
+            frontRightLeg.rotation.x = strideR1 * 0.45;
+            frontRightLeg.userData.kneeJoint.rotation.x = Math.max(0, -strideR1 * 0.6);
+
+            // Back Legs swing and kick
+            backLeftLeg.rotation.x = strideL2 * 0.52;
+            backLeftLeg.userData.kneeJoint.rotation.x = Math.max(0, strideL2 * 0.7);
+
+            backRightLeg.rotation.x = strideR2 * 0.52;
+            backRightLeg.userData.kneeJoint.rotation.x = Math.max(0, strideR2 * 0.7);
+
+            // Torso subtle rhythmic heave and breath
+            rhinoBody.position.y = Math.sin(gallopFreq * 2.0) * 0.08;
+            rhinoBody.rotation.x = Math.sin(gallopFreq) * 0.04;
+            rhinoBody.rotation.z = Math.cos(gallopFreq) * 0.03;
+
+            // Head and Neck proud counter-sway
+            rhinoHead.rotation.x = Math.sin(gallopFreq - 0.6) * 0.09 - 0.08;
+            rhinoHead.rotation.y = Math.cos(gallopFreq * 0.5) * 0.06;
+
+            // Tail gentle undulating whip
+            rhinoTail.rotation.z = Math.sin(gallopFreq * 1.5) * 0.25;
+            rhinoTail.rotation.x = Math.cos(gallopFreq) * 0.15;
+
+            // 4. Stardust Particles Emission and Decay
+            if (Math.random() < 0.65) {
+                emitStardust(currentOrbitPos);
+            }
+
+            const positions = stardustGeometry.attributes.position.array;
+            for (let i = 0; i < PARTICLE_COUNT; i++) {
+                if (particleAlphas[i] > 0.0) {
+                    positions[i * 3] += particleVelocities[i].x;
+                    positions[i * 3 + 1] += particleVelocities[i].y;
+                    positions[i * 3 + 2] += particleVelocities[i].z;
+                    particleAlphas[i] -= 0.007; // Fade life
+                    if (particleAlphas[i] <= 0.0) {
+                        positions[i * 3 + 1] = -9999;
+                    }
+                }
+            }
+            stardustGeometry.attributes.position.needsUpdate = true;
+
+            // 5. Update Cinematic Camera
+            updateCinematicCamera(elapsed, currentOrbitPos, tangent);
+
+            // 6. Render frame
+            renderer.render(scene, camera);
+        }
+
+        window.onload = function() {
+            initScene();
+            // Prime initial camera focus
+            targetCameraPosition.set(45, 22, 45);
+            cameraFocusPoint.set(0, 0, 0);
+            animate();
+        };
+    </script>
+</body>
+</html>

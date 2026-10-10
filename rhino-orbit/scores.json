@@ -1,0 +1,130 @@
+{
+  "generatedAt": "2026-10-10T07:21:15.290Z",
+  "model": "jev-1.13.0",
+  "weights": {
+    "rhino": 35,
+    "orbit": 30,
+    "earth": 20,
+    "scene": 15
+  },
+  "dimLabels": {
+    "rhino": "犀牛造型",
+    "orbit": "轨道运动",
+    "earth": "地球质感",
+    "scene": "场景氛围"
+  },
+  "results": [
+    {
+      "slug": "gemini-3.8-flash",
+      "total": 84,
+      "dims": {
+        "rhino": {
+          "score": 2.71,
+          "confidence": 0.72,
+          "frac": 0.903
+        },
+        "orbit": {
+          "score": 1.97,
+          "confidence": 0.97,
+          "frac": 0.657
+        },
+        "earth": {
+          "score": 2.93,
+          "confidence": 0.93,
+          "frac": 0.977
+        },
+        "scene": {
+          "score": 2.62,
+          "confidence": 0.62,
+          "frac": 0.873
+        }
+      },
+      "jev": "jev-1.13.0",
+      "rank": 1
+    },
+    {
+      "slug": "glm-5.3",
+      "total": 77,
+      "dims": {
+        "rhino": {
+          "score": 1.68,
+          "confidence": 0.67,
+          "frac": 0.56
+        },
+        "orbit": {
+          "score": 2.69,
+          "confidence": 0.69,
+          "frac": 0.897
+        },
+        "earth": {
+          "score": 2.92,
+          "confidence": 0.93,
+          "frac": 0.973
+        },
+        "scene": {
+          "score": 2.12,
+          "confidence": 0.62,
+          "frac": 0.707
+        }
+      },
+      "jev": "jev-1.13.0",
+      "rank": 2
+    },
+    {
+      "slug": "opus-4.8",
+      "total": 70,
+      "dims": {
+        "rhino": {
+          "score": 1.83,
+          "confidence": 0.82,
+          "frac": 0.61
+        },
+        "orbit": {
+          "score": 2.49,
+          "confidence": 0.51,
+          "frac": 0.83
+        },
+        "earth": {
+          "score": 2.19,
+          "confidence": 0.81,
+          "frac": 0.73
+        },
+        "scene": {
+          "score": 1.9,
+          "confidence": 0.72,
+          "frac": 0.633
+        }
+      },
+      "jev": "jev-1.13.0",
+      "rank": 3
+    },
+    {
+      "slug": "agnes-3.0-flash",
+      "total": 62,
+      "dims": {
+        "rhino": {
+          "score": 1.72,
+          "confidence": 0.72,
+          "frac": 0.573
+        },
+        "orbit": {
+          "score": 1.92,
+          "confidence": 0.92,
+          "frac": 0.64
+        },
+        "earth": {
+          "score": 1.99,
+          "confidence": 0.99,
+          "frac": 0.663
+        },
+        "scene": {
+          "score": 1.86,
+          "confidence": 0.84,
+          "frac": 0.62
+        }
+      },
+      "jev": "jev-1.13.0",
+      "rank": 4
+    }
+  ]
+}
