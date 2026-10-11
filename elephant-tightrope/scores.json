@@ -1,0 +1,242 @@
+{
+  "generatedAt": "2026-10-11T04:03:29.053Z",
+  "model": "jev-1.13.0",
+  "weights": {
+    "weight": 30,
+    "wire": 25,
+    "elephant": 25,
+    "scene": 20
+  },
+  "dimLabels": {
+    "weight": "重量感 / 配重",
+    "wire": "钢丝张力",
+    "elephant": "大象造型",
+    "scene": "场景氛围"
+  },
+  "results": [
+    {
+      "slug": "opus-4",
+      "total": 86,
+      "dims": {
+        "weight": {
+          "score": 2.71,
+          "confidence": 0.73,
+          "frac": 0.903
+        },
+        "wire": {
+          "score": 2.45,
+          "confidence": 0.46,
+          "frac": 0.817
+        },
+        "elephant": {
+          "score": 2.36,
+          "confidence": 0.37,
+          "frac": 0.787
+        },
+        "scene": {
+          "score": 2.82,
+          "confidence": 0.82,
+          "frac": 0.94
+        }
+      },
+      "jev": "jev-1.13.0",
+      "rank": 1
+    },
+    {
+      "slug": "mimo-2.6-flash",
+      "total": 84,
+      "dims": {
+        "weight": {
+          "score": 2.61,
+          "confidence": 0.6,
+          "frac": 0.87
+        },
+        "wire": {
+          "score": 2.32,
+          "confidence": 0.49,
+          "frac": 0.773
+        },
+        "elephant": {
+          "score": 2.28,
+          "confidence": 0.27,
+          "frac": 0.76
+        },
+        "scene": {
+          "score": 2.89,
+          "confidence": 0.9,
+          "frac": 0.963
+        }
+      },
+      "jev": "jev-1.13.0",
+      "rank": 2
+    },
+    {
+      "slug": "glm-5.3-flash",
+      "total": 83,
+      "dims": {
+        "weight": {
+          "score": 2.25,
+          "confidence": 0.63,
+          "frac": 0.75
+        },
+        "wire": {
+          "score": 2.5,
+          "confidence": 0.51,
+          "frac": 0.833
+        },
+        "elephant": {
+          "score": 2.5,
+          "confidence": 0.49,
+          "frac": 0.833
+        },
+        "scene": {
+          "score": 2.83,
+          "confidence": 0.85,
+          "frac": 0.943
+        }
+      },
+      "jev": "jev-1.13.0",
+      "rank": 3
+    },
+    {
+      "slug": "deepseek-4.1-flash",
+      "total": 71,
+      "dims": {
+        "weight": {
+          "score": 1.38,
+          "confidence": 0.62,
+          "frac": 0.46
+        },
+        "wire": {
+          "score": 1.99,
+          "confidence": 0.99,
+          "frac": 0.663
+        },
+        "elephant": {
+          "score": 2.96,
+          "confidence": 0.97,
+          "frac": 0.987
+        },
+        "scene": {
+          "score": 2.39,
+          "confidence": 0.61,
+          "frac": 0.797
+        }
+      },
+      "jev": "jev-1.13.0",
+      "rank": 4
+    },
+    {
+      "slug": "ling-3.1-flash",
+      "total": 65,
+      "dims": {
+        "weight": {
+          "score": 1.83,
+          "confidence": 0.83,
+          "frac": 0.61
+        },
+        "wire": {
+          "score": 2,
+          "confidence": 1,
+          "frac": 0.667
+        },
+        "elephant": {
+          "score": 2.1,
+          "confidence": 0.82,
+          "frac": 0.7
+        },
+        "scene": {
+          "score": 1.88,
+          "confidence": 0.88,
+          "frac": 0.627
+        }
+      },
+      "jev": "jev-1.13.0",
+      "rank": 5
+    },
+    {
+      "slug": "gemini-3.8-flash",
+      "total": 55,
+      "dims": {
+        "weight": {
+          "score": 1.14,
+          "confidence": 0.86,
+          "frac": 0.38
+        },
+        "wire": {
+          "score": 1.94,
+          "confidence": 0.94,
+          "frac": 0.647
+        },
+        "elephant": {
+          "score": 1.84,
+          "confidence": 0.82,
+          "frac": 0.613
+        },
+        "scene": {
+          "score": 1.85,
+          "confidence": 0.81,
+          "frac": 0.617
+        }
+      },
+      "jev": "jev-1.13.0",
+      "rank": 6
+    },
+    {
+      "slug": "tierflow-pro",
+      "total": 55,
+      "dims": {
+        "weight": {
+          "score": 1.22,
+          "confidence": 0.78,
+          "frac": 0.407
+        },
+        "wire": {
+          "score": 1.87,
+          "confidence": 0.87,
+          "frac": 0.623
+        },
+        "elephant": {
+          "score": 1.29,
+          "confidence": 0.67,
+          "frac": 0.43
+        },
+        "scene": {
+          "score": 2.43,
+          "confidence": 0.55,
+          "frac": 0.81
+        }
+      },
+      "jev": "jev-1.13.0",
+      "rank": 7
+    },
+    {
+      "slug": "nemotron-3-ultra",
+      "total": 9,
+      "dims": {
+        "weight": {
+          "score": 0.05,
+          "confidence": 0.95,
+          "frac": 0.017
+        },
+        "wire": {
+          "score": 0,
+          "confidence": 1,
+          "frac": 0
+        },
+        "elephant": {
+          "score": 0.99,
+          "confidence": 0.99,
+          "frac": 0.33
+        },
+        "scene": {
+          "score": 0,
+          "confidence": 1,
+          "frac": 0
+        }
+      },
+      "jev": "jev-1.13.0",
+      "rank": 8
+    }
+  ]
+}

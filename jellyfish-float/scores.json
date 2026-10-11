@@ -1,0 +1,326 @@
+{
+  "generatedAt": "2026-10-11T04:03:43.747Z",
+  "model": "jev-1.13.0",
+  "weights": {
+    "translucency": 30,
+    "tentacles": 25,
+    "light": 25,
+    "beauty": 20
+  },
+  "dimLabels": {
+    "translucency": "伞体通透感",
+    "tentacles": "柔体律动",
+    "light": "水下光线",
+    "beauty": "整体美感"
+  },
+  "results": [
+    {
+      "slug": "mimo-2.6-flash",
+      "total": 88,
+      "dims": {
+        "translucency": {
+          "score": 2.25,
+          "confidence": 0.25,
+          "frac": 0.75
+        },
+        "tentacles": {
+          "score": 2.68,
+          "confidence": 0.66,
+          "frac": 0.893
+        },
+        "light": {
+          "score": 2.9,
+          "confidence": 0.92,
+          "frac": 0.967
+        },
+        "beauty": {
+          "score": 2.83,
+          "confidence": 0.84,
+          "frac": 0.943
+        }
+      },
+      "jev": "jev-1.13.0",
+      "rank": 1
+    },
+    {
+      "slug": "gemini-3.8-flash-25s",
+      "total": 87,
+      "dims": {
+        "translucency": {
+          "score": 2.55,
+          "confidence": 0.54,
+          "frac": 0.85
+        },
+        "tentacles": {
+          "score": 2.66,
+          "confidence": 0.64,
+          "frac": 0.887
+        },
+        "light": {
+          "score": 2.63,
+          "confidence": 0.63,
+          "frac": 0.877
+        },
+        "beauty": {
+          "score": 2.59,
+          "confidence": 0.58,
+          "frac": 0.863
+        }
+      },
+      "jev": "jev-1.13.0",
+      "rank": 2
+    },
+    {
+      "slug": "deepseek-4.1-flash",
+      "total": 86,
+      "dims": {
+        "translucency": {
+          "score": 2.42,
+          "confidence": 0.43,
+          "frac": 0.807
+        },
+        "tentacles": {
+          "score": 2.78,
+          "confidence": 0.77,
+          "frac": 0.927
+        },
+        "light": {
+          "score": 2.55,
+          "confidence": 0.56,
+          "frac": 0.85
+        },
+        "beauty": {
+          "score": 2.57,
+          "confidence": 0.58,
+          "frac": 0.857
+        }
+      },
+      "jev": "jev-1.13.0",
+      "rank": 3
+    },
+    {
+      "slug": "gemini-3.8-flash",
+      "total": 84,
+      "dims": {
+        "translucency": {
+          "score": 2.78,
+          "confidence": 0.76,
+          "frac": 0.927
+        },
+        "tentacles": {
+          "score": 1.73,
+          "confidence": 0.27,
+          "frac": 0.577
+        },
+        "light": {
+          "score": 2.82,
+          "confidence": 0.82,
+          "frac": 0.94
+        },
+        "beauty": {
+          "score": 2.77,
+          "confidence": 0.78,
+          "frac": 0.923
+        }
+      },
+      "jev": "jev-1.13.0",
+      "rank": 4
+    },
+    {
+      "slug": "ling-3.1-flash",
+      "total": 81,
+      "dims": {
+        "translucency": {
+          "score": 2.13,
+          "confidence": 0.13,
+          "frac": 0.71
+        },
+        "tentacles": {
+          "score": 2.38,
+          "confidence": 0.37,
+          "frac": 0.793
+        },
+        "light": {
+          "score": 2.72,
+          "confidence": 0.73,
+          "frac": 0.907
+        },
+        "beauty": {
+          "score": 2.63,
+          "confidence": 0.65,
+          "frac": 0.877
+        }
+      },
+      "jev": "jev-1.13.0",
+      "rank": 5
+    },
+    {
+      "slug": "tierflow-pro",
+      "total": 80,
+      "dims": {
+        "translucency": {
+          "score": 2.04,
+          "confidence": 0.25,
+          "frac": 0.68
+        },
+        "tentacles": {
+          "score": 2.4,
+          "confidence": 0.41,
+          "frac": 0.8
+        },
+        "light": {
+          "score": 2.71,
+          "confidence": 0.71,
+          "frac": 0.903
+        },
+        "beauty": {
+          "score": 2.51,
+          "confidence": 0.52,
+          "frac": 0.837
+        }
+      },
+      "jev": "jev-1.13.0",
+      "rank": 6
+    },
+    {
+      "slug": "muse-spark",
+      "total": 76,
+      "dims": {
+        "translucency": {
+          "score": 2.04,
+          "confidence": 0.03,
+          "frac": 0.68
+        },
+        "tentacles": {
+          "score": 2.19,
+          "confidence": 0.18,
+          "frac": 0.73
+        },
+        "light": {
+          "score": 2.62,
+          "confidence": 0.61,
+          "frac": 0.873
+        },
+        "beauty": {
+          "score": 2.35,
+          "confidence": 0.35,
+          "frac": 0.783
+        }
+      },
+      "jev": "jev-1.13.0",
+      "rank": 7
+    },
+    {
+      "slug": "gemini-3.8-flash-bioluminescent",
+      "total": 74,
+      "dims": {
+        "translucency": {
+          "score": 1.95,
+          "confidence": 0.93,
+          "frac": 0.65
+        },
+        "tentacles": {
+          "score": 2.19,
+          "confidence": 0.66,
+          "frac": 0.73
+        },
+        "light": {
+          "score": 2.56,
+          "confidence": 0.57,
+          "frac": 0.853
+        },
+        "beauty": {
+          "score": 2.18,
+          "confidence": 0.76,
+          "frac": 0.727
+        }
+      },
+      "jev": "jev-1.13.0",
+      "rank": 8
+    },
+    {
+      "slug": "glm-5.3-flash",
+      "total": 65,
+      "dims": {
+        "translucency": {
+          "score": 1.88,
+          "confidence": 0.73,
+          "frac": 0.627
+        },
+        "tentacles": {
+          "score": 1.01,
+          "confidence": 0.99,
+          "frac": 0.337
+        },
+        "light": {
+          "score": 2.51,
+          "confidence": 0.52,
+          "frac": 0.837
+        },
+        "beauty": {
+          "score": 2.5,
+          "confidence": 0.51,
+          "frac": 0.833
+        }
+      },
+      "jev": "jev-1.13.0",
+      "rank": 9
+    },
+    {
+      "slug": "gpt6-luna",
+      "total": 62,
+      "dims": {
+        "translucency": {
+          "score": 1.76,
+          "confidence": 0.77,
+          "frac": 0.587
+        },
+        "tentacles": {
+          "score": 1.86,
+          "confidence": 0.82,
+          "frac": 0.62
+        },
+        "light": {
+          "score": 1.93,
+          "confidence": 0.92,
+          "frac": 0.643
+        },
+        "beauty": {
+          "score": 1.9,
+          "confidence": 0.88,
+          "frac": 0.633
+        }
+      },
+      "jev": "jev-1.13.0",
+      "rank": 10
+    },
+    {
+      "slug": "opus-4",
+      "total": 47,
+      "dims": {
+        "translucency": {
+          "score": 1.85,
+          "confidence": 0.81,
+          "frac": 0.617
+        },
+        "tentacles": {
+          "score": 1.05,
+          "confidence": 0.94,
+          "frac": 0.35
+        },
+        "light": {
+          "score": 0.98,
+          "confidence": 0.64,
+          "frac": 0.327
+        },
+        "beauty": {
+          "score": 1.72,
+          "confidence": 0.71,
+          "frac": 0.573
+        }
+      },
+      "jev": "jev-1.13.0",
+      "rank": 11
+    }
+  ]
+}
