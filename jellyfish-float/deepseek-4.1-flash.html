@@ -1,0 +1,741 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Jellyfish Drift</title>
+<style>
+  html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #01060f; }
+  canvas { display: block; width: 100%; height: 100%; }
+  #err {
+    position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
+    color: #9fd8ff; background: #01060f; font: 14px/1.6 ui-monospace, Consolas, monospace;
+    text-align: center; padding: 24px;
+  }
+</style>
+</head>
+<body>
+<div id="err"></div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+
+// If the CDN modules never arrive (offline / blocked), say so instead of showing black.
+setTimeout(() => {
+  if (!document.querySelector('canvas')) {
+    const el = document.getElementById('err');
+    el.style.display = 'flex';
+    el.textContent = '无法从 CDN 加载 Three.js —— 请联网后重新打开此文件。';
+  }
+}, 10000);
+
+try { main(); } catch (e) { fail(e); }
+function fail(e) {
+  const el = document.getElementById('err');
+  el.style.display = 'flex';
+  el.textContent = '场景初始化失败：' + (e && e.message ? e.message : e);
+  console.error(e);
+}
+
+function main() {
+
+/* ------------------------------------------------------------------ *
+ *  Renderer / scene / camera
+ * ------------------------------------------------------------------ */
+const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
+renderer.setSize(window.innerWidth, window.innerHeight);
+// Linear HDR pipeline: tone mapping + sRGB encode are done by hand in the final grade pass.
+renderer.toneMapping = THREE.NoToneMapping;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(44, window.innerWidth / window.innerHeight, 0.1, 800);
+camera.position.set(0, 0.85, 7.2);
+
+/* ------------------------------------------------------------------ *
+ *  Water background — deep gradient dome with slow caustic banding
+ * ------------------------------------------------------------------ */
+const bgMat = new THREE.ShaderMaterial({
+  uniforms: { uTime: { value: 0 } },
+  vertexShader: /* glsl */`
+    varying vec3 vDir;
+    void main() {
+      vDir = normalize(position);
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    }`,
+  fragmentShader: /* glsl */`
+    varying vec3 vDir;
+    uniform float uTime;
+    void main() {
+      float h = clamp(vDir.y * 0.5 + 0.5, 0.0, 1.0);
+      vec3 bot = vec3(0.0006, 0.0032, 0.0120);
+      vec3 mid = vec3(0.0035, 0.0165, 0.0430);
+      vec3 top = vec3(0.0170, 0.0640, 0.1250);
+      vec3 c = mix(bot, mid, smoothstep(0.14, 0.56, h));
+      c = mix(c, top, smoothstep(0.56, 1.0, h));
+      // very large, slow caustic bands near the surface
+      float band = sin(vDir.x * 5.5 + uTime * 0.11) * sin(vDir.z * 4.5 - uTime * 0.08);
+      c += top * 0.35 * max(band, 0.0) * smoothstep(0.5, 1.0, h);
+      gl_FragColor = vec4(c, 1.0);
+    }`,
+  side: THREE.BackSide,
+  depthWrite: false,
+  depthTest: false
+});
+const bg = new THREE.Mesh(new THREE.SphereGeometry(320, 32, 24), bgMat);
+bg.renderOrder = -1000;
+scene.add(bg);
+
+/* ------------------------------------------------------------------ *
+ *  Volumetric god rays
+ * ------------------------------------------------------------------ */
+const shaftMats = [];
+function makeShaftMaterial(seed, opacity) {
+  return new THREE.ShaderMaterial({
+    uniforms: { uTime: { value: 0 }, uSeed: { value: seed }, uOpacity: { value: opacity } },
+    vertexShader: /* glsl */`
+      varying vec2 vUv;
+      void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+    fragmentShader: /* glsl */`
+      varying vec2 vUv;
+      uniform float uTime, uSeed, uOpacity;
+      void main() {
+        float x = vUv.x, y = vUv.y;
+        float beam = exp(-pow((x - 0.5) * 3.6, 2.0));
+        float vert = smoothstep(0.0, 0.62, y);
+        float shim = 0.55 + 0.45 * sin(uTime * 0.42 + uSeed * 7.3 + y * 5.0 + x * 3.0);
+        shim *= 0.72 + 0.28 * sin(uTime * 0.21 + uSeed * 3.1 - y * 2.0);
+        float a = beam * vert * shim * uOpacity;
+        vec3 col = vec3(0.30, 0.60, 0.95);
+        gl_FragColor = vec4(col * a, a);
+      }`,
+    transparent: true, blending: THREE.AdditiveBlending,
+    depthWrite: false, side: THREE.DoubleSide
+  });
+}
+for (let i = 0; i < 10; i++) {
+  const w = 0.9 + Math.random() * 2.4;
+  const h = 17 + Math.random() * 11;
+  const mat = makeShaftMaterial(i * 1.7, 0.24 + Math.random() * 0.24);
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h, 1, 1), mat);
+  m.position.set((Math.random() - 0.5) * 24, 5.0 + Math.random() * 3.5, -5 - Math.random() * 18);
+  m.rotation.z = (Math.random() - 0.5) * 0.32;
+  m.rotation.y = (Math.random() - 0.5) * 0.9;
+  scene.add(m);
+  shaftMats.push(mat);
+}
+
+// soft sun bloom high above, far behind
+const sunMat = new THREE.ShaderMaterial({
+  uniforms: { uTime: { value: 0 } },
+  vertexShader: /* glsl */`
+    varying vec2 vUv;
+    void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+  fragmentShader: /* glsl */`
+    varying vec2 vUv;
+    uniform float uTime;
+    void main() {
+      vec2 d = (vUv - vec2(0.5, 0.60)) * vec2(1.0, 1.55);
+      float r2 = dot(d, d);
+      float a = exp(-r2 * 3.1) * 0.30 * (0.86 + 0.14 * sin(uTime * 0.37));
+      vec3 col = mix(vec3(0.30, 0.66, 1.0), vec3(0.78, 0.96, 1.0), exp(-r2 * 6.5));
+      gl_FragColor = vec4(col * a, a);
+    }`,
+  transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false
+});
+const sun = new THREE.Mesh(new THREE.PlaneGeometry(52, 34), sunMat);
+sun.position.set(0, 14, -40);
+sun.renderOrder = -900;
+scene.add(sun);
+
+/* ------------------------------------------------------------------ *
+ *  Jellyfish
+ * ------------------------------------------------------------------ */
+const jelly = new THREE.Group();
+scene.add(jelly);
+
+const PULSE_SPEED = 2.05;      // rad / s  (~3.1 s per beat)
+const BELL_RADIUS = 1.18;
+
+/* ---- bell geometry: revolved dome with a scalloped rim ------------- */
+function buildBellGeometry() {
+  const SU = 44, SV = 112;
+  const pos = [], uv = [], idx = [];
+  for (let i = 0; i <= SU; i++) {
+    const u = i / SU;
+    const th = u * Math.PI * 0.5;
+    const rb = Math.pow(Math.sin(th), 0.72);
+    const yb = Math.cos(th) * 0.92;
+    for (let j = 0; j <= SV; j++) {
+      const v = j / SV;
+      const a = v * Math.PI * 2;
+      const frill = Math.pow(Math.max(0, (u - 0.68) / 0.32), 1.8);
+      const ripple = 1 + 0.062 * Math.cos(a * 10.0) * frill;
+      const r = rb * BELL_RADIUS * ripple;
+      pos.push(Math.cos(a) * r, yb, Math.sin(a) * r);
+      uv.push(v, u);
+    }
+  }
+  for (let i = 0; i < SU; i++) {
+    for (let j = 0; j < SV; j++) {
+      const a0 = i * (SV + 1) + j;
+      const b0 = (i + 1) * (SV + 1) + j;
+      idx.push(a0, b0, a0 + 1, b0, b0 + 1, a0 + 1);
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  return g;
+}
+
+const bellMat = new THREE.ShaderMaterial({
+  uniforms: {
+    uTime: { value: 0 },
+    uPulseSpeed: { value: PULSE_SPEED },
+    uDeep: { value: new THREE.Color(0x0d3a6b) },
+    uRim: { value: new THREE.Color(0x5fd6ff) },
+    uGlow: { value: new THREE.Color(0x9beeff) }
+  },
+  vertexShader: /* glsl */`
+    uniform float uTime, uPulseSpeed;
+    varying vec2 vUv;
+    varying float vPulse;
+    varying vec3 vNrmW;
+    varying vec3 vView;
+    varying vec3 vWorld;
+
+    void main() {
+      vUv = uv;
+      float u = uv.y;                       // 0 = apex, 1 = rim
+
+      // contraction wave travelling from apex down to the rim
+      float local = 0.5 + 0.5 * sin(uTime * uPulseSpeed - u * 1.35);
+      float amt = local * (0.28 + 0.72 * u);
+      vPulse = amt;
+
+      float rs = 1.0 - 0.255 * amt;         // rim pulls in
+      float hs = 1.0 + 0.260 * amt;         // bell stretches up
+
+      vec3 p = position;
+      p.xz *= rs;
+      p.y *= hs;
+      p.y -= 0.075 * u * u * amt;           // rim curls under while contracting
+      p.xz *= 1.0 + 0.035 * u * u * sin(uv.x * 62.8318 + uTime * 1.5);
+
+      vec4 wp = modelMatrix * vec4(p, 1.0);
+      vWorld = wp.xyz;
+      vNrmW = normalize(mat3(modelMatrix) * (normal / vec3(rs, hs, rs)));
+      vec4 mv = viewMatrix * wp;
+      vView = normalize(-mv.xyz);
+      gl_Position = projectionMatrix * mv;
+    }`,
+  fragmentShader: /* glsl */`
+    uniform float uTime;
+    uniform vec3 uDeep, uRim, uGlow;
+    varying vec2 vUv;
+    varying float vPulse;
+    varying vec3 vNrmW;
+    varying vec3 vView;
+    varying vec3 vWorld;
+
+    float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123); }
+    float vnoise(vec2 p) {
+      vec2 i = floor(p), f = fract(p);
+      f = f * f * (3.0 - 2.0 * f);
+      return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), f.x),
+                 mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), f.x), f.y);
+    }
+
+    void main() {
+      vec3 N = normalize(vNrmW);
+      vec3 V = normalize(vView);
+      float fres = pow(1.0 - abs(dot(N, V)), 2.3);
+
+      float u = vUv.y, v = vUv.x;
+
+      // radial ribs of the bell
+      float ribs = 0.5 + 0.5 * sin(v * 150.7964);
+      ribs = mix(1.0, ribs, 0.30 * u);
+
+      // inner light, brightest at the apex and on each contraction
+      float core = pow(1.0 - u, 2.2) * (0.45 + 0.55 * vPulse);
+
+      // four horseshoe-shaped gonads: a soft ring scalloped with 4-fold symmetry
+      float a4 = v * 12.5664;
+      float uc = 0.44 + 0.11 * sin(a4);
+      float gonad = exp(-pow((u - uc) / 0.075, 2.0)) * (0.6 + 0.4 * vPulse);
+
+      vec3 col = mix(uDeep, uRim, fres * 0.85);
+      col += uGlow * core * 0.55;
+      col += vec3(0.26, 0.58, 0.95) * gonad * 0.22;
+      col *= ribs;
+
+      float shimmer = vnoise(vec2(v * 26.0, u * 8.0 - uTime * 0.35));
+      col += uGlow * shimmer * 0.10 * (0.35 + 0.65 * (1.0 - fres));
+
+      col += vec3(0.06, 0.03, 0.11) * pow(fres, 1.6) * (0.5 + 0.5 * sin(uTime * 0.8 + u * 5.0));
+
+      // glassy glint from the surface light above
+      vec3 L = normalize(vec3(0.25, 0.92, -0.30));
+      vec3 H = normalize(L + V + vec3(1e-5));
+      col += vec3(0.70, 0.90, 1.0) * pow(abs(dot(N, H)), 40.0) * 0.9;
+
+      float rimFade = 0.35 + 0.65 * smoothstep(0.0, 0.18, u);
+      float alpha = (0.050 + 0.72 * fres + 0.16 * pow(1.0 - u, 2.0)) * rimFade * (0.55 + 0.45 * vPulse);
+      alpha *= exp(-length(vWorld - cameraPosition) * 0.020);
+
+      gl_FragColor = vec4(col, clamp(alpha, 0.0, 1.0));
+    }`,
+  transparent: true,
+  blending: THREE.AdditiveBlending,
+  depthWrite: false,
+  side: THREE.DoubleSide
+});
+const bell = new THREE.Mesh(buildBellGeometry(), bellMat);
+jelly.add(bell);
+
+/* ---- strand (tentacle / oral-arm) system --------------------------- */
+const STRAND_VERT = /* glsl */`
+  attribute float aT, aSide, aAxis, aAngle, aPhase, aLen, aRad, aWob;
+
+  uniform float uTime, uBaseRadius, uSegLen, uWidth;
+  uniform float uSwaySpeed, uSwayAmp, uWaveFreq, uFlare;
+  uniform float uRuffleFreq, uRuffleAmp, uTwist, uTwistY;
+  uniform float uContract, uLag;
+
+  varying float vT, vSide, vPhase;
+  varying vec3 vWorld, vNrm, vView;
+
+  void main() {
+    float t = aT;
+    vT = t; vSide = aSide; vPhase = aPhase;
+
+    vec2 rad2 = vec2(cos(aAngle), sin(aAngle));
+    float len = uSegLen * aLen;
+    float r0 = uBaseRadius * aRad * (1.0 - 0.09 * uContract);
+
+    vec3 p = vec3(rad2.x * r0, 0.0, rad2.y * r0);
+
+    // flaring outward before the strand droops
+    p.xz += rad2 * r0 * uFlare * pow(t, 1.7);
+
+    // travelling sway wave
+    float ph = aPhase * 6.2831;
+    float w1 = sin(uTime * uSwaySpeed + ph + t * uWaveFreq);
+    float w2 = cos(uTime * uSwaySpeed * 0.78 + ph * 1.31 + t * uWaveFreq * 0.83);
+    float amp = uSwayAmp * aWob * pow(t, 1.35);
+    p.x += w1 * amp;
+    p.z += w2 * amp;
+
+    // hang down, trailing behind the bell's motion
+    p.y -= len * t * (1.0 - 0.06 * t);
+    p.y -= uLag * pow(t, 1.25);
+
+    // ribbon width
+    float w = uWidth * (0.5 + 0.5 * sin(t * 3.14159)) * pow(max(0.0, 1.0 - t), 0.5) + 0.0025;
+    w *= 1.0 + uRuffleAmp * sin(t * uRuffleFreq + ph * 2.0);
+
+    vec2 perp = (aAxis > 0.5) ? rad2 : vec2(-rad2.y, rad2.x);
+    float tw = uTwist * t * t;
+    float ct = cos(tw), st = sin(tw);
+    vec2 pr = vec2(perp.x * ct - perp.y * st, perp.x * st + perp.y * ct);
+    vec3 wdir = normalize(vec3(pr.x, uTwistY * sin(tw) * 0.9, pr.y) + vec3(0.0, 1e-4, 0.0));
+
+    p += wdir * (aSide * w);
+
+    vec4 wp = modelMatrix * vec4(p, 1.0);
+    vWorld = wp.xyz;
+
+    vec3 nrm = (aAxis > 0.5) ? vec3(-rad2.y, 0.0, rad2.x) : vec3(rad2.x, 0.0, rad2.y);
+    nrm = normalize(nrm + vec3(0.0, 0.30 * sin(uTime * uSwaySpeed + ph + t * 4.0), 0.0));
+    vNrm = normalize(mat3(modelMatrix) * nrm);
+
+    vec4 mv = viewMatrix * wp;
+    vView = normalize(-mv.xyz);
+    gl_Position = projectionMatrix * mv;
+  }`;
+
+const STRAND_FRAG = /* glsl */`
+  uniform float uTime, uOpacity, uGlowSpeed;
+  uniform vec3 uColorA, uColorB;
+  varying float vT, vSide, vPhase;
+  varying vec3 vWorld, vNrm, vView;
+
+  void main() {
+    float edge = smoothstep(0.0, 0.85, 1.0 - abs(vSide));
+    float along = smoothstep(1.0, 0.62, vT);   // dissolve toward the tip
+    float head  = smoothstep(0.0, 0.10, vT);   // soft root
+
+    float facing = abs(dot(normalize(vNrm), normalize(vView)));
+    float body = mix(1.0, 0.42, facing);
+
+    float pulse = 0.62 + 0.38 * sin(uTime * uGlowSpeed + vPhase * 6.2831 + vT * 7.0);
+    float bead = pow(max(0.0, sin(vT * 22.0 - uTime * 1.9 + vPhase * 6.2831)), 10.0);
+
+    vec3 col = mix(uColorA, uColorB, pow(vT, 0.65));
+    col += uColorB * bead * 1.1;
+
+    float a = edge * along * head * uOpacity * pulse * body;
+    a += bead * edge * along * head * 0.40;
+    a *= exp(-length(vWorld - cameraPosition) * 0.028);
+
+    gl_FragColor = vec4(col * (0.75 + 0.5 * pulse), a);
+  }`;
+
+function buildStrands(cfg) {
+  const { count, segs, planes = 2, angleOffset = 0, angleJitter = 0, radialJitter = 0, lenMin, lenMax } = cfg;
+  const total = count * planes * segs * 6;
+  const aT = new Float32Array(total), aSide = new Float32Array(total), aAxis = new Float32Array(total);
+  const aAngle = new Float32Array(total), aPhase = new Float32Array(total), aLen = new Float32Array(total);
+  const aRad = new Float32Array(total), aWob = new Float32Array(total);
+  const pos = new Float32Array(total * 3);
+
+  let k = 0;
+  for (let i = 0; i < count; i++) {
+    const ang = angleOffset + (i / count) * Math.PI * 2 + (Math.random() - 0.5) * angleJitter;
+    const len = lenMin + Math.random() * (lenMax - lenMin);
+    const rad = 1 + (Math.random() - 0.5) * radialJitter;
+    const phase = Math.random();
+    const wob = 0.65 + Math.random() * 0.7;
+
+    for (let pl = 0; pl < planes; pl++) {
+      for (let s = 0; s < segs; s++) {
+        const t0 = s / segs, t1 = (s + 1) / segs;
+        // two triangles, wound so both ribbon sides are covered
+        const q = [t0, -1, t1, -1, t1, 1, t0, -1, t1, 1, t0, 1];
+        for (let n = 0; n < 12; n += 2) {
+          aT[k] = q[n]; aSide[k] = q[n + 1]; aAxis[k] = pl; aAngle[k] = ang;
+          aPhase[k] = phase; aLen[k] = len; aRad[k] = rad; aWob[k] = wob;
+          k++;
+        }
+      }
+    }
+  }
+
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  g.setAttribute('aT', new THREE.BufferAttribute(aT, 1));
+  g.setAttribute('aSide', new THREE.BufferAttribute(aSide, 1));
+  g.setAttribute('aAxis', new THREE.BufferAttribute(aAxis, 1));
+  g.setAttribute('aAngle', new THREE.BufferAttribute(aAngle, 1));
+  g.setAttribute('aPhase', new THREE.BufferAttribute(aPhase, 1));
+  g.setAttribute('aLen', new THREE.BufferAttribute(aLen, 1));
+  g.setAttribute('aRad', new THREE.BufferAttribute(aRad, 1));
+  g.setAttribute('aWob', new THREE.BufferAttribute(aWob, 1));
+  g.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 0, 0), 30);
+  return g;
+}
+
+function makeStrandMaterial(o) {
+  const m = new THREE.ShaderMaterial({
+    uniforms: {
+      uTime: { value: 0 },
+      uBaseRadius: { value: o.baseRadius },
+      uSegLen: { value: o.segLen },
+      uWidth: { value: o.width },
+      uSwaySpeed: { value: o.swaySpeed },
+      uSwayAmp: { value: o.swayAmp },
+      uWaveFreq: { value: o.waveFreq },
+      uFlare: { value: o.flare },
+      uRuffleFreq: { value: o.ruffleFreq },
+      uRuffleAmp: { value: o.ruffleAmp },
+      uTwist: { value: o.twist || 0 },
+      uTwistY: { value: o.twistY || 0 },
+      uContract: { value: 0 },
+      uLag: { value: 0 },
+      uColorA: { value: new THREE.Color(o.colorA) },
+      uColorB: { value: new THREE.Color(o.colorB) },
+      uOpacity: { value: o.opacity },
+      uGlowSpeed: { value: o.glowSpeed || 1.6 }
+    },
+    vertexShader: STRAND_VERT,
+    fragmentShader: STRAND_FRAG,
+    transparent: true,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    side: THREE.DoubleSide
+  });
+  strandMats.push(m);
+  return m;
+}
+
+const strandMats = [];
+
+// long trailing tentacles
+const longMat = makeStrandMaterial({
+  baseRadius: BELL_RADIUS * 0.90, segLen: 3.0, width: 0.016,
+  swaySpeed: 1.05, swayAmp: 0.30, waveFreq: 3.4, flare: 0.10,
+  ruffleFreq: 14.0, ruffleAmp: 0.35,
+  colorA: 0xa8ecff, colorB: 0x5fd0ff, opacity: 0.48, glowSpeed: 1.5
+});
+const longMesh = new THREE.Mesh(
+  buildStrands({ count: 16, segs: 46, angleJitter: 0.24, radialJitter: 0.06, lenMin: 0.80, lenMax: 1.25 }),
+  longMat
+);
+longMesh.frustumCulled = false;
+jelly.add(longMesh);
+
+// short marginal tentacles fringing the rim
+const margMat = makeStrandMaterial({
+  baseRadius: BELL_RADIUS * 1.02, segLen: 0.44, width: 0.009,
+  swaySpeed: 1.7, swayAmp: 0.10, waveFreq: 5.0, flare: 0.18,
+  ruffleFreq: 10.0, ruffleAmp: 0.30,
+  colorA: 0xc4f4ff, colorB: 0x86e2ff, opacity: 0.34, glowSpeed: 2.1
+});
+const margMesh = new THREE.Mesh(
+  buildStrands({ count: 58, segs: 18, angleJitter: 0.05, radialJitter: 0.03, lenMin: 0.80, lenMax: 1.20 }),
+  margMat
+);
+margMesh.frustumCulled = false;
+jelly.add(margMesh);
+
+// ruffled oral arms
+const oralMat = makeStrandMaterial({
+  baseRadius: 0.34, segLen: 2.45, width: 0.14,
+  swaySpeed: 0.75, swayAmp: 0.30, waveFreq: 2.4, flare: 0.55,
+  ruffleFreq: 20.0, ruffleAmp: 0.65, twist: 1.6, twistY: 0.85,
+  colorA: 0xd6efff, colorB: 0x8ad4ff, opacity: 0.26, glowSpeed: 1.0
+});
+const oralMesh = new THREE.Mesh(
+  buildStrands({ count: 8, segs: 42, angleOffset: 0.2, angleJitter: 0.5, radialJitter: 0.16, lenMin: 0.5, lenMax: 0.95 }),
+  oralMat
+);
+oralMesh.frustumCulled = false;
+jelly.add(oralMesh);
+
+/* ------------------------------------------------------------------ *
+ *  Marine snow
+ * ------------------------------------------------------------------ */
+const PCOUNT = 1500;
+const pPos = new Float32Array(PCOUNT * 3);
+const pSize = new Float32Array(PCOUNT);
+const pPhase = new Float32Array(PCOUNT);
+const pSpeed = new Float32Array(PCOUNT);
+const pSeed = new Float32Array(PCOUNT);
+for (let i = 0; i < PCOUNT; i++) {
+  pPos[i * 3] = (Math.random() - 0.5) * 36;
+  pPos[i * 3 + 1] = (Math.random() - 0.5) * 26;
+  pPos[i * 3 + 2] = (Math.random() - 0.5) * 32 - 4;
+  pSize[i] = 0.8 + Math.random() * 2.4;
+  pPhase[i] = Math.random() * 6.2831;
+  pSpeed[i] = 0.10 + Math.random() * 0.35;
+  pSeed[i] = Math.random();
+}
+const pGeo = new THREE.BufferGeometry();
+pGeo.setAttribute('position', new THREE.BufferAttribute(pPos, 3));
+pGeo.setAttribute('aSize', new THREE.BufferAttribute(pSize, 1));
+pGeo.setAttribute('aPhase', new THREE.BufferAttribute(pPhase, 1));
+pGeo.setAttribute('aSpeed', new THREE.BufferAttribute(pSpeed, 1));
+pGeo.setAttribute('aSeed', new THREE.BufferAttribute(pSeed, 1));
+pGeo.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 0, 0), 40);
+
+const pMat = new THREE.ShaderMaterial({
+  uniforms: { uTime: { value: 0 } },
+  vertexShader: /* glsl */`
+    attribute float aSize, aPhase, aSpeed, aSeed;
+    uniform float uTime;
+    varying float vAlpha, vSeed;
+    void main() {
+      vec3 p = position;
+      p.y = mod(p.y - uTime * aSpeed + 13.0, 26.0) - 13.0;
+      p.x += sin(uTime * 0.25 + aPhase) * 0.7;
+      p.z += cos(uTime * 0.19 + aPhase * 1.4) * 0.7;
+      vec4 mv = modelViewMatrix * vec4(p, 1.0);
+      gl_PointSize = aSize * (30.0 / max(0.001, -mv.z));
+      gl_Position = projectionMatrix * mv;
+      vAlpha = exp(mv.z * 0.055) * (0.22 + 0.55 * aSeed);
+      vSeed = aSeed;
+    }`,
+  fragmentShader: /* glsl */`
+    varying float vAlpha, vSeed;
+    void main() {
+      float r = length(gl_PointCoord - 0.5);
+      float a = pow(smoothstep(0.5, 0.0, r), 2.2) * vAlpha * 0.9;
+      vec3 col = mix(vec3(0.52, 0.76, 1.0), vec3(0.78, 0.96, 1.0), vSeed);
+      gl_FragColor = vec4(col * a, a);
+    }`,
+  transparent: true, blending: THREE.AdditiveBlending, depthWrite: false
+});
+const particles = new THREE.Points(pGeo, pMat);
+particles.frustumCulled = false;
+scene.add(particles);
+
+/* ------------------------------------------------------------------ *
+ *  Post-processing: bloom + hand-written ACES / grade / vignette / grain
+ * ------------------------------------------------------------------ */
+const GradeShader = {
+  uniforms: {
+    tDiffuse: { value: null },
+    uTime: { value: 0 },
+    uResolution: { value: new THREE.Vector2(1, 1) },
+    uExposure: { value: 0.95 }
+  },
+  vertexShader: /* glsl */`
+    varying vec2 vUv;
+    void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+  fragmentShader: /* glsl */`
+    uniform sampler2D tDiffuse;
+    uniform float uTime, uExposure;
+    uniform vec2 uResolution;
+    varying vec2 vUv;
+
+    vec3 aces(vec3 x) {
+      return clamp((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14), 0.0, 1.0);
+    }
+    vec3 toSRGB(vec3 c) {
+      c = max(c, vec3(0.0));
+      return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(vec3(0.0031308), c));
+    }
+    float rand(vec2 co) { return fract(sin(dot(co, vec2(12.9898, 78.233))) * 43758.5453); }
+
+    void main() {
+      vec2 uv = vUv;
+      vec2 d = uv - 0.5;
+      float r2 = dot(d, d);
+
+      float ca = 0.0014 + 0.0075 * r2;
+      vec3 col;
+      col.r = texture2D(tDiffuse, uv + d * ca).r;
+      col.g = texture2D(tDiffuse, uv).g;
+      col.b = texture2D(tDiffuse, uv - d * ca).b;
+
+      col = aces(col * uExposure);
+      col = toSRGB(col);
+
+      float vig = 1.0 - smoothstep(0.34, 0.96, length(d) * 1.35);
+      col *= mix(0.42, 1.0, vig);
+
+      col += vec3(0.006, 0.017, 0.034) * (1.0 - smoothstep(0.0, 0.35, dot(col, vec3(0.3333))));
+
+      col += (rand(uv * uResolution + fract(uTime) * 137.0) - 0.5) * 0.028;
+
+      gl_FragColor = vec4(col, 1.0);
+    }`
+};
+
+const composer = new EffectComposer(renderer);
+composer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
+composer.setSize(window.innerWidth, window.innerHeight);
+composer.addPass(new RenderPass(scene, camera));
+
+const bloom = new UnrealBloomPass(
+  new THREE.Vector2(window.innerWidth, window.innerHeight), 0.45, 0.62, 0.55
+);
+composer.addPass(bloom);
+
+const grade = new ShaderPass(GradeShader);
+grade.uniforms.uResolution.value.set(window.innerWidth, window.innerHeight);
+composer.addPass(grade);
+
+/* ------------------------------------------------------------------ *
+ *  Animation
+ * ------------------------------------------------------------------ */
+const clock = new THREE.Clock();
+let time = 0;
+let prevBellY = 0.78;
+let lag = 0;
+
+function updateScene(t, dt) {
+  const phase = t * PULSE_SPEED;
+
+  // bell contraction at the rim — drives the strands too
+  const contractRim = 0.5 + 0.5 * Math.sin(phase - 1.35);
+
+  // thrust: the body rises just after each contraction
+  const bellY = 0.78 + 0.18 * Math.sin(phase - 2.35) + 0.07 * Math.sin(t * 0.21 + 0.4);
+
+  const v = (bellY - prevBellY) / Math.max(dt, 1e-4);
+  prevBellY = bellY;
+  const lagTarget = THREE.MathUtils.clamp(v * 0.30, -0.55, 0.55);
+  lag += (lagTarget - lag) * Math.min(1, dt * 4.0);
+
+  jelly.position.set(0.55 * Math.sin(t * 0.115), bellY, 0.35 * Math.cos(t * 0.083));
+  jelly.rotation.set(
+    0.055 * Math.sin(t * 0.140 + 1.1),
+    0.30 * Math.sin(t * 0.065),
+    0.075 * Math.sin(t * 0.190)
+  );
+
+  // bell follows the pulse
+  bellMat.uniforms.uTime.value = t;
+
+  for (const m of strandMats) {
+    m.uniforms.uTime.value = t;
+    m.uniforms.uContract.value = contractRim;
+    m.uniforms.uLag.value = lag;
+  }
+
+  bgMat.uniforms.uTime.value = t;
+  sunMat.uniforms.uTime.value = t;
+  pMat.uniforms.uTime.value = t;
+  for (const m of shaftMats) m.uniforms.uTime.value = t;
+  grade.uniforms.uTime.value = t;
+
+  // slow drifting camera that never quite settles
+  const az = Math.sin(t * 0.055) * 0.85;
+  const r = 6.8 + Math.sin(t * 0.083) * 0.7;
+  camera.position.set(
+    Math.sin(az) * r + jelly.position.x * 0.25,
+    0.75 + Math.sin(t * 0.117) * 0.45,
+    Math.cos(az) * r + jelly.position.z * 0.25
+  );
+  camera.up.set(Math.sin(t * 0.07) * 0.07, 1, 0).normalize();
+  camera.lookAt(
+    jelly.position.x * 0.6,
+    -0.30 + 0.12 * Math.sin(t * 0.09),
+    jelly.position.z * 0.6
+  );
+}
+
+function animate() {
+  requestAnimationFrame(animate);
+  const dt = Math.min(clock.getDelta(), 0.05);
+  time += dt;
+  updateScene(time, dt);
+  composer.render();
+}
+animate();
+
+/* ------------------------------------------------------------------ *
+ *  Resize
+ * ------------------------------------------------------------------ */
+let resizeTimer = 0;
+window.addEventListener('resize', () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => {
+    const w = window.innerWidth, h = window.innerHeight;
+    const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+    camera.aspect = w / h;
+    camera.updateProjectionMatrix();
+    renderer.setPixelRatio(dpr);
+    renderer.setSize(w, h);
+    composer.setPixelRatio(dpr);
+    composer.setSize(w, h);
+    bloom.setSize(w, h);
+    grade.uniforms.uResolution.value.set(w, h);
+  }, 120);
+});
+
+}
+</script>
+<!--zc-home:start--><style>.zc-home-btn{position:fixed;top:16px;left:16px;z-index:2147483647;display:inline-flex;align-items:center;gap:6px;padding:8px 14px;font:500 13px/1.1 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Noto Sans SC",sans-serif;color:#111;background:rgba(255,255,255,.86);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);border:1px solid rgba(0,0,0,.08);border-radius:999px;text-decoration:none;box-shadow:0 2px 12px rgba(0,0,0,.2);transition:background .2s ease,transform .2s ease,box-shadow .2s ease}.zc-home-btn:hover{background:#fff;transform:translateY(-1px);box-shadow:0 4px 18px rgba(0,0,0,.26)}</style><a class="zc-home-btn" href="../">← 返回首页</a><!--zc-home:end-->
+</body>
+</html>

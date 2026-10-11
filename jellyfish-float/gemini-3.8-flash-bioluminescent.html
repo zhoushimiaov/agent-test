@@ -1,0 +1,590 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Bioluminescent Jellyfish</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+        body, html {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #010612;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        }
+        #webgl-canvas {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            display: block;
+            z-index: 1;
+        }
+        /* Soft subtle vignette overlay to enhance underwater depth */
+        .vignette {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 2;
+            background: radial-gradient(circle at 50% 45%, transparent 40%, rgba(1, 6, 18, 0.5) 80%, rgba(0, 3, 10, 0.88) 100%);
+        }
+    </style>
+    <!-- Three.js CDN -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+<body>
+    <canvas id="webgl-canvas"></canvas>
+    <div class="vignette"></div>
+
+    <script>
+    window.onload = function() {
+        const canvas = document.getElementById('webgl-canvas');
+        const scene = new THREE.Scene();
+        
+        // Deep ocean fog for organic atmospheric falloff
+        scene.fog = new THREE.FogExp2(0x020a1c, 0.032);
+
+        const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 150);
+        camera.position.set(0, 1.2, 13.5);
+
+        const renderer = new THREE.WebGLRenderer({
+            canvas: canvas,
+            antialias: true,
+            powerPreference: "high-performance",
+            alpha: false
+        });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        renderer.setClearColor(0x010714, 1.0);
+
+        // Ambient soft blue deep sea illumination
+        const ambientLight = new THREE.AmbientLight(0x051a36, 1.6);
+        scene.add(ambientLight);
+
+        // Sunlight drifting from the ocean surface above
+        const topSunLight = new THREE.DirectionalLight(0x4ee2ec, 1.8);
+        topSunLight.position.set(2, 20, 6);
+        scene.add(topSunLight);
+
+        // Bioluminescent internal heart light inside the jellyfish
+        const internalHeartLight = new THREE.PointLight(0x00f3ff, 2.8, 14, 1.6);
+        internalHeartLight.position.set(0, 0, 0);
+        scene.add(internalHeartLight);
+
+        const secondaryWarmLight = new THREE.PointLight(0xd946ef, 1.4, 9, 2);
+        secondaryWarmLight.position.set(0, -0.6, 0);
+        scene.add(secondaryWarmLight);
+
+        // Volumetric atmospheric light shafts (God rays)
+        const rayCount = 12;
+        const raysGroup = new THREE.Group();
+        const rayGeo = new THREE.CylinderGeometry(0.08, 1.8, 28, 16, 1, true);
+        const rayMat = new THREE.ShaderMaterial({
+            transparent: true,
+            depthWrite: false,
+            blending: THREE.AdditiveBlending,
+            side: THREE.DoubleSide,
+            uniforms: {
+                uTime: { value: 0 }
+            },
+            vertexShader: `
+                varying vec2 vUv;
+                varying float vElevation;
+                void main() {
+                    vUv = uv;
+                    vElevation = position.y;
+                    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                }
+            `,
+            fragmentShader: `
+                uniform float uTime;
+                varying vec2 vUv;
+                varying float vElevation;
+                void main() {
+                    float verticalFade = smoothstep(-14.0, 10.0, vElevation) * smoothstep(14.0, 0.0, vElevation);
+                    float shimmer = 0.5 + 0.5 * sin(vUv.x * 20.0 + uTime * 0.45);
+                    float alpha = verticalFade * shimmer * 0.07;
+                    vec3 col = mix(vec3(0.05, 0.45, 0.7), vec3(0.2, 0.85, 0.9), vUv.y);
+                    gl_FragColor = vec4(col, alpha);
+                }
+            `
+        });
+
+        for (let i = 0; i < rayCount; i++) {
+            const rayMesh = new THREE.Mesh(rayGeo, rayMat);
+            rayMesh.position.set(
+                (Math.random() - 0.5) * 22,
+                12 + Math.random() * 4,
+                (Math.random() - 0.5) * 16 - 2
+            );
+            rayMesh.rotation.z = (Math.random() - 0.5) * 0.35 + 0.15;
+            rayMesh.rotation.x = (Math.random() - 0.5) * 0.25;
+            raysGroup.add(rayMesh);
+        }
+        scene.add(raysGroup);
+
+        const particleCount = 650;
+        const particleGeo = new THREE.BufferGeometry();
+        const pPositions = new Float32Array(particleCount * 3);
+        const pSpeeds = new Float32Array(particleCount * 3);
+        const pSizes = new Float32Array(particleCount);
+
+        for (let i = 0; i < particleCount; i++) {
+            pPositions[i * 3 + 0] = (Math.random() - 0.5) * 32;
+            pPositions[i * 3 + 1] = (Math.random() - 0.5) * 26;
+            pPositions[i * 3 + 2] = (Math.random() - 0.5) * 28;
+
+            pSpeeds[i * 3 + 0] = (Math.random() - 0.5) * 0.06;
+            pSpeeds[i * 3 + 1] = -0.04 - Math.random() * 0.09;
+            pSpeeds[i * 3 + 2] = (Math.random() - 0.5) * 0.06;
+
+            pSizes[i] = Math.random() * 18.0 + 8.0;
+        }
+
+        particleGeo.setAttribute('position', new THREE.BufferAttribute(pPositions, 3));
+        particleGeo.setAttribute('size', new THREE.BufferAttribute(pSizes, 1));
+
+        // Procedural particle shader with soft glow circles
+        const particleMat = new THREE.ShaderMaterial({
+            transparent: true,
+            depthWrite: false,
+            blending: THREE.AdditiveBlending,
+            uniforms: {
+                uTime: { value: 0 }
+            },
+            vertexShader: `
+                attribute float size;
+                varying float vAlpha;
+                void main() {
+                    vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+                    gl_PointSize = size * (18.0 / -mvPosition.z);
+                    vAlpha = smoothstep(28.0, 5.0, -mvPosition.z);
+                    gl_Position = projectionMatrix * mvPosition;
+                }
+            `,
+            fragmentShader: `
+                varying float vAlpha;
+                void main() {
+                    vec2 coord = gl_PointCoord - vec2(0.5);
+                    float dist = length(coord);
+                    if (dist > 0.5) discard;
+                    float glow = smoothstep(0.5, 0.0, dist);
+                    vec3 col = mix(vec3(0.2, 0.7, 0.9), vec3(0.65, 0.95, 1.0), glow);
+                    gl_FragColor = vec4(col, glow * 0.55 * vAlpha);
+                }
+            `
+        });
+
+        const particles = new THREE.Points(particleGeo, particleMat);
+        scene.add(particles);
+
+        const jellyfishMain = new THREE.Group();
+        scene.add(jellyfishMain);
+
+        // Custom vertex and fragment shader for organic pulsation and subsurface translucent iridescence
+        const bellVertexShader = `
+            uniform float uTime;
+            uniform float uContract;
+            varying vec3 vNormal;
+            varying vec3 vWorldPos;
+            varying vec2 vUv;
+            varying float vDeform;
+
+            void main() {
+                vUv = uv;
+                vec3 pos = position;
+
+                // Bell rhythmic contraction: rim contracts tighter and pulls inward/downward
+                float rimFactor = smoothstep(0.4, -0.6, pos.y);
+                float pulse = uContract;
+                
+                // Pulsation deformation
+                float radiusScale = 1.0 - pulse * 0.38 * rimFactor;
+                float verticalSquash = 1.0 + pulse * 0.28 * rimFactor;
+                pos.x *= radiusScale;
+                pos.z *= radiusScale;
+                pos.y *= verticalSquash;
+
+                // Fluid organic ripples along the umbrella edge
+                float rimRipples = sin(pos.y * 7.0 - uTime * 3.5 + atan(pos.z, pos.x) * 6.0) * 0.045 * rimFactor;
+                pos += normal * rimRipples;
+
+                vDeform = rimFactor;
+                vNormal = normalize(normalMatrix * normal);
+                vec4 worldPos = modelMatrix * vec4(pos, 1.0);
+                vWorldPos = worldPos.xyz;
+                gl_Position = projectionMatrix * viewMatrix * worldPos;
+            }
+        `;
+
+        const bellFragmentShader = `
+            uniform float uTime;
+            uniform vec3 uColorBase;
+            uniform vec3 uColorRim;
+            uniform vec3 uColorGlow;
+            varying vec3 vNormal;
+            varying vec3 vWorldPos;
+            varying vec2 vUv;
+            varying float vDeform;
+
+            void main() {
+                vec3 viewDir = normalize(cameraPosition - vWorldPos);
+                vec3 normal = normalize(vNormal);
+
+                // Inverted or double-sided normal handling for smooth inner rendering
+                if (!gl_FrontFacing) normal = -normal;
+
+                // Fresnel rim calculation for translucent glassy organic skin
+                float fresnel = dot(viewDir, normal);
+                fresnel = clamp(1.0 - abs(fresnel), 0.0, 1.0);
+                float rimStrength = pow(fresnel, 2.6);
+
+                // Bioluminescent stripes running down from top apex
+                float radialAngle = atan(vNormal.z, vNormal.x);
+                float ribs = sin(radialAngle * 16.0) * 0.5 + 0.5;
+                ribs = pow(ribs, 4.0) * 0.35;
+
+                // Color blending: Deep indigo core -> electric cyan edges -> magenta iridescence
+                vec3 color = mix(uColorBase, uColorGlow, ribs);
+                color = mix(color, uColorRim, rimStrength * 0.9);
+
+                // Delicate margin glow at the rim
+                float edgeGlow = smoothstep(0.1, 0.95, vDeform) * 0.55;
+                color += uColorRim * edgeGlow * (0.8 + 0.2 * sin(uTime * 3.0));
+
+                // Translucency alpha
+                float alpha = 0.22 + rimStrength * 0.72 + edgeGlow * 0.25;
+                gl_FragColor = vec4(color, clamp(alpha, 0.0, 0.94));
+            }
+        `;
+
+        // Outer translucent bell
+        const bellOuterGeo = new THREE.SphereGeometry(2.1, 64, 48, 0, Math.PI * 2, 0, Math.PI * 0.58);
+        const bellOuterMat = new THREE.ShaderMaterial({
+            vertexShader: bellVertexShader,
+            fragmentShader: bellFragmentShader,
+            transparent: true,
+            side: THREE.DoubleSide,
+            blending: THREE.NormalBlending,
+            depthWrite: false,
+            uniforms: {
+                uTime: { value: 0 },
+                uContract: { value: 0 },
+                uColorBase: { value: new THREE.Color(0x02163b) },
+                uColorRim: { value: new THREE.Color(0x00f2ff) },
+                uColorGlow: { value: new THREE.Color(0xec4899) }
+            }
+        });
+        const bellMesh = new THREE.Mesh(bellOuterGeo, bellOuterMat);
+        jellyfishMain.add(bellMesh);
+
+        // Inner bell organ (slightly smaller dome creating depth layering)
+        const bellInnerGeo = new THREE.SphereGeometry(1.4, 36, 28, 0, Math.PI * 2, 0, Math.PI * 0.54);
+        const bellInnerMat = new THREE.ShaderMaterial({
+            vertexShader: bellVertexShader,
+            fragmentShader: bellFragmentShader,
+            transparent: true,
+            side: THREE.DoubleSide,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false,
+            uniforms: {
+                uTime: { value: 0 },
+                uContract: { value: 0 },
+                uColorBase: { value: new THREE.Color(0x092244) },
+                uColorRim: { value: new THREE.Color(0x4ade80) },
+                uColorGlow: { value: new THREE.Color(0x06b6d4) }
+            }
+        });
+        const bellInnerMesh = new THREE.Mesh(bellInnerGeo, bellInnerMat);
+        bellInnerMesh.position.y = 0.2;
+        jellyfishMain.add(bellInnerMesh);
+
+        // Oral arms are four large frilly undulating ribbons hung directly beneath the bell center
+        const oralArmCount = 4;
+        const oralArms = [];
+        const oralArmSegsY = 64;
+        const oralArmSegsX = 8;
+        const oralArmLength = 7.5;
+
+        const oralArmMat = new THREE.ShaderMaterial({
+            transparent: true,
+            depthWrite: false,
+            blending: THREE.AdditiveBlending,
+            side: THREE.DoubleSide,
+            uniforms: {
+                uTime: { value: 0 },
+                uOffset: { value: 0 },
+                uLagContract: { value: 0 }
+            },
+            vertexShader: `
+                uniform float uTime;
+                uniform float uOffset;
+                uniform float uLagContract;
+                varying vec2 vUv;
+                varying float vDistFade;
+
+                void main() {
+                    vUv = uv;
+                    vec3 pos = position;
+
+                    // Progress down the arm from 0.0 (top base) to 1.0 (tips)
+                    float progress = (0.5 - pos.y / 7.5); 
+                    progress = clamp(progress, 0.0, 1.0);
+
+                    // Multi-frequency hydrodynamic sinusoidal lag waves
+                    float wavePhase = uTime * 2.4 - progress * 5.8 + uOffset;
+                    float waveX = sin(wavePhase) * (0.35 * progress) + sin(wavePhase * 2.2) * (0.15 * progress);
+                    float waveZ = cos(wavePhase * 0.85) * (0.3 * progress);
+
+                    // Organic frills along width
+                    float frill = sin(pos.y * 8.0 + uTime * 4.0) * cos(uv.x * 6.28) * (0.18 * progress);
+                    
+                    pos.x += waveX + frill;
+                    pos.z += waveZ + frill;
+
+                    // Bell pulse reaction lag
+                    pos.y -= uLagContract * 0.4 * (1.0 - progress);
+
+                    vDistFade = 1.0 - smoothstep(0.65, 1.0, progress);
+                    gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
+                }
+            `,
+            fragmentShader: `
+                uniform float uTime;
+                varying vec2 vUv;
+                varying float vDistFade;
+
+                void main() {
+                    float edge = 1.0 - abs(vUv.x - 0.5) * 2.0;
+                    float ribbonGlow = pow(edge, 1.8);
+
+                    // Iridescent shift between soft violet, electric cyan and aqua
+                    vec3 colTop = vec3(0.85, 0.25, 0.95);
+                    vec3 colBot = vec3(0.05, 0.88, 0.92);
+                    vec3 color = mix(colTop, colBot, vUv.y);
+
+                    float alpha = ribbonGlow * vDistFade * 0.48;
+                    gl_FragColor = vec4(color, alpha);
+                }
+            `
+        });
+
+        for (let i = 0; i < oralArmCount; i++) {
+            const angle = (i / oralArmCount) * Math.PI * 2;
+            const armGeo = new THREE.PlaneGeometry(1.2, oralArmLength, oralArmSegsX, oralArmSegsY);
+            // Center top at origin
+            armGeo.translate(0, -oralArmLength * 0.5, 0);
+
+            const armMatInstance = oralArmMat.clone();
+            armMatInstance.uniforms.uOffset.value = i * (Math.PI * 0.5);
+
+            const armMesh = new THREE.Mesh(armGeo, armMatInstance);
+            armMesh.position.set(Math.cos(angle) * 0.45, -0.2, Math.sin(angle) * 0.45);
+            armMesh.rotation.y = angle + Math.PI * 0.25;
+            jellyfishMain.add(armMesh);
+            oralArms.push(armMesh);
+        }
+
+        // Numerous outer delicate string tentacles drifting down from the rim
+        const tentacleCount = 42;
+        const tentaclePointsCount = 50;
+        const tentaclesData = [];
+        const tentacleLength = 8.5;
+
+        // Custom instanced line geometry/buffer for silky thin tentacles
+        const tentacleGroup = new THREE.Group();
+        jellyfishMain.add(tentacleGroup);
+
+        const tentacleMat = new THREE.LineBasicMaterial({
+            color: 0x4ef0e5,
+            transparent: true,
+            opacity: 0.38,
+            blending: THREE.AdditiveBlending,
+            linewidth: 1
+        });
+
+        for (let i = 0; i < tentacleCount; i++) {
+            const radius = 1.85 + (Math.random() - 0.5) * 0.15;
+            const angle = (i / tentacleCount) * Math.PI * 2 + (Math.random() * 0.1);
+            const anchorX = Math.cos(angle) * radius;
+            const anchorZ = Math.sin(angle) * radius;
+
+            const positions = new Float32Array(tentaclePointsCount * 3);
+            const initialY = -0.15;
+            for (let j = 0; j < tentaclePointsCount; j++) {
+                const fraction = j / (tentaclePointsCount - 1);
+                positions[j * 3 + 0] = anchorX;
+                positions[j * 3 + 1] = initialY - fraction * tentacleLength;
+                positions[j * 3 + 2] = anchorZ;
+            }
+
+            const geometry = new THREE.BufferGeometry();
+            geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+
+            const line = new THREE.Line(geometry, tentacleMat);
+            tentacleGroup.add(line);
+
+            tentaclesData.push({
+                line: line,
+                geometry: geometry,
+                anchorX: anchorX,
+                anchorZ: anchorZ,
+                phaseShift: Math.random() * Math.PI * 2,
+                speedMultiplier: 0.85 + Math.random() * 0.3,
+                dragLag: 0.04 + Math.random() * 0.03
+            });
+        }
+
+        let clock = new THREE.Clock();
+
+        // State trackers for jellyfish dynamic inertia swimming
+        let jellyfishBaseY = 0.0;
+        let jellyfishVelocityY = 0.0;
+
+        function updateJellyfishPhysics(elapsed, delta) {
+            // Pulse cycle: periodic non-linear beat. Fast contraction, gradual gliding relaxation.
+            const cycleRate = 1.45; // Rhythm of pulse
+            const cycle = (elapsed * cycleRate) % (Math.PI * 2);
+
+            // Contraction shape function (asymmetric: sharp thrust up, slow graceful drag)
+            let rawContract = Math.sin(cycle);
+            // Skew sine into a snappy power kick followed by slow glide
+            let pulsePower = 0.0;
+            if (rawContract > 0.0) {
+                pulsePower = Math.pow(rawContract, 2.8);
+            } else {
+                pulsePower = -Math.pow(Math.abs(rawContract), 1.2) * 0.35;
+            }
+            const contractVal = Math.max(0.0, pulsePower);
+
+            // Update bell uniforms
+            bellOuterMat.uniforms.uTime.value = elapsed;
+            bellOuterMat.uniforms.uContract.value = contractVal;
+
+            bellInnerMat.uniforms.uTime.value = elapsed;
+            bellInnerMat.uniforms.uContract.value = contractVal;
+
+            // Update oral arms
+            for (let i = 0; i < oralArms.length; i++) {
+                oralArms[i].material.uniforms.uTime.value = elapsed;
+                oralArms[i].material.uniforms.uLagContract.value = contractVal;
+            }
+
+            // Upward propulsion impulse from swimming thrust
+            const upwardThrust = contractVal * 2.2;
+            const gravityDrag = -0.55;
+            jellyfishVelocityY += (upwardThrust + gravityDrag) * delta;
+            jellyfishVelocityY *= 0.94; // Water resistance damping
+
+            jellyfishBaseY += jellyfishVelocityY * delta;
+
+            // Restrain overall altitude so it stays centered in frame while bobbing
+            jellyfishMain.position.y = Math.sin(elapsed * 0.6) * 0.9 + jellyfishBaseY * 0.3;
+            // Gentle side-to-side ocean drift
+            jellyfishMain.position.x = Math.sin(elapsed * 0.35) * 0.75;
+            jellyfishMain.position.z = Math.cos(elapsed * 0.28) * 0.45;
+
+            // Natural tilt during stroke
+            jellyfishMain.rotation.z = Math.sin(elapsed * 0.5) * 0.07;
+            jellyfishMain.rotation.x = Math.cos(elapsed * 0.4) * 0.05 + jellyfishVelocityY * 0.08;
+            jellyfishMain.rotation.y = elapsed * 0.04; // Very slow majestic yaw
+
+            // Update tentacle strand geometries with fluid wave delays
+            for (let t = 0; t < tentaclesData.length; t++) {
+                const item = tentaclesData[t];
+                const posAttr = item.geometry.attributes.position;
+                const arr = posAttr.array;
+
+                for (let j = 1; j < tentaclePointsCount; j++) {
+                    const depthFraction = j / (tentaclePointsCount - 1);
+                    const waveTime = elapsed * 2.2 * item.speedMultiplier - depthFraction * 4.8 + item.phaseShift;
+
+                    // Inertia displacement proportional to tip depth
+                    const amp = depthFraction * depthFraction * 0.65;
+                    const offsetX = Math.sin(waveTime) * amp + Math.cos(waveTime * 0.6) * (amp * 0.4);
+                    const offsetZ = Math.cos(waveTime * 0.8) * amp;
+
+                    // Pull back upward drag when jellyfish surges forward
+                    const dragY = -jellyfishVelocityY * depthFraction * 0.4;
+
+                    arr[j * 3 + 0] = item.anchorX + offsetX;
+                    arr[j * 3 + 1] = -0.15 - depthFraction * tentacleLength + dragY;
+                    arr[j * 3 + 2] = item.anchorZ + offsetZ;
+                }
+                posAttr.needsUpdate = true;
+            }
+
+            // Pulse the internal bioluminescent point lights in sync
+            internalHeartLight.intensity = 2.4 + contractVal * 2.0;
+            secondaryWarmLight.intensity = 1.2 + Math.sin(elapsed * 2.0) * 0.6;
+        }
+
+        function updateEnvironment(elapsed, delta) {
+            // God rays shimmering
+            rayMat.uniforms.uTime.value = elapsed;
+
+            // Marine snow drift
+            const pos = particleGeo.attributes.position.array;
+            for (let i = 0; i < particleCount; i++) {
+                pos[i * 3 + 0] += pSpeeds[i * 3 + 0] * delta * 2.0;
+                pos[i * 3 + 1] += pSpeeds[i * 3 + 1] * delta * 4.5;
+                pos[i * 3 + 2] += pSpeeds[i * 3 + 2] * delta * 2.0;
+
+                // Respawn particles once drifted past lower ocean threshold
+                if (pos[i * 3 + 1] < -13.0) {
+                    pos[i * 3 + 1] = 13.0;
+                    pos[i * 3 + 0] = (Math.random() - 0.5) * 32;
+                    pos[i * 3 + 2] = (Math.random() - 0.5) * 28;
+                }
+            }
+            particleGeo.attributes.position.needsUpdate = true;
+
+            // Slow cinematic camera motion simulating an underwater diver or camera rig
+            const camRadius = 12.8;
+            const camAngle = elapsed * 0.075;
+            camera.position.x = Math.sin(camAngle) * camRadius * 0.65;
+            camera.position.z = Math.cos(camAngle) * 11.0 + 3.0;
+            camera.position.y = 0.8 + Math.sin(elapsed * 0.22) * 1.4;
+
+            // Keep lookAt focused smoothly on the pulsing umbrella
+            const targetPos = jellyfishMain.position.clone().add(new THREE.Vector3(0, -0.6, 0));
+            camera.lookAt(targetPos);
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            const delta = Math.min(clock.getDelta(), 0.1);
+            const elapsed = clock.getElapsedTime();
+
+            updateJellyfishPhysics(elapsed, delta);
+            updateEnvironment(elapsed, delta);
+
+            renderer.render(scene, camera);
+        }
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        });
+
+        // Start render loop
+        animate();
+    };
+    </script>
+<!--zc-home:start--><style>.zc-home-btn{position:fixed;top:16px;left:16px;z-index:2147483647;display:inline-flex;align-items:center;gap:6px;padding:8px 14px;font:500 13px/1.1 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Noto Sans SC",sans-serif;color:#111;background:rgba(255,255,255,.86);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);border:1px solid rgba(0,0,0,.08);border-radius:999px;text-decoration:none;box-shadow:0 2px 12px rgba(0,0,0,.2);transition:background .2s ease,transform .2s ease,box-shadow .2s ease}.zc-home-btn:hover{background:#fff;transform:translateY(-1px);box-shadow:0 4px 18px rgba(0,0,0,.26)}</style><a class="zc-home-btn" href="../">← 返回首页</a><!--zc-home:end-->
+</body>
+</html>

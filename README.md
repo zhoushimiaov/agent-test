@@ -11,7 +11,7 @@
 | 栏目 | 目录 | 考点 | 状态 |
 | --- | --- | --- | --- |
 | 鹈鹕骑车 | `pelican-bicycle/` | 空间想象 + 前端功力 | 25 个版本 · Jev 已评分 |
-| 水母漂浮 | `jellyfish-float/` | 半透明材质、柔体律动、水下光线 | 版本征集中 |
+| 水母漂浮 | `jellyfish-float/` | 半透明材质、柔体律动、水下光线 | 11 个版本 |
 | 企鹅滑雪跳台 | `penguin-ski-jump/` | 斜坡腾空落地的 3D 相机与阴影 | 版本征集中 |
 | 鲸鱼在城市上空游泳 | `whale-over-city/` | 超现实尺度 + 云层前后遮挡 | 版本征集中 |
 | 大象走钢丝 | `elephant-tightrope/` | 身躯 + 平衡杆 + 钢丝下垂张力 | 8 个版本 |
@@ -85,6 +85,25 @@
 | 06 | Claude Opus 4 | SVG 动画 | `opus-4.html` |
 | 07 | GLM 5.3 Flash | SVG 动画 | `glm-5.3-flash.html` |
 | 08 | Ling 3.1 Flash | SVG 动画 | `ling-3.1-flash.html` |
+
+### 🪼 水母漂浮 (`jellyfish-float/`)
+让模型实现「一只在水中漂浮的水母」。现有 11 个模型版本,技术方案自选(Three.js 3D、Canvas 2D、CSS 动画),栏目页按模型版本归档,缩略图为真实渲染截图,暂未做 Jev 评分。
+
+| # | 版本 | 来源 / 说明 | 文件 |
+| --- | --- | --- | --- |
+| 01 | Gemini 3.8 Flash | Three.js 3D | `gemini-3.8-flash.html` |
+| 02 | Gemini 3.8 Flash | Three.js 3D · 25s | `gemini-3.8-flash-25s.html` |
+| 03 | Gemini 3.8 Flash | Three.js 3D · 深海荧光 | `gemini-3.8-flash-bioluminescent.html` |
+| 04 | DeepSeek 4.1 Flash | Three.js 3D | `deepseek-4.1-flash.html` |
+| 05 | MiMo 2.6 Flash | Canvas 2D | `mimo-2.6-flash.html` |
+| 06 | Claude Opus 4 | Canvas 2D | `opus-4.html` |
+| 07 | GLM 5.3 Flash | Canvas 2D | `glm-5.3-flash.html` |
+| 08 | Ling 3.1 Flash | Canvas 2D | `ling-3.1-flash.html` |
+| 09 | Muse Spark | Canvas 2D | `muse-spark.html` |
+| 10 | Tierflow-Pro | Canvas 2D | `tierflow-pro.html` |
+| 11 | GPT-6 | Luna · CSS 动画 | `gpt6-luna.html` |
+
+> 其中 3 个是 Gemini 3.8 Flash 的不同产出(基础版、25s 版、深海荧光版),都保留以作对比。
 
 ## 目录结构
 

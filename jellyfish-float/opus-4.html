@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Jellyfish Drift</title>
+<style>
+  html,body{margin:0;padding:0;height:100%;background:#01060f;overflow:hidden;}
+  #c{display:block;width:100vw;height:100vh;}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+"use strict";
+const canvas=document.getElementById('c');
+const ctx=canvas.getContext('2d');
+let W,H,DPR,base;
+function resize(){
+  DPR=Math.min(window.devicePixelRatio||1,2);
+  W=canvas.width=Math.floor(innerWidth*DPR);
+  H=canvas.height=Math.floor(innerHeight*DPR);
+  canvas.style.width=innerWidth+'px';
+  canvas.style.height=innerHeight+'px';
+  base=Math.min(W,H)*0.17;
+}
+window.addEventListener('resize',resize);
+resize();
+
+let time=0,last=performance.now();
+const rand=(a,b)=>a+Math.random()*(b-a);
+const jelly={bellPhase:1.5};
+
+// drifting marine snow
+const snow=[];
+for(let i=0;i<150;i++) snow.push({x:Math.random(),y:Math.random(),z:rand(0.2,1),r:rand(0.4,2.0),ph:rand(0,6.28)});
+
+// volumetric light shafts
+const shafts=[];
+for(let i=0;i<5;i++) shafts.push({x:rand(0.05,0.95),w:rand(0.05,0.13),a:rand(0.03,0.09),sp:rand(0.00005,0.00015),ph:rand(0,6.28)});
+
+// verlet chains for tentacles & oral arms
+function makeChain(n){const p=[];for(let i=0;i<n;i++)p.push({x:0,y:0,px:0,py:0});return p;}
+const marginals=[];
+const NM=26;
+for(let i=0;i<NM;i++){
+  const ax=(i/(NM-1))*2-1;
+  marginals.push({ax:ax, lf:rand(0.9,1.6)*(0.55+0.45*(1-Math.abs(ax))), pts:makeChain(16), ph:rand(0,6.28), w:rand(0.6,1.3)});
+}
+const arms=[];
+const NA=5;
+for(let i=0;i<NA;i++){
+  const ax=((i/(NA-1))*2-1)*0.45;
+  arms.push({ax:ax, pts:makeChain(14), ph:rand(0,6.28), wid:rand(0.9,1.25)});
+}
+let seeded=false;
+function seedChains(jx,jy){
+  for(const t of [...marginals,...arms]){
+    const ax=jx+t.ax*base*0.9;
+    for(let i=0;i<t.pts.length;i++){const p=t.pts[i];p.x=p.px=ax;p.y=p.py=jy+i*base*0.09;}
+  }
+  seeded=true;
+}
+
+function updateChain(t,ax,ay,segLen,sway,grav,bias,f){
+  const pts=t.pts;
+  pts[0].x=ax; pts[0].y=ay;
+  for(let i=1;i<pts.length;i++){
+    const p=pts[i];
+    const vx=(p.x-p.px)*0.985, vy=(p.y-p.py)*0.985;
+    p.px=p.x; p.py=p.y;
+    const tt=i/pts.length;
+    p.x+=vx+Math.sin(time*0.0018+t.ph+tt*3.0)*sway*tt*f + bias*tt*f;
+    p.y+=vy+grav*f*(0.4+tt);
+  }
+  for(let k=0;k<4;k++){
+    for(let i=1;i<pts.length;i++){
+      const a=pts[i-1],b=pts[i];
+      let dx=b.x-a.x,dy=b.y-a.y;const d=Math.hypot(dx,dy)||0.001;
+      const diff=(d-segLen)/d;
+      if(i-1===0){b.x-=dx*diff;b.y-=dy*diff;}
+      else{a.x+=dx*diff*0.5;a.y+=dy*diff*0.5;b.x-=dx*diff*0.5;b.y-=dy*diff*0.5;}
+    }
+  }
+}
+function drawBG(){
+  const g=ctx.createLinearGradient(0,0,0,H);
+  g.addColorStop(0,'#0e3b5a');g.addColorStop(0.35,'#07203a');g.addColorStop(0.7,'#04121f');g.addColorStop(1,'#01060d');
+  ctx.fillStyle=g;ctx.fillRect(0,0,W,H);
+}
+function drawShafts(){
+  ctx.globalCompositeOperation='lighter';
+  for(const s of shafts){
+    const x=(s.x+Math.sin(time*s.sp+s.ph)*0.03)*W;
+    const w=s.w*W;
+    const a=s.a*(0.6+0.4*Math.sin(time*0.0004+s.ph));
+    const g=ctx.createLinearGradient(x,0,x-w*0.3,H);
+    g.addColorStop(0,'rgba(150,215,255,'+a+')');
+    g.addColorStop(1,'rgba(150,215,255,0)');
+    ctx.fillStyle=g;
+    ctx.beginPath();
+    ctx.moveTo(x-w*0.5,0);ctx.lineTo(x+w*0.5,0);ctx.lineTo(x+w*0.1,H);ctx.lineTo(x-w*0.9,H);
+    ctx.closePath();ctx.fill();
+  }
+  ctx.globalCompositeOperation='source-over';
+}
+function drawSnow(near){
+  ctx.globalCompositeOperation='lighter';
+  for(const p of snow){
+    if((p.z>0.6)!==near)continue;
+    const y=((p.y+time*0.000016*p.z)%1)*H;
+    const x=(p.x*W+Math.sin(time*0.0003+p.ph)*8*p.z);
+    const a=0.08+0.22*p.z;
+    ctx.fillStyle='rgba(195,232,255,'+a+')';
+    ctx.beginPath();ctx.arc(x,y,p.r*p.z*DPR,0,6.28);ctx.fill();
+  }
+  ctx.globalCompositeOperation='source-over';
+}
+
+function bellPath(jx,jy,rw,rh,contract){
+  ctx.beginPath();
+  ctx.moveTo(jx-rw,jy);
+  ctx.bezierCurveTo(jx-rw*1.18,jy-rh*1.62, jx+rw*1.18,jy-rh*1.62, jx+rw,jy);
+  const lobes=7;
+  for(let i=0;i<lobes;i++){
+    const xa=jx+rw-(2*rw)*((i+0.5)/lobes);
+    const xb=jx+rw-(2*rw)*((i+1)/lobes);
+    ctx.quadraticCurveTo(xa,jy+rh*(0.30+0.06*contract),xb,jy);
+  }
+  ctx.closePath();
+}
+function drawBell(jx,jy,rw,rh,contract){
+  ctx.globalCompositeOperation='lighter';
+  const hg=ctx.createRadialGradient(jx,jy-rh*0.3,rh*0.2,jx,jy-rh*0.2,rw*1.9);
+  hg.addColorStop(0,'rgba(120,200,255,0.22)');
+  hg.addColorStop(1,'rgba(120,200,255,0)');
+  ctx.fillStyle=hg;ctx.beginPath();ctx.arc(jx,jy-rh*0.2,rw*1.9,0,6.28);ctx.fill();
+  ctx.globalCompositeOperation='source-over';
+
+  const bg=ctx.createRadialGradient(jx,jy-rh*0.45,rh*0.1,jx,jy-rh*0.35,rw*1.65);
+  bg.addColorStop(0,'rgba(214,249,255,0.72)');
+  bg.addColorStop(0.4,'rgba(132,212,250,0.52)');
+  bg.addColorStop(0.72,'rgba(96,162,236,0.34)');
+  bg.addColorStop(1,'rgba(70,120,200,0.10)');
+  bellPath(jx,jy,rw,rh,contract);ctx.fillStyle=bg;ctx.fill();
+
+  ctx.globalCompositeOperation='lighter';
+  const cg=ctx.createRadialGradient(jx,jy-rh*0.35,2,jx,jy-rh*0.2,rw*0.55);
+  cg.addColorStop(0,'rgba(255,180,214,0.34)');
+  cg.addColorStop(0.6,'rgba(230,110,180,0.14)');
+  cg.addColorStop(1,'rgba(230,110,180,0)');
+  ctx.fillStyle=cg;
+  ctx.beginPath();ctx.ellipse(jx,jy-rh*0.3,rw*0.42,rh*0.72,0,0,6.28);ctx.fill();
+  ctx.globalCompositeOperation='source-over';
+  ctx.strokeStyle='rgba(255,185,215,0.16)';ctx.lineWidth=1.3*DPR;
+  for(let i=0;i<4;i++){
+    const off=(i-1.5)*rw*0.15;
+    ctx.beginPath();ctx.ellipse(jx+off,jy-rh*0.3,rw*0.055,rh*0.4,0,0,6.28);ctx.stroke();
+  }
+
+  ctx.strokeStyle='rgba(210,245,255,0.10)';ctx.lineWidth=1*DPR;
+  for(let i=1;i<7;i++){
+    const x=jx-rw+(2*rw)*(i/7);
+    ctx.beginPath();ctx.moveTo(x,jy);ctx.quadraticCurveTo(x,jy-rh*1.15,jx,jy-rh*1.45);ctx.stroke();
+  }
+  bellPath(jx,jy,rw,rh,contract);ctx.strokeStyle='rgba(224,250,255,0.32)';ctx.lineWidth=1.4*DPR;ctx.stroke();
+
+  ctx.globalCompositeOperation='lighter';
+  const dots=22;
+  for(let i=0;i<dots;i++){
+    const fx=i/(dots-1);
+    const x=jx-rw+2*rw*fx;
+    const pulse=0.5+0.5*Math.sin(time*0.004+fx*10);
+    ctx.fillStyle='rgba(174,243,255,'+(0.4+0.4*pulse)+')';
+    ctx.beginPath();ctx.arc(x,jy+Math.sin(fx*Math.PI)*2,(1.0+1.4*pulse)*DPR,0,6.28);ctx.fill();
+  }
+  ctx.globalCompositeOperation='source-over';
+}
+
+function drawArm(t){
+  const pts=t.pts;
+  const left=[],right=[];
+  for(let i=0;i<pts.length;i++){
+    const a=pts[Math.max(0,i-1)],b=pts[Math.min(pts.length-1,i+1)];
+    let dx=b.x-a.x,dy=b.y-a.y;const d=Math.hypot(dx,dy)||1;dx/=d;dy/=d;
+    const nx=-dy,ny=dx;
+    const tt=i/(pts.length-1);
+    const hw=base*0.08*t.wid*(1-tt*0.8)*(1+0.22*Math.sin(tt*7+time*0.003+t.ph));
+    left.push([pts[i].x+nx*hw,pts[i].y+ny*hw]);
+    right.push([pts[i].x-nx*hw,pts[i].y-ny*hw]);
+  }
+  ctx.beginPath();
+  ctx.moveTo(left[0][0],left[0][1]);
+  for(let i=1;i<left.length;i++)ctx.lineTo(left[i][0],left[i][1]);
+  for(let i=right.length-1;i>=0;i--)ctx.lineTo(right[i][0],right[i][1]);
+  ctx.closePath();
+  const g=ctx.createLinearGradient(pts[0].x,pts[0].y,pts[pts.length-1].x,pts[pts.length-1].y);
+  g.addColorStop(0,'rgba(255,180,215,0.5)');
+  g.addColorStop(0.5,'rgba(240,130,195,0.33)');
+  g.addColorStop(1,'rgba(210,100,180,0.04)');
+  ctx.fillStyle=g;ctx.fill();
+}
+function strokeTentacle(t){
+  const pts=t.pts;
+  ctx.beginPath();
+  ctx.moveTo(pts[0].x,pts[0].y);
+  for(let i=1;i<pts.length-1;i++){
+    const a=pts[i],b=pts[i+1];
+    ctx.quadraticCurveTo(a.x,a.y,(a.x+b.x)/2,(a.y+b.y)/2);
+  }
+  ctx.lineCap='round';
+  ctx.strokeStyle='rgba(150,230,255,0.28)';ctx.lineWidth=2.4*DPR*t.w;
+  ctx.shadowBlur=6*DPR;ctx.shadowColor='rgba(150,230,255,0.6)';ctx.stroke();
+  ctx.strokeStyle='rgba(222,250,255,0.6)';ctx.lineWidth=1.0*DPR*t.w;ctx.shadowBlur=0;ctx.stroke();
+  const tip=pts[pts.length-1];
+  ctx.globalCompositeOperation='lighter';
+  const tg=ctx.createRadialGradient(tip.x,tip.y,0,tip.x,tip.y,4.5*DPR);
+  tg.addColorStop(0,'rgba(190,245,255,0.45)');tg.addColorStop(1,'rgba(190,245,255,0)');
+  ctx.fillStyle=tg;ctx.beginPath();ctx.arc(tip.x,tip.y,4.5*DPR,0,6.28);ctx.fill();
+  ctx.globalCompositeOperation='source-over';
+}
+
+function frame(now){
+  const dt=Math.min(50,now-last);last=now;time+=dt;
+  const f=Math.min(2.2,dt/16.667);
+  jelly.bellPhase+=0.028*f;
+  const c=0.5+0.5*Math.sin(jelly.bellPhase);
+  const contract=Math.pow(c,1.4);
+
+  const jx=W*0.5+Math.sin(time*0.00017)*W*0.05;
+  const jy=H*0.46+Math.sin(time*0.00031)*H*0.05 - contract*base*0.14;
+
+  if(!seeded)seedChains(jx,jy);
+
+  const rw=base*(1.0-0.16*contract);
+  const rh=base*(0.70+0.12*contract);
+  const anchorY=jy+rh*0.18;
+
+  for(const t of marginals){
+    const ax=jx+t.ax*rw*0.96;
+    updateChain(t,ax,anchorY,base*0.11*t.lf,base*0.009,base*0.023,t.ax*base*0.0035,f);
+  }
+  for(const t of arms){
+    const ax=jx+t.ax*rw*0.55;
+    updateChain(t,ax,anchorY,base*0.135*t.wid,base*0.010,base*0.019,t.ax*base*0.003,f);
+  }
+
+  drawBG();
+  drawShafts();
+  drawSnow(false);
+  for(const t of marginals)strokeTentacle(t);
+  for(const t of arms)drawArm(t);
+  drawBell(jx,jy,rw,rh,contract);
+  drawSnow(true);
+
+  const vg=ctx.createRadialGradient(W*0.5,H*0.5,Math.min(W,H)*0.3,W*0.5,H*0.5,Math.max(W,H)*0.75);
+  vg.addColorStop(0,'rgba(0,0,0,0)');vg.addColorStop(1,'rgba(0,0,8,0.6)');
+  ctx.fillStyle=vg;ctx.fillRect(0,0,W,H);
+
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+<!--zc-home:start--><style>.zc-home-btn{position:fixed;top:16px;left:16px;z-index:2147483647;display:inline-flex;align-items:center;gap:6px;padding:8px 14px;font:500 13px/1.1 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Noto Sans SC",sans-serif;color:#111;background:rgba(255,255,255,.86);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);border:1px solid rgba(0,0,0,.08);border-radius:999px;text-decoration:none;box-shadow:0 2px 12px rgba(0,0,0,.2);transition:background .2s ease,transform .2s ease,box-shadow .2s ease}.zc-home-btn:hover{background:#fff;transform:translateY(-1px);box-shadow:0 4px 18px rgba(0,0,0,.26)}</style><a class="zc-home-btn" href="../">← 返回首页</a><!--zc-home:end-->
+</body>
+</html>

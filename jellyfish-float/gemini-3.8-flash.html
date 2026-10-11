@@ -1,0 +1,576 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Bioluminescent Jellyfish Drift - gemini-3.8-flash</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background-color: #010613;
+    }
+    #webgl-canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+  </style>
+  <!-- Three.js CDN -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+<body>
+  <canvas id="webgl-canvas"></canvas>
+
+  <script>
+    // --- 场景、相机与渲染器初始化 ---
+    const canvas = document.getElementById('webgl-canvas');
+    const renderer = new THREE.WebGLRenderer({
+      canvas: canvas,
+      antialias: true,
+      alpha: true,
+      powerPreference: 'high-performance'
+    });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.35;
+
+    const scene = new THREE.Scene();
+    scene.fog = new THREE.FogExp2(0x020a1c, 0.022);
+
+    const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 150);
+    camera.position.set(0, 1.2, 10.5);
+
+    // --- 基础光照 ---
+    const ambientLight = new THREE.AmbientLight(0x082545, 1.2);
+    scene.add(ambientLight);
+
+    const topGodLight = new THREE.DirectionalLight(0x4deeea, 2.5);
+    topGodLight.position.set(2, 12, 4);
+    scene.add(topGodLight);
+
+    const innerCoreLight = new THREE.PointLight(0xcc66ff, 3.2, 10, 1.5);
+    scene.add(innerCoreLight);
+
+    const deepBlueLight = new THREE.PointLight(0x0055ff, 2.0, 15, 1.8);
+    deepBlueLight.position.set(0, -6, 2);
+    scene.add(deepBlueLight);
+
+    // --- 水母整体运动控制参数 ---
+    const jellyfishGroup = new THREE.Group();
+    scene.add(jellyfishGroup);
+
+    // 游泳物理周期计算函数
+    // 真实的深海水母：有力的收缩喷水推进（Power Stroke），接着是缓慢优雅的舒张与滑行（Recovery / Glide）
+    function getSwimCycle(time) {
+      const cycleSpeed = 1.35;
+      const t = (time * cycleSpeed) % (Math.PI * 2);
+      
+      // 收缩阶段 (0 ~ PI*0.7) 舒张滑行阶段 (PI*0.7 ~ 2*PI)
+      let contractFactor = 0;
+      let forwardPropel = 0;
+      
+      if (t < Math.PI * 0.75) {
+        const p = t / (Math.PI * 0.75);
+        // 急促收缩并喷射
+        contractFactor = Math.sin(p * Math.PI);
+        forwardPropel = Math.sin(p * Math.PI) * 0.038;
+      } else {
+        const p = (t - Math.PI * 0.75) / (Math.PI * 1.25);
+        // 缓慢舒展回弹
+        contractFactor = -Math.sin(p * Math.PI) * 0.22;
+        forwardPropel = -0.008 * Math.cos(p * Math.PI * 0.5);
+      }
+      return {
+        rawTime: time,
+        t: t,
+        contract: contractFactor,
+        propel: forwardPropel
+      };
+    }
+
+    // --- 1. 水母伞体 (Bell / Umbrella) ---
+    // 采用自定义着色器实现双层发光、半透明菲涅尔折射边缘与脉冲形变
+    const bellRadius = 2.2;
+    const bellGeom = new THREE.SphereGeometry(bellRadius, 64, 48, 0, Math.PI * 2, 0, Math.PI * 0.58);
+
+    const bellUniforms = {
+      uTime: { value: 0 },
+      uContract: { value: 0 },
+      uRimColor: { value: new THREE.Color(0x38e8ff) },
+      uInnerColor: { value: new THREE.Color(0x9d4edd) },
+      uApexColor: { value: new THREE.Color(0xff80bf) },
+      uGlowPower: { value: 2.8 }
+    };
+
+    const bellMat = new THREE.ShaderMaterial({
+      uniforms: bellUniforms,
+      vertexShader: `
+        uniform float uTime;
+        uniform float uContract;
+        varying vec3 vNormal;
+        varying vec3 vViewPosition;
+        varying vec3 vWorldPosition;
+        varying vec2 vUv;
+        varying float vBellY;
+
+        void main() {
+          vUv = uv;
+          vec3 pos = position;
+
+          // 归一化高度 (0 顶点 ~ 1 裙边)
+          float normY = (2.2 - pos.y) / 2.2;
+          vBellY = normY;
+
+          // 喷水形变：伞体下沿向内急剧收拢，顶部略微上拱
+          float inwardRatio = smoothstep(0.15, 1.0, normY);
+          float radCompression = 1.0 - (uContract * 0.42 * inwardRatio);
+          pos.x *= radCompression;
+          pos.z *= radCompression;
+          pos.y += (uContract * 0.35 * (1.0 - inwardRatio * 0.5));
+
+          // 伞缘优雅的波浪花边 (Edge fluting & ripples)
+          float edgeAngle = atan(pos.z, pos.x);
+          float edgeFlute = sin(edgeAngle * 16.0 + uTime * 2.0) * 0.05 * pow(normY, 2.5);
+          pos.y += edgeFlute;
+          pos.x += cos(edgeAngle) * edgeFlute * 0.6;
+          pos.z += sin(edgeAngle) * edgeFlute * 0.6;
+
+          // 微妙的呼吸扰动
+          pos += normal * (sin(uTime * 3.0 + normY * 6.0) * 0.02 * normY);
+
+          vec4 mvPosition = modelViewMatrix * vec4(pos, 1.0);
+          vNormal = normalize(normalMatrix * normal);
+          vViewPosition = -mvPosition.xyz;
+          vWorldPosition = (modelMatrix * vec4(pos, 1.0)).xyz;
+
+          gl_Position = projectionMatrix * mvPosition;
+        }
+      `,
+      fragmentShader: `
+        uniform float uTime;
+        uniform float uContract;
+        uniform vec3 uRimColor;
+        uniform vec3 uInnerColor;
+        uniform vec3 uApexColor;
+        uniform float uGlowPower;
+
+        varying vec3 vNormal;
+        varying vec3 vViewPosition;
+        varying vec3 vWorldPosition;
+        varying vec2 vUv;
+        varying float vBellY;
+
+        void main() {
+          vec3 normal = normalize(vNormal);
+          vec3 viewDir = normalize(vViewPosition);
+
+          // 菲涅尔边缘发光效应 (Fresnel Glow)
+          float fresnel = 1.0 - abs(dot(normal, viewDir));
+          fresnel = pow(fresnel, 2.2);
+
+          // 伞盖辐射状维管脉络 (Radial Canals)
+          float angle = atan(vWorldPosition.z, vWorldPosition.x);
+          float canalStripes = pow(abs(cos(angle * 8.0)), 12.0) * 0.4;
+          float minorStripes = pow(abs(cos(angle * 32.0)), 16.0) * 0.2;
+          float canalGlow = (canalStripes + minorStripes) * (1.0 - vBellY * 0.6);
+
+          // 垂直渐变色调：顶部暖红紫 -> 中部梦幻紫 -> 裙边流光青蓝
+          vec3 baseColor = mix(uApexColor, uInnerColor, smoothstep(0.0, 0.6, vBellY));
+          baseColor = mix(baseColor, uRimColor, smoothstep(0.45, 1.0, vBellY));
+
+          // 脉冲发光波动：收缩时核心亮度增强
+          float pulseIntensity = 1.0 + max(0.0, uContract) * 0.85;
+
+          // 组合颜色
+          vec3 col = baseColor * (0.28 + canalGlow * 0.6);
+          col += uRimColor * fresnel * 2.2 * pulseIntensity;
+          col += uApexColor * (1.0 - vBellY) * 0.45 * pulseIntensity;
+
+          // 边缘透明与柔和衰减，保持水晶水母般的半透明感
+          float alpha = 0.22 + fresnel * 0.68 + canalGlow * 0.35;
+          // 极顶与底部边缘略微更通透
+          alpha *= smoothstep(0.0, 0.1, vBellY);
+
+          gl_FragColor = vec4(col, min(alpha, 0.92));
+        }
+      `,
+      transparent: true,
+      blending: THREE.AdditiveBlending,
+      side: THREE.DoubleSide,
+      depthWrite: false
+    });
+
+    const bellMesh = new THREE.Mesh(bellGeom, bellMat);
+    jellyfishGroup.add(bellMesh);
+
+    // --- 2. 内部生殖腺/胃囊 (Gonads - 经典的四叶草环状结构) ---
+    const gonadGroup = new THREE.Group();
+    gonadGroup.position.set(0, 0.75, 0);
+    jellyfishGroup.add(gonadGroup);
+
+    const gonadMat = new THREE.MeshBasicMaterial({
+      color: 0xff4fbf,
+      transparent: true,
+      opacity: 0.75,
+      blending: THREE.AdditiveBlending
+    });
+
+    for (let i = 0; i < 4; i++) {
+      const angle = (i * Math.PI * 2) / 4;
+      const torusGeom = new THREE.TorusGeometry(0.38, 0.12, 24, 40, Math.PI * 1.5);
+      const torus = new THREE.Mesh(torusGeom, gonadMat);
+      torus.position.set(Math.cos(angle) * 0.52, 0.1, Math.sin(angle) * 0.52);
+      torus.rotation.x = Math.PI * 0.45;
+      torus.rotation.z = angle + Math.PI * 0.25;
+      gonadGroup.add(torus);
+    }
+
+    // --- 3. 中心口腕 (Oral Arms - 飘逸的褶皱丝带裙摆) ---
+    // 4条主要的丝绸质感口腕从中心垂挂，伴随水流大幅度摆动
+    const oralArmCount = 4;
+    const oralArmSegments = 60;
+    const oralArmRibbons = [];
+
+    const oralArmMat = new THREE.ShaderMaterial({
+      uniforms: {
+        uTime: { value: 0 },
+        uColorA: { value: new THREE.Color(0xa855f7) },
+        uColorB: { value: new THREE.Color(0x38bdf8) }
+      },
+      vertexShader: `
+        uniform float uTime;
+        varying vec2 vUv;
+        varying float vDepthFade;
+
+        void main() {
+          vUv = uv;
+          vec3 pos = position;
+
+          // 沿Y轴向下传播的复合流体波浪
+          float depthFactor = smoothstep(0.0, 1.0, -pos.y / 5.5);
+          float wave1 = sin(uTime * 2.2 + pos.y * 1.8) * 0.35 * depthFactor;
+          float wave2 = cos(uTime * 1.7 + pos.y * 2.5) * 0.28 * depthFactor;
+          
+          // 褶皱边缘 Flutter
+          float ruffle = sin(pos.y * 8.0 + uTime * 3.5) * 0.15 * uv.x;
+          
+          pos.x += wave1 + ruffle;
+          pos.z += wave2 + ruffle * 0.8;
+
+          vDepthFade = 1.0 - depthFactor * 0.4;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
+        }
+      `,
+      fragmentShader: `
+        uniform vec3 uColorA;
+        uniform vec3 uColorB;
+        varying vec2 vUv;
+        varying float vDepthFade;
+
+        void main() {
+          // 边缘光感与轻纱半透度
+          float edgeGlow = pow(sin(vUv.x * 3.14159), 0.5);
+          vec3 col = mix(uColorA, uColorB, vUv.y);
+          col += vec3(0.2, 0.8, 1.0) * edgeGlow * 0.6;
+
+          float alpha = (0.2 + edgeGlow * 0.65) * vDepthFade * (1.0 - vUv.y * 0.35);
+          gl_FragColor = vec4(col, alpha);
+        }
+      `,
+      transparent: true,
+      blending: THREE.AdditiveBlending,
+      side: THREE.DoubleSide,
+      depthWrite: false
+    });
+
+    for (let i = 0; i < oralArmCount; i++) {
+      const armAngle = (i * Math.PI * 2) / oralArmCount;
+      const geom = new THREE.PlaneGeometry(0.7, 5.8, 16, oralArmSegments);
+      geom.translate(0, -2.9, 0); // 让锚点在顶部
+      const mesh = new THREE.Mesh(geom, oralArmMat);
+      mesh.rotation.y = armAngle;
+      mesh.position.set(Math.cos(armAngle) * 0.3, 0.4, Math.sin(armAngle) * 0.3);
+      jellyfishGroup.add(mesh);
+      oralArmRibbons.push(mesh);
+    }
+
+    // --- 4. 伞缘细密触手 (Marginal Tentacles) ---
+    // 数十条如发丝般轻灵发光的流线触须，通过位置延迟传递水流动量
+    const tentacleCount = 44;
+    const tentaclePointsCount = 38;
+    const tentacleLength = 6.2;
+    const tentacles = [];
+
+    const tentacleLineMat = new THREE.LineBasicMaterial({
+      color: 0x48e6ff,
+      transparent: true,
+      opacity: 0.55,
+      blending: THREE.AdditiveBlending,
+      linewidth: 1
+    });
+
+    for (let i = 0; i < tentacleCount; i++) {
+      const angle = (i * Math.PI * 2) / tentacleCount;
+      const ringRadius = bellRadius * 0.94;
+      const baseX = Math.cos(angle) * ringRadius;
+      const baseZ = Math.sin(angle) * ringRadius;
+
+      const points = [];
+      for (let j = 0; j < tentaclePointsCount; j++) {
+        const pY = -(j / (tentaclePointsCount - 1)) * tentacleLength;
+        points.push(new THREE.Vector3(baseX, pY, baseZ));
+      }
+
+      const geom = new THREE.BufferGeometry().setFromPoints(points);
+      const line = new THREE.Line(geom, tentacleLineMat);
+      jellyfishGroup.add(line);
+
+      tentacles.push({
+        line: line,
+        baseAngle: angle,
+        baseX: baseX,
+        baseZ: baseZ,
+        length: tentacleLength + (Math.random() - 0.5) * 1.5,
+        speedOffset: Math.random() * Math.PI * 2,
+        phaseShift: Math.random() * 0.6
+      });
+    }
+
+    // --- 5. 海洋深渊微粒 (Marine Snow / Bioluminescent Plankton) ---
+    const snowCount = 1800;
+    const snowGeom = new THREE.BufferGeometry();
+    const snowPos = new Float32Array(snowCount * 3);
+    const snowVel = new Float32Array(snowCount * 3);
+    const snowSizes = new Float32Array(snowCount);
+
+    for (let i = 0; i < snowCount; i++) {
+      snowPos[i * 3 + 0] = (Math.random() - 0.5) * 36;
+      snowPos[i * 3 + 1] = (Math.random() - 0.5) * 36;
+      snowPos[i * 3 + 2] = (Math.random() - 0.5) * 36;
+
+      snowVel[i * 3 + 0] = (Math.random() - 0.5) * 0.008;
+      snowVel[i * 3 + 1] = -0.003 - Math.random() * 0.009; // 缓缓向下下沉
+      snowVel[i * 3 + 2] = (Math.random() - 0.5) * 0.008;
+
+      snowSizes[i] = Math.random() * 2.8 + 0.8;
+    }
+
+    snowGeom.setAttribute('position', new THREE.BufferAttribute(snowPos, 3));
+    snowGeom.setAttribute('size', new THREE.BufferAttribute(snowSizes, 1));
+
+    // 生成圆形软边缘微粒贴图
+    function createCircleTexture() {
+      const c = document.createElement('canvas');
+      c.width = 64;
+      c.height = 64;
+      const ctx = c.getContext('2d');
+      const grad = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+      grad.addColorStop(0, 'rgba(255, 255, 255, 1)');
+      grad.addColorStop(0.35, 'rgba(100, 230, 255, 0.7)');
+      grad.addColorStop(0.7, 'rgba(40, 140, 255, 0.25)');
+      grad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, 64, 64);
+      return new THREE.CanvasTexture(c);
+    }
+
+    const snowMat = new THREE.PointsMaterial({
+      size: 0.18,
+      map: createCircleTexture(),
+      transparent: true,
+      opacity: 0.75,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false
+    });
+
+    const snowParticles = new THREE.Points(snowGeom, snowMat);
+    scene.add(snowParticles);
+
+    // --- 6. 顶部透射水光束 (Volumetric Underwater God Rays) ---
+    const rayGroup = new THREE.Group();
+    scene.add(rayGroup);
+
+    const rayMat = new THREE.ShaderMaterial({
+      uniforms: {
+        uTime: { value: 0 }
+      },
+      vertexShader: `
+        varying vec2 vUv;
+        void main() {
+          vUv = uv;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: `
+        uniform float uTime;
+        varying vec2 vUv;
+
+        void main() {
+          // 光束上下衰减与左右柔和羽化
+          float beam1 = sin(vUv.x * 7.0 + uTime * 0.4) * 0.5 + 0.5;
+          float beam2 = cos(vUv.x * 13.0 - uTime * 0.3) * 0.5 + 0.5;
+          float lightShaft = pow(beam1 * beam2, 1.4);
+
+          float verticalFade = smoothstep(1.0, 0.2, vUv.y) * smoothstep(0.0, 0.2, vUv.y);
+          float alpha = lightShaft * verticalFade * 0.16;
+
+          vec3 color = mix(vec3(0.05, 0.45, 0.75), vec3(0.2, 0.9, 0.95), vUv.y);
+          gl_FragColor = vec4(color, alpha);
+        }
+      `,
+      transparent: true,
+      blending: THREE.AdditiveBlending,
+      side: THREE.DoubleSide,
+      depthWrite: false
+    });
+
+    for (let i = 0; i < 5; i++) {
+      const plane = new THREE.PlaneGeometry(12, 28);
+      const mesh = new THREE.Mesh(plane, rayMat);
+      mesh.position.set((i - 2) * 5.2, 6, -6 + i * 1.5);
+      mesh.rotation.z = -0.15 + i * 0.08;
+      mesh.rotation.y = 0.25 * i;
+      rayGroup.add(mesh);
+    }
+
+    // --- 7. 动画主循环与动力学模拟 ---
+    let prevTime = performance.now();
+    let globalY = -0.5;
+    let verticalVelocity = 0;
+
+    function animate(currentTime) {
+      requestAnimationFrame(animate);
+
+      const delta = Math.min((currentTime - prevTime) * 0.001, 0.1);
+      prevTime = currentTime;
+      const elapsedTime = currentTime * 0.001;
+
+      // 1. 获取水母推进物理状态
+      const swim = getSwimCycle(elapsedTime);
+
+      // 水动力上升计算：收缩产生向上冲量，重力与水阻产生阻尼下落
+      verticalVelocity += swim.propel;
+      verticalVelocity *= 0.965; // 水介质粘性阻尼
+      globalY += verticalVelocity;
+
+      // 整体漂浮高度维持在视觉舒适的垂直区间 [-1.4, 1.2]
+      if (globalY > 1.2) {
+        verticalVelocity -= 0.002;
+      } else if (globalY < -1.4) {
+        verticalVelocity += 0.002;
+      }
+
+      jellyfishGroup.position.y = globalY + Math.sin(elapsedTime * 0.8) * 0.2;
+
+      // 身体极其细微的顺时针/逆时针漫游姿态偏航与俯仰 (Gentle pitch & roll)
+      jellyfishGroup.rotation.z = Math.sin(elapsedTime * 0.6) * 0.09;
+      jellyfishGroup.rotation.x = Math.cos(elapsedTime * 0.5) * 0.07;
+      jellyfishGroup.rotation.y = elapsedTime * 0.06; // 缓慢在水流中旋转角度
+
+      // 2. 更新伞体着色器参数
+      bellUniforms.uTime.value = elapsedTime;
+      bellUniforms.uContract.value = swim.contract;
+
+      // 内部光源同步随收缩发光
+      innerCoreLight.position.copy(jellyfishGroup.position);
+      innerCoreLight.intensity = 2.4 + Math.max(0, swim.contract) * 2.8;
+
+      // 3. 更新口腕口纱动力学
+      oralArmMat.uniforms.uTime.value = elapsedTime;
+      oralArmRibbons.forEach((ribbon, idx) => {
+        // 轻微呼吸张弛
+        const spread = 0.3 + (1.0 - swim.contract * 0.3) * 0.1;
+        const angle = ribbon.rotation.y;
+        ribbon.position.x = Math.cos(angle) * spread;
+        ribbon.position.z = Math.sin(angle) * spread;
+      });
+
+      // 4. 更新边缘细长触手 (流体滞后跟随波浪)
+      tentacles.forEach(tent => {
+        const geom = tent.line.geometry;
+        const posAttr = geom.attributes.position;
+        const array = posAttr.array;
+
+        // 触手根部跟随伞体下沿的收缩形变动态移动
+        const inward = 1.0 - (swim.contract * 0.38);
+        const curRootX = tent.baseX * inward;
+        const curRootZ = tent.baseZ * inward;
+
+        array[0] = curRootX;
+        array[1] = 0.0;
+        array[2] = curRootZ;
+
+        // 沿触手节段逐级向后传递摆动衰减
+        for (let j = 1; j < tentaclePointsCount; j++) {
+          const progress = j / (tentaclePointsCount - 1);
+          const idx = j * 3;
+
+          // 物理延迟波浪模拟
+          const wavePhase = elapsedTime * 3.0 - progress * 8.0 + tent.speedOffset;
+          const swayAmount = Math.pow(progress, 1.6) * 0.85;
+
+          const waveX = Math.sin(wavePhase) * swayAmount;
+          const waveZ = Math.cos(wavePhase * 0.85) * swayAmount;
+
+          // 水动力拖拽：向上冲刺时触手向内收拢且向下拖曳
+          const dragUpFactor = Math.max(0, verticalVelocity) * progress * 16.0;
+
+          array[idx + 0] = curRootX + waveX;
+          array[idx + 1] = -(progress * tent.length) - dragUpFactor;
+          array[idx + 2] = curRootZ + waveZ;
+        }
+
+        posAttr.needsUpdate = true;
+      });
+
+      // 5. 更新海洋微粒飘散
+      const pPositions = snowGeom.attributes.position.array;
+      for (let i = 0; i < snowCount; i++) {
+        const i3 = i * 3;
+        pPositions[i3 + 0] += snowVel[i3 + 0] + Math.sin(elapsedTime * 0.5 + i) * 0.003;
+        pPositions[i3 + 1] += snowVel[i3 + 1];
+        pPositions[i3 + 2] += snowVel[i3 + 2];
+
+        // 边界循环重置
+        if (pPositions[i3 + 1] < -18) pPositions[i3 + 1] = 18;
+        if (pPositions[i3 + 0] < -18) pPositions[i3 + 0] = 18;
+        if (pPositions[i3 + 0] > 18) pPositions[i3 + 0] = -18;
+      }
+      snowGeom.attributes.position.needsUpdate = true;
+
+      // 6. 水光束时间更新
+      rayMat.uniforms.uTime.value = elapsedTime;
+
+      // 7. 水下运镜 (Subtle Cinematic Underwater Camera Drift)
+      camera.position.x = Math.sin(elapsedTime * 0.22) * 1.5;
+      camera.position.y = 1.0 + Math.cos(elapsedTime * 0.18) * 0.7;
+      camera.position.z = 10.2 + Math.sin(elapsedTime * 0.15) * 0.8;
+      camera.lookAt(0, jellyfishGroup.position.y * 0.5, 0);
+
+      renderer.render(scene, camera);
+    }
+
+    requestAnimationFrame(animate);
+
+    // --- 响应窗口大小自适应 ---
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    });
+  </script>
+<!--zc-home:start--><style>.zc-home-btn{position:fixed;top:16px;left:16px;z-index:2147483647;display:inline-flex;align-items:center;gap:6px;padding:8px 14px;font:500 13px/1.1 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Noto Sans SC",sans-serif;color:#111;background:rgba(255,255,255,.86);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);border:1px solid rgba(0,0,0,.08);border-radius:999px;text-decoration:none;box-shadow:0 2px 12px rgba(0,0,0,.2);transition:background .2s ease,transform .2s ease,box-shadow .2s ease}.zc-home-btn:hover{background:#fff;transform:translateY(-1px);box-shadow:0 4px 18px rgba(0,0,0,.26)}</style><a class="zc-home-btn" href="../">← 返回首页</a><!--zc-home:end-->
+</body>
+</html>

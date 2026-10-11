@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>水母 · 深海漂浮</title>
+<style>
+  html, body {
+    margin: 0; padding: 0; width: 100%; height: 100%;
+    overflow: hidden; background: #020b16;
+  }
+  canvas { display: block; }
+</style>
+</head>
+<body>
+<canvas id="sea"></canvas>
+<script>
+'use strict';
+
+const canvas = document.getElementById('sea');
+const ctx = canvas.getContext('2d');
+let W = 0, H = 0, DPR = 1;
+
+function resize() {
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  W = window.innerWidth;
+  H = window.innerHeight;
+  canvas.width = Math.round(W * DPR);
+  canvas.height = Math.round(H * DPR);
+  canvas.style.width = W + 'px';
+  canvas.style.height = H + 'px';
+}
+window.addEventListener('resize', resize);
+resize();
+
+/* deterministic rng so the scene is identical on every load */
+function mulberry32(a) {
+  return function () {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+const rand = mulberry32(0x9E3779B9);
+
+const TAU = Math.PI * 2;
+const PULSE_T = 4.4;   /* seconds per swimming cycle */
+
+/* ---- 26 long trailing tentacles ---- */
+const tentacles = [];
+for (let i = 0; i < 26; i++) {
+  tentacles.push({
+    u: ((i + 0.5) / 26) * 2 - 1,        /* attach position across the rim, -1..1 */
+    len: 280 + rand() * 280,
+    phase: rand() * TAU,
+    k1: 2.0 + rand() * 1.8,             /* spatial wave frequency */
+    k2: 4.5 + rand() * 2.5,
+    w1: 0.9 + rand() * 0.5,             /* temporal wave speed */
+    w2: 0.5 + rand() * 0.4,
+    a1: 15 + rand() * 16,               /* sway amplitude */
+    a2: 6 + rand() * 10,
+    w: 1.5 + rand() * 1.4,              /* stroke width */
+    hue: 188 + rand() * 24
+  });
+}
+
+/* ---- 7 short frilly oral arms ---- */
+const arms = [];
+for (let i = 0; i < 7; i++) {
+  arms.push({
+    u: (i / 6) * 2 - 1,
+    len: 130 + rand() * 110,
+    phase: rand() * TAU,
+    w: 4.5 + rand() * 3
+  });
+}
+
+/* ---- marine snow ---- */
+const snow = [];
+for (let i = 0; i < 150; i++) {
+  snow.push({
+    x: rand(), y: rand(),
+    z: Math.pow(rand(), 1.6),           /* depth 0..1 */
+    r: 0.5 + rand() * 1.9,
+    sp: 0.006 + rand() * 0.028,
+    ph: rand() * TAU
+  });
+}
+
+/* ---- foreground bokeh motes ---- */
+const bokeh = [];
+for (let i = 0; i < 5; i++) {
+  bokeh.push({ x: rand(), y: rand(), r: 60 + rand() * 130, sp: 0.004 + rand() * 0.008, ph: rand() * TAU });
+}
+
+/* ---- distant companion jellies ---- */
+const farJellies = [
+  { x: 0.20, y: 0.64, s: 0.34, sp: 0.55, ph: 1.7, drift: 0.012 },
+  { x: 0.80, y: 0.28, s: 0.50, sp: 0.75, ph: 4.1, drift: 0.009 }
+];
+
+/* swimming cycle: fast contraction, slow relaxation */
+function pulseAt(t) {
+  const x = (((t % PULSE_T) + PULSE_T) % PULSE_T) / PULSE_T;
+  if (x < 0.32) {
+    const u = x / 0.32;
+    return 1 - Math.pow(1 - u, 3);
+  }
+  const u = (x - 0.32) / 0.68;
+  return 1 - u * u * (3 - 2 * u);
+}
+
+/* bell silhouette with a scalloped margin */
+function bellPath(w, h) {
+  ctx.beginPath();
+  const N = 40;
+  for (let i = 0; i <= N; i++) {
+    const th = (i / N) * Math.PI / 2;
+    const x = w * Math.sin(th);
+    const y = -h * Math.pow(Math.cos(th), 0.7);
+    i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+  }
+  const M = 44, laps = 9;
+  for (let i = 1; i <= M; i++) {
+    const u = i / M;
+    ctx.lineTo(w - 2 * w * u, Math.sin(u * Math.PI * laps) * 3.4 * (w / 130));
+  }
+  for (let i = N; i >= 0; i--) {
+    const th = (i / N) * Math.PI / 2;
+    ctx.lineTo(-w * Math.sin(th), -h * Math.pow(Math.cos(th), 0.7));
+  }
+  ctx.closePath();
+}
+
+function drawTentacles(cx, cy, w, h, s, t, a, boost) {
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  for (const tn of tentacles) {
+    const x0 = cx + tn.u * w * 0.88;
+    const y0 = cy + h * 0.04;
+    const len = tn.len * s;
+    const g = ctx.createLinearGradient(x0, y0, x0, y0 + len);
+    g.addColorStop(0, `hsla(${tn.hue}, 90%, 82%, ${0.60 * a})`);
+    g.addColorStop(0.55, `hsla(${tn.hue}, 88%, 74%, ${0.26 * a})`);
+    g.addColorStop(1, `hsla(${tn.hue}, 88%, 72%, 0)`);
+    ctx.strokeStyle = g;
+    ctx.lineWidth = tn.w * s;
+    ctx.beginPath();
+    ctx.moveTo(x0, y0);
+    const segs = 20;
+    for (let i = 1; i <= segs; i++) {
+      const f = i / segs;
+      const sway = (Math.sin(t * tn.w1 * boost + f * tn.k1 + tn.phase) * tn.a1
+                  + Math.sin(t * tn.w2 * boost + f * tn.k2 + tn.phase * 1.7) * tn.a2) * s * f;
+      ctx.lineTo(x0 + sway, y0 + f * len);
+    }
+    ctx.stroke();
+  }
+}
+
+function drawArms(cx, cy, w, h, s, t, a, boost) {
+  ctx.lineCap = 'round';
+  for (const ar of arms) {
+    const x0 = cx + ar.u * w * 0.30;
+    const y0 = cy + h * 0.05;
+    const len = ar.len * s;
+    const g = ctx.createLinearGradient(x0, y0, x0, y0 + len);
+    g.addColorStop(0, `hsla(318, 85%, 80%, ${0.45 * a})`);
+    g.addColorStop(0.5, `hsla(288, 82%, 76%, ${0.20 * a})`);
+    g.addColorStop(1, `hsla(288, 82%, 76%, 0)`);
+    ctx.strokeStyle = g;
+    ctx.lineWidth = ar.w * s;
+    ctx.beginPath();
+    ctx.moveTo(x0, y0);
+    const segs = 18;
+    for (let i = 1; i <= segs; i++) {
+      const f = i / segs;
+      const sway = (Math.sin(t * 1.15 * boost + f * 4.0 + ar.phase) * 22
+                  + Math.sin(t * 0.7 * boost + f * 7.5 + ar.phase * 2.1) * 11) * s * f;
+      ctx.lineTo(x0 + sway, y0 + f * len);
+    }
+    ctx.stroke();
+  }
+}
+
+function drawJellyfish(cx, cy, s, t, ph, a) {
+  const p = pulseAt(t + ph);
+  const w = 130 * s * (1 - 0.14 * p);
+  const h = 102 * s * (1 + 0.12 * p);
+  const boost = 1 + p * 0.55;
+
+  /* ambient glow behind the animal */
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  let g = ctx.createRadialGradient(cx, cy - h * 0.1, 0, cx, cy - h * 0.1, h * 2.6);
+  g.addColorStop(0, `rgba(80,170,255,${0.10 * a})`);
+  g.addColorStop(1, 'rgba(80,170,255,0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(cx - h * 2.6, cy - h * 0.1 - h * 2.6, h * 5.2, h * 5.2);
+  ctx.restore();
+
+  drawTentacles(cx, cy, w, h, s, t, a, boost);
+  drawArms(cx, cy, w, h, s, t, a, boost);
+
+  /* bell body */
+  bellPath(w, h);
+  g = ctx.createRadialGradient(cx, cy - h * 0.3, h * 0.05, cx, cy - h * 0.1, h * 1.35);
+  g.addColorStop(0, `rgba(216,246,255,${0.82 * a})`);
+  g.addColorStop(0.35, `rgba(150,214,250,${0.46 * a})`);
+  g.addColorStop(0.7, `rgba(110,150,225,${0.20 * a})`);
+  g.addColorStop(1, `rgba(90,120,190,${0.04 * a})`);
+  ctx.fillStyle = g;
+  ctx.fill();
+
+  /* inner luminous core */
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  g = ctx.createRadialGradient(cx, cy - h * 0.38, 0, cx, cy - h * 0.38, h * 0.5);
+  g.addColorStop(0, `rgba(190,120,255,${0.20 * a})`);
+  g.addColorStop(1, 'rgba(190,120,255,0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(cx - h, cy - h * 0.38 - h, h * 2, h * 2);
+  g = ctx.createRadialGradient(cx, cy - h * 0.35, 0, cx, cy - h * 0.35, h * 0.8);
+  g.addColorStop(0, `rgba(120,230,255,${0.28 * a})`);
+  g.addColorStop(1, 'rgba(120,230,255,0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(cx - h, cy - h * 0.35 - h, h * 2, h * 2);
+  ctx.restore();
+
+  /* gonads: four horseshoes */
+  ctx.save();
+  ctx.lineCap = 'round';
+  ctx.shadowColor = `rgba(255,110,210,${0.75 * a})`;
+  ctx.shadowBlur = 14 * s;
+  ctx.strokeStyle = `rgba(255,130,215,${0.55 * a})`;
+  ctx.lineWidth = h * 0.045;
+  const gr = h * 0.20;
+  for (let k = 0; k < 4; k++) {
+    const ang = Math.PI / 4 + k * Math.PI / 2;
+    const gx = cx + Math.cos(ang) * gr;
+    const gy = cy - h * 0.36 + Math.sin(ang) * gr;
+    ctx.beginPath();
+    ctx.arc(gx, gy, h * 0.11, ang - 0.63 * Math.PI, ang + 0.63 * Math.PI);
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  /* glowing scalloped margin */
+  ctx.save();
+  ctx.shadowColor = `rgba(140,225,255,${0.9 * a})`;
+  ctx.shadowBlur = 22 * s;
+  ctx.strokeStyle = `rgba(190,240,255,${0.55 * a})`;
+  ctx.lineWidth = 2.2 * s;
+  bellPath(w, h);
+  ctx.stroke();
+  ctx.restore();
+
+  /* specular highlight hugging the dome, upper-left */
+  ctx.save();
+  ctx.lineCap = 'round';
+  for (const [lw, al] of [[9, 0.10], [3.4, 0.38]]) {
+    ctx.beginPath();
+    for (let i = 0; i <= 16; i++) {
+      const th = -0.62 + (0.37 * i) / 16;
+      const x = cx + w * Math.sin(th);
+      const y = cy - h * Math.pow(Math.cos(th), 0.7);
+      i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+    }
+    ctx.strokeStyle = `rgba(255,255,255,${al * a})`;
+    ctx.lineWidth = lw * s;
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  /* drifting sparkles inside the bell */
+  for (let i = 0; i < 10; i++) {
+    const fr = ((i * 0.37 + t * 0.06) % 1 + 1) % 1;
+    const sx = cx + Math.sin(i * 2.4 + ph) * w * 0.5;
+    const sy = cy - h * (0.12 + 0.55 * fr);
+    const tw = 0.5 + 0.5 * Math.sin(t * 2.2 + i * 1.7);
+    ctx.fillStyle = `rgba(220,250,255,${0.32 * tw * a})`;
+    ctx.beginPath();
+    ctx.arc(sx, sy, 1.5 * s, 0, TAU);
+    ctx.fill();
+  }
+}
+
+function drawRays(t) {
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  for (let i = 0; i < 6; i++) {
+    const fx = (i + 0.5) / 6;
+    const bx = fx * W + Math.sin(t * 0.04 + i * 1.9) * W * 0.03;
+    const spread = W * (0.045 + 0.02 * Math.sin(i * 2.3));
+    const lean = Math.sin(t * 0.025 + i * 1.3) * W * 0.07;
+    const al = 0.045 + 0.02 * Math.sin(t * 0.07 + i * 2.1);
+    const g = ctx.createLinearGradient(0, 0, 0, H * 0.85);
+    g.addColorStop(0, `rgba(130,205,255,${al})`);
+    g.addColorStop(1, 'rgba(130,205,255,0)');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.moveTo(bx - spread * 0.35, -20);
+    ctx.lineTo(bx + spread * 0.35, -20);
+    ctx.lineTo(bx + spread + lean, H * 0.85);
+    ctx.lineTo(bx - spread + lean, H * 0.85);
+    ctx.closePath();
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+function drawSnow(t, front) {
+  for (const p of snow) {
+    if ((p.z >= 0.5) !== front) continue;
+    let fy = (p.y - t * p.sp * (0.4 + p.z)) % 1;
+    if (fy < 0) fy += 1;
+    const py = fy * H;
+    const px = p.x * W + Math.sin(t * 0.25 * p.z + p.ph) * 24 * p.z;
+    const r = p.r * (0.5 + p.z * 1.1);
+    const alpha = 0.10 + p.z * 0.35;
+    if (r > 1.6) {
+      const g = ctx.createRadialGradient(px, py, 0, px, py, r * 3);
+      g.addColorStop(0, `rgba(200,230,255,${alpha})`);
+      g.addColorStop(1, 'rgba(200,230,255,0)');
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(px, py, r * 3, 0, TAU);
+      ctx.fill();
+    } else {
+      ctx.fillStyle = `rgba(200,230,255,${alpha})`;
+      ctx.beginPath();
+      ctx.arc(px, py, r, 0, TAU);
+      ctx.fill();
+    }
+  }
+}
+
+function drawBokeh(t) {
+  for (const b of bokeh) {
+    let fy = (b.y - t * b.sp) % 1;
+    if (fy < 0) fy += 1;
+    const py = fy * H;
+    const px = b.x * W + Math.sin(t * 0.05 + b.ph) * 40;
+    const g = ctx.createRadialGradient(px, py, 0, px, py, b.r);
+    g.addColorStop(0, 'rgba(140,200,255,0.05)');
+    g.addColorStop(1, 'rgba(140,200,255,0)');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(px, py, b.r, 0, TAU);
+    ctx.fill();
+  }
+}
+
+function drawVignette() {
+  const g = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.35, W / 2, H / 2, Math.max(W, H) * 0.75);
+  g.addColorStop(0, 'rgba(0,4,10,0)');
+  g.addColorStop(1, 'rgba(0,4,10,0.55)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, H);
+}
+
+function drawFarJelly(fj, t) {
+  const s = fj.s * Math.min(W, H) / 720;
+  const x = fj.x * W + Math.sin(t * fj.drift + fj.ph) * W * 0.03;
+  const y = fj.y * H + Math.sin(t * fj.drift * 1.4 + fj.ph * 2) * H * 0.045;
+  const rot = Math.sin(t * fj.drift * 0.8 + fj.ph) * 0.06;
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(rot);
+  drawJellyfish(0, 0, s, t * fj.sp, fj.ph, 0.38);
+  ctx.restore();
+}
+
+function frame(now) {
+  const t = now / 1000;
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+
+  /* deep-sea gradient */
+  let g = ctx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, '#0c3557');
+  g.addColorStop(0.4, '#082a47');
+  g.addColorStop(1, '#020b16');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, H);
+
+  /* soft light from the surface */
+  g = ctx.createLinearGradient(0, 0, 0, H * 0.32);
+  g.addColorStop(0, 'rgba(150,215,255,0.13)');
+  g.addColorStop(1, 'rgba(150,215,255,0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, H * 0.32);
+
+  drawRays(t);
+  drawSnow(t, false);
+
+  /* camera: slow drift + breathing zoom */
+  ctx.save();
+  const camX = Math.sin(t * 0.05) * W * 0.018;
+  const camY = Math.sin(t * 0.037) * H * 0.02;
+  const camS = 1 + Math.sin(t * 0.03) * 0.025;
+  ctx.translate(W / 2 + camX, H / 2 + camY);
+  ctx.scale(camS, camS);
+  ctx.translate(-W / 2, -H / 2);
+
+  for (const fj of farJellies) drawFarJelly(fj, t);
+
+  /* the main jellyfish */
+  const s = Math.max(0.55, Math.min(1.35, Math.min(W, H) / 720));
+  const p = pulseAt(t);
+  const jx = W * 0.5 + Math.sin(t * 0.045) * W * 0.07 + Math.sin(t * 0.013 + 2) * W * 0.03;
+  const jy = H * 0.44 + Math.sin(t * 0.5) * H * 0.018 - H * 0.085 * p;
+  const rot = Math.sin(t * 0.06) * 0.05 + Math.cos(t * 0.11) * 0.02;
+  ctx.save();
+  ctx.translate(jx, jy);
+  ctx.rotate(rot);
+  drawJellyfish(0, 0, s, t, 0, 1);
+  ctx.restore();
+
+  ctx.restore();
+
+  drawSnow(t, true);
+  drawBokeh(t);
+  drawVignette();
+
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+<!--zc-home:start--><style>.zc-home-btn{position:fixed;top:16px;left:16px;z-index:2147483647;display:inline-flex;align-items:center;gap:6px;padding:8px 14px;font:500 13px/1.1 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Noto Sans SC",sans-serif;color:#111;background:rgba(255,255,255,.86);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);border:1px solid rgba(0,0,0,.08);border-radius:999px;text-decoration:none;box-shadow:0 2px 12px rgba(0,0,0,.2);transition:background .2s ease,transform .2s ease,box-shadow .2s ease}.zc-home-btn:hover{background:#fff;transform:translateY(-1px);box-shadow:0 4px 18px rgba(0,0,0,.26)}</style><a class="zc-home-btn" href="../">← 返回首页</a><!--zc-home:end-->
+</body>
+</html>

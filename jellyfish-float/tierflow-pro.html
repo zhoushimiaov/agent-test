@@ -1,0 +1,651 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Jellyfish Drift · 深海水母</title>
+<style>
+  html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #02040c; }
+  canvas { display: block; width: 100vw; height: 100vh; }
+</style>
+</head>
+<body>
+<canvas id="sea"></canvas>
+<script>
+'use strict';
+(() => {
+
+// ---------------- 基础设置 ----------------
+const canvas = document.getElementById('sea');
+const ctx = canvas.getContext('2d');
+let W = 0, H = 0, DPR = 1, U = 1;
+
+function resize() {
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  W = window.innerWidth;
+  H = window.innerHeight;
+  canvas.width = Math.round(W * DPR);
+  canvas.height = Math.round(H * DPR);
+  canvas.style.width = W + 'px';
+  canvas.style.height = H + 'px';
+  U = Math.max(0.55, Math.min(1.7, Math.min(W, H) / 720));
+}
+window.addEventListener('resize', resize);
+resize();
+
+// 固定种子随机数，保证构图可复现
+function mulberry32(a) {
+  return function () {
+    a |= 0; a = a + 0x6D2B79F5 | 0;
+    let t = Math.imul(a ^ a >>> 15, 1 | a);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+const rng = mulberry32(20261011);
+
+// 预渲染发光贴图（粒子 / 光晕用，避免逐帧 shadowBlur）
+function makeSprite(size, stops) {
+  const c = document.createElement('canvas');
+  c.width = c.height = size;
+  const g = c.getContext('2d');
+  const rg = g.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+  for (const [o, col] of stops) rg.addColorStop(o, col);
+  g.fillStyle = rg;
+  g.fillRect(0, 0, size, size);
+  return c;
+}
+const dotSprite = makeSprite(64, [
+  [0, 'rgba(235,250,255,1)'],
+  [0.22, 'rgba(180,225,255,0.65)'],
+  [0.55, 'rgba(110,170,235,0.18)'],
+  [1, 'rgba(80,140,220,0)']
+]);
+const softSprite = makeSprite(128, [
+  [0, 'rgba(190,230,255,0.9)'],
+  [0.4, 'rgba(140,195,255,0.28)'],
+  [1, 'rgba(100,160,255,0)']
+]);
+
+// ---------------- 脉动曲线：快收缩、慢舒张 ----------------
+function pulseK(p) {
+  if (p < 0.34) {
+    const q = p / 0.34;
+    return Math.sin(q * Math.PI * 0.5);
+  }
+  const q = (p - 0.34) / 0.66;
+  return Math.cos(q * Math.PI * 0.5);
+}
+
+// ---------------- 触手：verlet 绳索，物理跟随伞体 ----------------
+class Strand {
+  constructor(opt) {
+    this.n = opt.n;
+    this.segU = opt.segU;          // 单节长度（U 单位）
+    this.ph = opt.ph;
+    this.flow = opt.flow || 1;
+    this.off = opt.off;            // 在伞缘上的横向锚点偏移（伞宽比例）
+    this.ax = opt.ax; this.ay = opt.ay;
+    this.pts = [];
+    for (let i = 0; i < this.n; i++) {
+      this.pts.push({ x: opt.ax, y: opt.ay + i * this.segU * U, px: opt.ax, py: opt.ay + i * this.segU * U });
+    }
+  }
+  step(t) {
+    const p = this.pts, n = this.n, seg = this.segU * U;
+    for (let i = 1; i < n; i++) {
+      const pt = p[i];
+      const vx = (pt.x - pt.px) * 0.962;   // 水的阻尼
+      const vy = (pt.y - pt.py) * 0.962;
+      pt.px = pt.x; pt.py = pt.y;
+      const s = i / (n - 1);
+      // 两层正弦叠加的水流摆动，越靠尾端幅度越大
+      const sway = (Math.sin(t * 1.25 + i * 0.34 + this.ph) * 0.030
+                  + Math.sin(t * 0.47 + i * 0.16 + this.ph * 1.7) * 0.024) * this.flow * s;
+      pt.x += vx + sway * U;
+      pt.y += vy + (0.020 - 0.012 * s) * U; // 轻微下沉，尖端更漂浮
+    }
+    for (let it = 0; it < 3; it++) {        // 距离约束
+      p[0].x = this.ax; p[0].y = this.ay;
+      for (let i = 1; i < n; i++) {
+        const dx = p[i].x - p[i - 1].x, dy = p[i].y - p[i - 1].y;
+        const d = Math.hypot(dx, dy) || 1e-4;
+        const diff = (d - seg) / d;
+        p[i].x -= dx * diff;
+        p[i].y -= dy * diff;
+      }
+    }
+  }
+}
+
+// ---------------- 主体状态 ----------------
+const jelly = { x: W * 0.5, y: H * 0.58, vx: 0, vy: 0, k: 0, rot: 0, ph: 0.82, prevPh: 0 };
+const anchor = { x: W * 0.5, y: H * 0.45 };
+const PULSE = 3.3;   // 一次脉动周期（秒）
+
+// 细触手 9 条 + 口腕 4 条
+const thin = [], arms = [];
+(function buildStrands() {
+  const R = 88;
+  for (let i = 0; i < 9; i++) {
+    const L = R * (1.7 + 2.3 * rng());
+    const n = Math.max(12, Math.min(34, Math.round(L / 11)));
+    thin.push(new Strand({
+      n, segU: 11, ph: rng() * Math.PI * 2, flow: 0.8 + rng() * 0.6,
+      off: -0.82 + 1.64 * (i + 0.5) / 9 + (rng() - 0.5) * 0.05,
+      ax: jelly.x, ay: jelly.y
+    }));
+  }
+  for (let i = 0; i < 4; i++) {
+    const L = R * (0.85 + 0.45 * rng());
+    const n = Math.max(8, Math.min(16, Math.round(L / 9)));
+    arms.push(new Strand({
+      n, segU: 9, ph: rng() * Math.PI * 2, flow: 1.1,
+      off: (-0.21 + 0.14 * i) + (rng() - 0.5) * 0.03,
+      ax: jelly.x, ay: jelly.y
+    }));
+  }
+})();
+
+const ripples = [];
+
+// ---------------- 水母物理：脉动推进 + 弹簧回归 + 游移 ----------------
+function stepJelly(t, dt) {
+  anchor.x = W * 0.5 + (Math.sin(t * 0.061) * 0.55 + Math.sin(t * 0.023 + 2.0) * 0.45) * W * 0.16;
+  anchor.y = H * 0.42 + (Math.sin(t * 0.047 + 1.0) * 0.6 + Math.sin(t * 0.014 + 3.0) * 0.4) * H * 0.10;
+
+  jelly.prevPh = jelly.ph;
+  jelly.ph = (jelly.ph + dt / PULSE) % 1;
+  jelly.k = pulseK(jelly.ph);
+
+  // 收缩阶段喷水推进
+  if (jelly.ph < 0.34) {
+    const q = jelly.ph / 0.34;
+    jelly.vy -= 62 * U * Math.cos(q * Math.PI * 0.5) * dt;
+  }
+  // 缓慢游移 + 轻微沉降
+  jelly.vx += (Math.sin(t * 0.21 + 1.3) * 0.6 + Math.sin(t * 0.077 + 4.1) * 0.4) * 9 * U * dt;
+  jelly.vy += 7 * U * dt;
+  // 弹簧拉回游移锚点，保证始终在画面内
+  jelly.vx += (anchor.x - jelly.x) * 0.9 * dt;
+  jelly.vy += (anchor.y - jelly.y) * 0.9 * dt;
+  const dr = Math.exp(-1.25 * dt);
+  jelly.vx *= dr; jelly.vy *= dr;
+  jelly.x += jelly.vx * dt;
+  jelly.y += jelly.vy * dt;
+
+  // 朝运动方向轻微倾斜
+  const targetRot = Math.max(-0.14, Math.min(0.14, jelly.vx * 0.0022)) + Math.sin(t * 0.37) * 0.025;
+  jelly.rot += (targetRot - jelly.rot) * Math.min(1, 2.5 * dt);
+
+  // 每次收缩起点推出一圈涟漪
+  if (jelly.ph < jelly.prevPh && ripples.length < 4) {
+    ripples.push({ x: jelly.x, y: jelly.y, r: 0, a: 0.12 });
+  }
+}
+
+function stepStrands(t) {
+  const wCur = 88 * U * (1 - 0.16 * jelly.k);
+  const cR = Math.cos(jelly.rot), sR = Math.sin(jelly.rot);
+  const attach = (s, oy) => {
+    const ox = s.off * wCur;
+    s.ax = jelly.x + ox * cR - oy * sR;
+    s.ay = jelly.y + ox * sR + oy * cR;
+    s.step(t);
+  };
+  for (const s of thin) attach(s, 4 * U);
+  for (const s of arms) attach(s, 1 * U);
+}
+
+function stepRipples(dt) {
+  for (let i = ripples.length - 1; i >= 0; i--) {
+    const rp = ripples[i];
+    rp.r += 35 * U * dt;
+    rp.a -= 0.05 * dt;
+    if (rp.a <= 0) ripples.splice(i, 1);
+  }
+}
+
+// ---------------- 浮游粒子（四个景深层） ----------------
+const parts = [];
+const NB = [0.35, 0.7, 1.0, 1.5];
+(function initParts() {
+  const NP = Math.max(70, Math.min(210, Math.round(W * H / 11000)));
+  for (let i = 0; i < NP; i++) {
+    const b = i % 4;
+    const fg = (b === 3);
+    parts.push({
+      x: -0.3 * W + rng() * 1.6 * W,
+      y: -0.3 * H + rng() * 1.6 * H,
+      z: NB[b] + (rng() - 0.5) * 0.18, b,
+      r: fg ? 5 + rng() * 7 : 0.8 + rng() * 1.7,
+      a: fg ? 0.045 + rng() * 0.04 : 0.16 + rng() * 0.4,
+      vy: fg ? 4 + rng() * 6 : (rng() < 0.75 ? 3 + rng() * 9 : -(2 + rng() * 6)),
+      tw: 0.6 + rng() * 2.2,
+      ph: rng() * Math.PI * 2,
+      flash: !fg && b === 2 && rng() < 0.30
+    });
+  }
+})();
+
+function stepParts(dt, t) {
+  for (const p of parts) {
+    p.y -= p.vy * (0.5 + p.z * 0.7) * dt;
+    p.x += Math.sin(t * 0.25 + p.ph) * 2.2 * (0.4 + p.z) * dt;
+    if (p.y < -0.35 * H) { p.y = 1.35 * H; p.x = -0.3 * W + Math.random() * 1.6 * W; }
+    if (p.y > 1.4 * H) { p.y = -0.3 * H; p.x = -0.3 * W + Math.random() * 1.6 * W; }
+    if (p.x < -0.35 * W) p.x = 1.35 * W;
+    if (p.x > 1.4 * W) p.x = -0.3 * W;
+  }
+}
+
+// ---------------- 远处的小水母剪影（景深陪衬） ----------------
+const minis = [];
+for (let i = 0; i < 3; i++) {
+  minis.push({
+    x: (0.15 + 0.7 * rng()) * W, y: (0.2 + 0.8 * rng()) * H,
+    d: 0.3 + 0.15 * rng(), s: 0.3 + 0.25 * rng(),
+    P: 3.8 + 1.6 * rng(), ph: rng(), vy: 5 + 5 * rng(), dph: rng() * 7
+  });
+}
+function stepMinis(dt, t) {
+  for (const m of minis) {
+    m.y -= m.vy * dt;
+    m.x += Math.sin(t * 0.12 + m.dph) * 4 * dt;
+    if (m.y < -0.25 * H) { m.y = 1.25 * H; m.x = (0.1 + 0.8 * Math.random()) * W; }
+    if (m.x < -0.3 * W) m.x = 1.3 * W;
+    if (m.x > 1.3 * W) m.x = -0.3 * W;
+  }
+}
+
+// ---------------- 光柱 ----------------
+const beams = [
+  { x: 0.16, w: 0.085, sl: 0.20, a: 0.070, sp: 0.10, ph: 0.0 },
+  { x: 0.33, w: 0.045, sl: 0.14, a: 0.050, sp: 0.13, ph: 2.1 },
+  { x: 0.50, w: 0.130, sl: 0.24, a: 0.085, sp: 0.08, ph: 4.2 },
+  { x: 0.68, w: 0.060, sl: 0.17, a: 0.055, sp: 0.12, ph: 1.3 },
+  { x: 0.84, w: 0.100, sl: 0.22, a: 0.065, sp: 0.09, ph: 5.1 }
+];
+
+// ---------------- 相机：缓慢游移 + 呼吸变焦，轻微跟随主体 ----------------
+let camX = 0, camY = 0, camZ = 1;
+function updateCam(t) {
+  const nx = Math.sin(t * 0.041) * 0.6 + Math.sin(t * 0.017 + 2.1) * 0.4;
+  const ny = Math.sin(t * 0.033 + 1.2) * 0.55 + Math.sin(t * 0.013 + 0.4) * 0.45;
+  camX = nx * W * 0.05 + (jelly.x - W / 2) * 0.24;
+  camY = ny * H * 0.045 + (jelly.y - H * 0.5) * 0.24;
+  camZ = 1 + 0.05 * Math.sin(t * 0.027);
+}
+function layer(d) {   // 按景深应用视差
+  ctx.save();
+  const s = 1 + (camZ - 1) * d;
+  ctx.translate(W / 2, H / 2);
+  ctx.scale(s, s);
+  ctx.translate(-W / 2 - camX * d, -H / 2 - camY * d);
+}
+function unlayer() { ctx.restore(); }
+
+// ---------------- 绘制 ----------------
+function drawThinStrand(s, t) {
+  const p = s.pts, n = s.n;
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  // 光晕层
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.strokeStyle = 'rgba(120,205,255,0.09)';
+  ctx.lineWidth = 2.8 * U;
+  ctx.beginPath();
+  ctx.moveTo(p[0].x, p[0].y);
+  for (let i = 1; i < n - 1; i++) {
+    ctx.quadraticCurveTo(p[i].x, p[i].y, (p[i].x + p[i + 1].x) / 2, (p[i].y + p[i + 1].y) / 2);
+  }
+  ctx.lineTo(p[n - 1].x, p[n - 1].y);
+  ctx.stroke();
+  ctx.restore();
+  // 渐细亮芯
+  for (let i = 1; i < n; i++) {
+    const sf = i / (n - 1);
+    ctx.strokeStyle = 'rgba(215,245,255,' + (0.42 * (1 - 0.75 * sf)).toFixed(3) + ')';
+    ctx.lineWidth = (1.15 - 0.85 * sf) * U;
+    ctx.beginPath();
+    ctx.moveTo(p[i - 1].x, p[i - 1].y);
+    ctx.lineTo(p[i].x, p[i].y);
+    ctx.stroke();
+  }
+}
+
+function drawRibbon(s, t) {
+  const p = s.pts, n = s.n;
+  const L = [], R = [];
+  for (let i = 0; i < n; i++) {
+    const a = p[Math.max(0, i - 1)], b = p[Math.min(n - 1, i + 1)];
+    const dx = b.x - a.x, dy = b.y - a.y;
+    const d = Math.hypot(dx, dy) || 1;
+    const nx = -dy / d, ny = dx / d;
+    const sf = i / (n - 1);
+    // 边缘随时间波动，形成褶皱裙边
+    const wv = (7.5 * U * (1 - 0.62 * sf)) * (0.55 + 0.45 * Math.sin(t * 2.1 + sf * 9 + s.ph)) + 0.4;
+    L.push([p[i].x + nx * wv, p[i].y + ny * wv]);
+    R.push([p[i].x - nx * wv, p[i].y - ny * wv]);
+  }
+  const g = ctx.createLinearGradient(p[0].x, p[0].y, p[n - 1].x, p[n - 1].y);
+  g.addColorStop(0, 'rgba(255,205,235,0.50)');
+  g.addColorStop(0.45, 'rgba(255,150,215,0.30)');
+  g.addColorStop(1, 'rgba(190,130,255,0.04)');
+  ctx.fillStyle = g;
+  ctx.beginPath();
+  ctx.moveTo(L[0][0], L[0][1]);
+  for (let i = 1; i < n; i++) ctx.lineTo(L[i][0], L[i][1]);
+  for (let i = n - 1; i >= 0; i--) ctx.lineTo(R[i][0], R[i][1]);
+  ctx.closePath();
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(255,225,245,0.30)';
+  ctx.lineWidth = 0.9 * U;
+  ctx.beginPath();
+  ctx.moveTo(p[0].x, p[0].y);
+  for (let i = 1; i < n - 1; i++) {
+    ctx.quadraticCurveTo(p[i].x, p[i].y, (p[i].x + p[i + 1].x) / 2, (p[i].y + p[i + 1].y) / 2);
+  }
+  ctx.lineTo(p[n - 1].x, p[n - 1].y);
+  ctx.stroke();
+}
+
+function drawBell(t, k, flash) {
+  const w = 88 * U * (1 - 0.16 * k);
+  const h = 88 * U * (0.62 + 0.24 * k);
+  const M = 6;
+  const dips = [];
+  for (let i = 0; i < M; i++) dips.push(10 * U * (0.7 + 0.3 * Math.sin(t * 1.6 + i * 1.9)));
+  const dome = () => {
+    ctx.beginPath();
+    ctx.moveTo(-w, 0);
+    ctx.bezierCurveTo(-w, -h * 0.80, -w * 0.56, -h, 0, -h);
+    ctx.bezierCurveTo(w * 0.56, -h, w, -h * 0.80, w, 0);
+    for (let i = 0; i < M; i++) {
+      const x0 = w - i * (2 * w / M), x1 = w - (i + 1) * (2 * w / M);
+      ctx.quadraticCurveTo((x0 + x1) / 2, dips[i], x1, 0);
+    }
+    ctx.closePath();
+  };
+
+  // 生物发光外晕
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  let g = ctx.createRadialGradient(0, -h * 0.38, 0, 0, -h * 0.38, w * 2.1);
+  g.addColorStop(0, 'rgba(96,170,255,' + (0.14 + 0.10 * flash).toFixed(3) + ')');
+  g.addColorStop(0.5, 'rgba(80,140,240,' + (0.06 + 0.05 * flash).toFixed(3) + ')');
+  g.addColorStop(1, 'rgba(60,110,220,0)');
+  ctx.fillStyle = g;
+  ctx.beginPath();
+  ctx.arc(0, -h * 0.38, w * 2.1, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+
+  // 伞体主体（蓝青半透明）
+  dome();
+  g = ctx.createRadialGradient(0, -h * 0.62, w * 0.05, 0, -h * 0.30, w * 1.25);
+  g.addColorStop(0, 'rgba(205,240,255,0.80)');
+  g.addColorStop(0.30, 'rgba(150,190,255,0.38)');
+  g.addColorStop(0.65, 'rgba(95,140,235,0.16)');
+  g.addColorStop(1, 'rgba(70,110,200,0.04)');
+  ctx.fillStyle = g;
+  ctx.fill();
+
+  // 内部粉紫光核
+  dome();
+  g = ctx.createRadialGradient(0, -h * 0.55, 0, 0, -h * 0.55, w * 0.95);
+  g.addColorStop(0, 'rgba(255,165,220,' + (0.42 + 0.18 * flash).toFixed(3) + ')');
+  g.addColorStop(0.55, 'rgba(255,120,200,0.14)');
+  g.addColorStop(1, 'rgba(255,120,200,0)');
+  ctx.fillStyle = g;
+  ctx.fill();
+
+  // 辐射水管
+  ctx.strokeStyle = 'rgba(255,255,255,0.10)';
+  ctx.lineWidth = 1 * U;
+  for (let i = 0; i < 8; i++) {
+    const rx = (-0.82 + 1.64 * i / 7) * w;
+    ctx.beginPath();
+    ctx.moveTo(rx * 0.22, -h * 0.86);
+    ctx.quadraticCurveTo(rx * 0.72, -h * 0.42, rx, -1 * U);
+    ctx.stroke();
+  }
+
+  // 生殖腺四叶（月光水母特征）
+  for (let i = 0; i < 4; i++) {
+    const a = Math.PI / 4 + i * Math.PI / 2;
+    const gx = Math.cos(a) * w * 0.30, gy = -h * 0.52 + Math.sin(a) * h * 0.15;
+    const gr = ctx.createRadialGradient(gx, gy, 0, gx, gy, w * 0.17);
+    gr.addColorStop(0, 'rgba(255,175,225,' + (0.34 + 0.20 * flash).toFixed(3) + ')');
+    gr.addColorStop(1, 'rgba(255,120,200,0)');
+    ctx.fillStyle = gr;
+    ctx.beginPath();
+    ctx.ellipse(gx, gy, w * 0.16, h * 0.115, a + Math.PI / 2, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // 描边 + 伞缘高光
+  dome();
+  ctx.strokeStyle = 'rgba(170,230,255,' + (0.30 + 0.22 * flash).toFixed(3) + ')';
+  ctx.lineWidth = 1.6 * U;
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(-w, 0);
+  for (let i = 0; i < M; i++) {
+    const x0 = -w + i * (2 * w / M), x1 = -w + (i + 1) * (2 * w / M);
+    ctx.quadraticCurveTo((x0 + x1) / 2, dips[M - 1 - i], x1, 0);
+  }
+  ctx.strokeStyle = 'rgba(210,245,255,' + (0.40 + 0.25 * flash).toFixed(3) + ')';
+  ctx.lineWidth = 1.1 * U;
+  ctx.stroke();
+}
+
+function drawJelly(t) {
+  const k = jelly.k;
+  const flash = Math.pow(k, 1.5);
+  const h = 88 * U * (0.62 + 0.24 * k);
+
+  // 推进涟漪
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  for (const rp of ripples) {
+    const rr = 88 * U * 0.95 + rp.r;
+    ctx.beginPath();
+    ctx.ellipse(rp.x, rp.y - h * 0.3, rr, rr * 0.72, 0, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(150,215,255,' + Math.max(0, rp.a).toFixed(3) + ')';
+    ctx.lineWidth = 1.4 * U;
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  for (const s of thin) drawThinStrand(s, t);
+  for (const s of arms) drawRibbon(s, t);
+
+  ctx.save();
+  ctx.translate(jelly.x, jelly.y);
+  ctx.rotate(jelly.rot);
+  drawBell(t, k, flash);
+  ctx.restore();
+}
+
+function drawParts(band, t) {
+  for (const p of parts) {
+    if (p.b !== band) continue;
+    let a = p.a * (0.6 + 0.4 * Math.sin(t * p.tw + p.ph));
+    if (p.flash) a = p.a * (0.08 + 1.9 * Math.pow(0.5 + 0.5 * Math.sin(t * 1.3 + p.ph * 4), 10));
+    a = Math.max(0, Math.min(1, a));
+    const s = p.r * (p.b === 3 ? 1.6 : 0.55 + p.z * 0.75) * U;
+    ctx.globalAlpha = a;
+    ctx.drawImage(p.b === 3 ? softSprite : dotSprite, p.x - s, p.y - s, s * 2, s * 2);
+  }
+  ctx.globalAlpha = 1;
+}
+
+function drawMini(m, t) {
+  const k = pulseK(((t / m.P) + m.ph) % 1);
+  const R = 88 * U * m.s;
+  const w = R * (1 - 0.15 * k), h = R * (0.65 + 0.2 * k);
+  ctx.save();
+  ctx.translate(m.x, m.y);
+  ctx.rotate(Math.sin(t * 0.3 + m.dph) * 0.1);
+  ctx.globalAlpha = 0.7;
+  ctx.globalCompositeOperation = 'lighter';
+  let g = ctx.createRadialGradient(0, -h * 0.4, 0, 0, -h * 0.4, w * 1.8);
+  g.addColorStop(0, 'rgba(100,180,235,0.10)');
+  g.addColorStop(1, 'rgba(100,180,235,0)');
+  ctx.fillStyle = g;
+  ctx.beginPath();
+  ctx.arc(0, -h * 0.4, w * 1.8, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.beginPath();
+  ctx.moveTo(-w, 0);
+  ctx.bezierCurveTo(-w, -h * 0.8, -w * 0.55, -h, 0, -h);
+  ctx.bezierCurveTo(w * 0.55, -h, w, -h * 0.8, w, 0);
+  for (let i = 0; i < 4; i++) {
+    const x0 = w - i * (2 * w / 4), x1 = w - (i + 1) * (2 * w / 4);
+    ctx.quadraticCurveTo((x0 + x1) / 2, 6 * U * m.s, x1, 0);
+  }
+  ctx.closePath();
+  ctx.fillStyle = 'rgba(105,160,205,0.20)';
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(160,215,245,0.28)';
+  ctx.lineWidth = 1 * U;
+  ctx.stroke();
+  ctx.strokeStyle = 'rgba(150,205,240,0.20)';
+  for (let j = 0; j < 5; j++) {
+    const sx = (-0.75 + 1.5 * j / 4) * w;
+    const len = R * (1.1 + 0.5 * Math.sin(j * 2.3 + m.dph));
+    const sw = Math.sin(t * 1.1 + j + m.dph) * 7 * U * m.s;
+    ctx.beginPath();
+    ctx.moveTo(sx, 2 * U);
+    ctx.quadraticCurveTo(sx + sw * 0.4, len * 0.55, sx + sw, len);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function render(t) {
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+
+  // 深海背景：光从上方来
+  let g = ctx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, '#0b3155');
+  g.addColorStop(0.45, '#07203c');
+  g.addColorStop(1, '#02050f');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, H);
+
+  // 顶部光源泛光
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  g = ctx.createRadialGradient(W * 0.5, -H * 0.25, 0, W * 0.5, -H * 0.25, H * 0.75);
+  g.addColorStop(0, 'rgba(110,185,255,0.16)');
+  g.addColorStop(1, 'rgba(110,185,255,0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, H);
+  ctx.restore();
+
+  // 光柱层
+  layer(0.12);
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  for (const b of beams) {
+    const bx = (b.x + 0.025 * Math.sin(t * 0.05 + b.ph)) * W;
+    const a = b.a * (0.55 + 0.45 * Math.sin(t * b.sp + b.ph * 2.3)) * (0.8 + 0.2 * Math.sin(t * 0.9 + b.ph));
+    const wTop = b.w * W * 0.5, wBot = wTop * 2.3, slant = b.sl * H;
+    const bg2 = ctx.createLinearGradient(0, -40, 0, H * 1.05);
+    bg2.addColorStop(0, 'rgba(150,215,255,' + Math.max(0, a).toFixed(3) + ')');
+    bg2.addColorStop(0.55, 'rgba(130,195,255,' + Math.max(0, a * 0.45).toFixed(3) + ')');
+    bg2.addColorStop(1, 'rgba(120,190,255,0)');
+    ctx.fillStyle = bg2;
+    ctx.beginPath();
+    ctx.moveTo(bx - wTop, -40);
+    ctx.lineTo(bx + wTop, -40);
+    ctx.lineTo(bx + slant + wBot, H * 1.05);
+    ctx.lineTo(bx + slant - wBot, H * 1.05);
+    ctx.closePath();
+    ctx.fill();
+  }
+  ctx.restore();
+
+  // 近水面焦散波纹
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.lineCap = 'round';
+  for (let j = 0; j < 3; j++) {
+    const base = H * (0.05 + 0.055 * j);
+    ctx.beginPath();
+    for (let x = 0; x <= W + 26; x += 26) {
+      const y = base + Math.sin(x * 0.012 + t * 0.5 + j * 2.1) * 7 + Math.sin(x * 0.031 - t * 0.33 + j) * 3.5;
+      if (x === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.strokeStyle = 'rgba(150,215,255,0.035)';
+    ctx.lineWidth = 5 * U;
+    ctx.stroke();
+    ctx.strokeStyle = 'rgba(190,235,255,0.05)';
+    ctx.lineWidth = 1.4 * U;
+    ctx.stroke();
+  }
+  ctx.restore();
+  unlayer();
+
+  // 远景小水母
+  for (const m of minis) { layer(m.d); drawMini(m, t); unlayer(); }
+
+  // 粒子按景深分层
+  layer(0.45); drawParts(0, t); unlayer();
+  layer(0.75); drawParts(1, t); unlayer();
+
+  // 主水母
+  layer(1);
+  drawJelly(t);
+  unlayer();
+
+  layer(1.0); drawParts(2, t); unlayer();
+  layer(1.5); drawParts(3, t); unlayer();
+
+  // 暗角与底部压暗，聚焦画面中心
+  g = ctx.createRadialGradient(W / 2, H * 0.44, Math.min(W, H) * 0.32, W / 2, H * 0.5, Math.max(W, H) * 0.78);
+  g.addColorStop(0, 'rgba(1,4,12,0)');
+  g.addColorStop(1, 'rgba(1,4,12,0.55)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, H);
+  g = ctx.createLinearGradient(0, H * 0.72, 0, H);
+  g.addColorStop(0, 'rgba(0,2,8,0)');
+  g.addColorStop(1, 'rgba(0,2,8,0.42)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, H);
+}
+
+// ---------------- 主循环（固定物理步长） ----------------
+const STEP = 1 / 60;
+let last = performance.now(), acc = 0, simT = 0;
+function frame(now) {
+  requestAnimationFrame(frame);
+  let dt = (now - last) / 1000;
+  last = now;
+  if (dt > 0.25) dt = 0.25;
+  acc += dt;
+  let steps = 0;
+  while (acc >= STEP && steps < 4) {
+    stepJelly(simT, STEP);
+    stepStrands(simT);
+    stepRipples(STEP);
+    stepParts(STEP, simT);
+    stepMinis(STEP, simT);
+    simT += STEP;
+    acc -= STEP;
+    steps++;
+  }
+  if (steps === 4) acc = 0;
+  updateCam(simT);
+  render(simT);
+}
+requestAnimationFrame(frame);
+
+})();
+</script>
+<!--zc-home:start--><style>.zc-home-btn{position:fixed;top:16px;left:16px;z-index:2147483647;display:inline-flex;align-items:center;gap:6px;padding:8px 14px;font:500 13px/1.1 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Noto Sans SC",sans-serif;color:#111;background:rgba(255,255,255,.86);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);border:1px solid rgba(0,0,0,.08);border-radius:999px;text-decoration:none;box-shadow:0 2px 12px rgba(0,0,0,.2);transition:background .2s ease,transform .2s ease,box-shadow .2s ease}.zc-home-btn:hover{background:#fff;transform:translateY(-1px);box-shadow:0 4px 18px rgba(0,0,0,.26)}</style><a class="zc-home-btn" href="../">← 返回首页</a><!--zc-home:end-->
+</body>
+</html>

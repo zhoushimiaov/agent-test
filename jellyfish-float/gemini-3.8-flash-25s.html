@@ -1,0 +1,637 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Bioluminescent Jellyfish Drift - gemini-3.8-flash (25s)</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background-color: #010613;
+      cursor: pointer;
+    }
+    #webgl-canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+  </style>
+  <!-- Three.js CDN -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+<body>
+  <canvas id="webgl-canvas"></canvas>
+
+  <script>
+    // --- 场景、相机与渲染器初始化 ---
+    const canvas = document.getElementById('webgl-canvas');
+    const renderer = new THREE.WebGLRenderer({
+      canvas: canvas,
+      antialias: true,
+      alpha: true,
+      powerPreference: 'high-performance'
+    });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.35;
+
+    const scene = new THREE.Scene();
+    scene.fog = new THREE.FogExp2(0x020a1c, 0.022);
+
+    const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 150);
+    camera.position.set(0, 1.2, 10.5);
+
+    // --- 基础光照 ---
+    const ambientLight = new THREE.AmbientLight(0x082545, 1.2);
+    scene.add(ambientLight);
+
+    const topGodLight = new THREE.DirectionalLight(0x4deeea, 2.5);
+    topGodLight.position.set(2, 12, 4);
+    scene.add(topGodLight);
+
+    const innerCoreLight = new THREE.PointLight(0xcc66ff, 3.2, 10, 1.5);
+    scene.add(innerCoreLight);
+
+    const deepBlueLight = new THREE.PointLight(0x0055ff, 2.0, 15, 1.8);
+    deepBlueLight.position.set(0, -6, 2);
+    scene.add(deepBlueLight);
+
+    // --- 水母整体运动控制参数与状态机 ---
+    const jellyfishGroup = new THREE.Group();
+    scene.add(jellyfishGroup);
+
+    // 水母状态：'drifting' (平静漂浮) 或 'fleeing' (受惊突然加速跑掉)
+    const jellyState = {
+      status: 'drifting',
+      fleeProgress: 0,
+      fleeDuration: 3.2,
+      startPos: new THREE.Vector3(),
+      targetDir: new THREE.Vector3(),
+      startRot: new THREE.Euler(),
+      fleeSpeed: 0,
+      respawnTimer: 0
+    };
+
+    // 触发受惊逃逸行为
+    function triggerFlee(clickClientX, clickClientY) {
+      if (jellyState.status === 'fleeing') return;
+
+      jellyState.status = 'fleeing';
+      jellyState.fleeProgress = 0;
+      jellyState.startPos.copy(jellyfishGroup.position);
+
+      // 计算逃跑方向：避开点击/触摸位置，朝斜上方或深海深处爆发冲刺
+      let escapeDir = new THREE.Vector3();
+      if (clickClientX !== undefined && clickClientY !== undefined) {
+        const mouseNormX = (clickClientX / window.innerWidth) * 2 - 1;
+        const mouseNormY = -(clickClientY / window.innerHeight) * 2 + 1;
+        // 反向逃跑
+        escapeDir.set(-mouseNormX * 1.5, 1.8, -2.5 - Math.random() * 2.0).normalize();
+      } else {
+        const randomAngle = Math.random() * Math.PI * 2;
+        escapeDir.set(Math.cos(randomAngle) * 0.8, 1.6, -2.2).normalize();
+      }
+
+      jellyState.targetDir.copy(escapeDir);
+    }
+
+    // 交互监听：支持鼠标点击、触屏点击与移动
+    window.addEventListener('pointerdown', (e) => {
+      triggerFlee(e.clientX, e.clientY);
+    });
+
+    // 游泳物理周期计算函数
+    // 平静时是优雅的慢速滑行；逃跑时转化为高频、剧烈的紧急喷射搏动
+    function getSwimCycle(time, isFleeing, fleeProgress) {
+      let cycleSpeed = 1.35;
+      let contractIntensity = 1.0;
+      let propelPower = 0.038;
+
+      if (isFleeing) {
+        cycleSpeed = 7.5; // 惊慌时数倍频率剧烈搏动
+        contractIntensity = 1.65;
+        propelPower = 0.16;
+      }
+
+      const t = (time * cycleSpeed) % (Math.PI * 2);
+      let contractFactor = 0;
+      let forwardPropel = 0;
+
+      if (t < Math.PI * 0.75) {
+        const p = t / (Math.PI * 0.75);
+        contractFactor = Math.sin(p * Math.PI) * contractIntensity;
+        forwardPropel = Math.sin(p * Math.PI) * propelPower;
+      } else {
+        const p = (t - Math.PI * 0.75) / (Math.PI * 1.25);
+        contractFactor = -Math.sin(p * Math.PI) * 0.22 * contractIntensity;
+        forwardPropel = -0.008 * Math.cos(p * Math.PI * 0.5);
+      }
+
+      return {
+        rawTime: time,
+        t: t,
+        contract: contractFactor,
+        propel: forwardPropel
+      };
+    }
+
+    // --- 1. 水母伞体 (Bell / Umbrella) ---
+    const bellRadius = 2.2;
+    const bellGeom = new THREE.SphereGeometry(bellRadius, 64, 48, 0, Math.PI * 2, 0, Math.PI * 0.58);
+
+    const bellUniforms = {
+      uTime: { value: 0 },
+      uContract: { value: 0 },
+      uRimColor: { value: new THREE.Color(0x38e8ff) },
+      uInnerColor: { value: new THREE.Color(0x9d4edd) },
+      uApexColor: { value: new THREE.Color(0xff80bf) },
+      uGlowPower: { value: 2.8 }
+    };
+
+    const bellMat = new THREE.ShaderMaterial({
+      uniforms: bellUniforms,
+      vertexShader: `
+        uniform float uTime;
+        uniform float uContract;
+        varying vec3 vNormal;
+        varying vec3 vViewPosition;
+        varying vec3 vWorldPosition;
+        varying vec2 vUv;
+        varying float vBellY;
+
+        void main() {
+          vUv = uv;
+          vec3 pos = position;
+
+          // 归一化高度 (0 顶点 ~ 1 裙边)
+          float normY = (2.2 - pos.y) / 2.2;
+          vBellY = normY;
+
+          // 喷水形变：伞体下沿向内急剧收拢，顶部略微上拱
+          float inwardRatio = smoothstep(0.15, 1.0, normY);
+          float radCompression = 1.0 - (uContract * 0.42 * inwardRatio);
+          pos.x *= radCompression;
+          pos.z *= radCompression;
+          pos.y += (uContract * 0.35 * (1.0 - inwardRatio * 0.5));
+
+          // 伞缘波浪花边
+          float edgeAngle = atan(pos.z, pos.x);
+          float edgeFlute = sin(edgeAngle * 16.0 + uTime * 2.0) * 0.05 * pow(normY, 2.5);
+          pos.y += edgeFlute;
+          pos.x += cos(edgeAngle) * edgeFlute * 0.6;
+          pos.z += sin(edgeAngle) * edgeFlute * 0.6;
+
+          // 微妙呼吸扰动
+          pos += normal * (sin(uTime * 3.0 + normY * 6.0) * 0.02 * normY);
+
+          vec4 mvPosition = modelViewMatrix * vec4(pos, 1.0);
+          vNormal = normalize(normalMatrix * normal);
+          vViewPosition = -mvPosition.xyz;
+          vWorldPosition = (modelMatrix * vec4(pos, 1.0)).xyz;
+
+          gl_Position = projectionMatrix * mvPosition;
+        }
+      `,
+      fragmentShader: `
+        uniform float uTime;
+        uniform float uContract;
+        uniform vec3 uRimColor;
+        uniform vec3 uInnerColor;
+        uniform vec3 uApexColor;
+        uniform float uGlowPower;
+
+        varying vec3 vNormal;
+        varying vec3 vViewPosition;
+        varying vec3 vWorldPosition;
+        varying vec2 vUv;
+        varying float vBellY;
+
+        void main() {
+          vec3 normal = normalize(vNormal);
+          vec3 viewDir = normalize(vViewPosition);
+
+          // 菲涅尔边缘发光效应 (Fresnel Glow)
+          float fresnel = 1.0 - abs(dot(normal, viewDir));
+          fresnel = pow(fresnel, 2.2);
+
+          // 伞盖辐射状维管脉络
+          float angle = atan(vWorldPosition.z, vWorldPosition.x);
+          float canalStripes = pow(abs(cos(angle * 8.0)), 12.0) * 0.4;
+          float minorStripes = pow(abs(cos(angle * 32.0)), 16.0) * 0.2;
+          float canalGlow = (canalStripes + minorStripes) * (1.0 - vBellY * 0.6);
+
+          // 垂直渐变色调
+          vec3 baseColor = mix(uApexColor, uInnerColor, smoothstep(0.0, 0.6, vBellY));
+          baseColor = mix(baseColor, uRimColor, smoothstep(0.45, 1.0, vBellY));
+
+          float pulseIntensity = 1.0 + max(0.0, uContract) * 0.85;
+
+          vec3 col = baseColor * (0.28 + canalGlow * 0.6);
+          col += uRimColor * fresnel * 2.2 * pulseIntensity;
+          col += uApexColor * (1.0 - vBellY) * 0.45 * pulseIntensity;
+
+          float alpha = 0.22 + fresnel * 0.68 + canalGlow * 0.35;
+          alpha *= smoothstep(0.0, 0.1, vBellY);
+
+          gl_FragColor = vec4(col, min(alpha, 0.92));
+        }
+      `,
+      transparent: true,
+      blending: THREE.AdditiveBlending,
+      side: THREE.DoubleSide,
+      depthWrite: false
+    });
+
+    const bellMesh = new THREE.Mesh(bellGeom, bellMat);
+    jellyfishGroup.add(bellMesh);
+
+    // --- 2. 内部生殖腺/胃囊 (Gonads - 四叶草结构) ---
+    const gonadGroup = new THREE.Group();
+    gonadGroup.position.set(0, 0.75, 0);
+    jellyfishGroup.add(gonadGroup);
+
+    const gonadMat = new THREE.MeshBasicMaterial({
+      color: 0xff4fbf,
+      transparent: true,
+      opacity: 0.75,
+      blending: THREE.AdditiveBlending
+    });
+
+    for (let i = 0; i < 4; i++) {
+      const angle = (i * Math.PI * 2) / 4;
+      const torusGeom = new THREE.TorusGeometry(0.38, 0.12, 24, 40, Math.PI * 1.5);
+      const torus = new THREE.Mesh(torusGeom, gonadMat);
+      torus.position.set(Math.cos(angle) * 0.52, 0.1, Math.sin(angle) * 0.52);
+      torus.rotation.x = Math.PI * 0.45;
+      torus.rotation.z = angle + Math.PI * 0.25;
+      gonadGroup.add(torus);
+    }
+
+    // --- 3. 中心口腕 (Oral Arms - 飘逸丝带) ---
+    const oralArmCount = 4;
+    const oralArmSegments = 60;
+    const oralArmRibbons = [];
+
+    const oralArmMat = new THREE.ShaderMaterial({
+      uniforms: {
+        uTime: { value: 0 },
+        uColorA: { value: new THREE.Color(0xa855f7) },
+        uColorB: { value: new THREE.Color(0x38bdf8) }
+      },
+      vertexShader: `
+        uniform float uTime;
+        varying vec2 vUv;
+        varying float vDepthFade;
+
+        void main() {
+          vUv = uv;
+          vec3 pos = position;
+
+          float depthFactor = smoothstep(0.0, 1.0, -pos.y / 5.5);
+          float wave1 = sin(uTime * 2.2 + pos.y * 1.8) * 0.35 * depthFactor;
+          float wave2 = cos(uTime * 1.7 + pos.y * 2.5) * 0.28 * depthFactor;
+          float ruffle = sin(pos.y * 8.0 + uTime * 3.5) * 0.15 * uv.x;
+          
+          pos.x += wave1 + ruffle;
+          pos.z += wave2 + ruffle * 0.8;
+
+          vDepthFade = 1.0 - depthFactor * 0.4;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
+        }
+      `,
+      fragmentShader: `
+        uniform vec3 uColorA;
+        uniform vec3 uColorB;
+        varying vec2 vUv;
+        varying float vDepthFade;
+
+        void main() {
+          float edgeGlow = pow(sin(vUv.x * 3.14159), 0.5);
+          vec3 col = mix(uColorA, uColorB, vUv.y);
+          col += vec3(0.2, 0.8, 1.0) * edgeGlow * 0.6;
+
+          float alpha = (0.2 + edgeGlow * 0.65) * vDepthFade * (1.0 - vUv.y * 0.35);
+          gl_FragColor = vec4(col, alpha);
+        }
+      `,
+      transparent: true,
+      blending: THREE.AdditiveBlending,
+      side: THREE.DoubleSide,
+      depthWrite: false
+    });
+
+    for (let i = 0; i < oralArmCount; i++) {
+      const armAngle = (i * Math.PI * 2) / oralArmCount;
+      const geom = new THREE.PlaneGeometry(0.7, 5.8, 16, oralArmSegments);
+      geom.translate(0, -2.9, 0);
+      const mesh = new THREE.Mesh(geom, oralArmMat);
+      mesh.rotation.y = armAngle;
+      mesh.position.set(Math.cos(armAngle) * 0.3, 0.4, Math.sin(armAngle) * 0.3);
+      jellyfishGroup.add(mesh);
+      oralArmRibbons.push(mesh);
+    }
+
+    // --- 4. 伞缘细密触手 (Marginal Tentacles) ---
+    const tentacleCount = 44;
+    const tentaclePointsCount = 38;
+    const tentacleLength = 6.2;
+    const tentacles = [];
+
+    const tentacleLineMat = new THREE.LineBasicMaterial({
+      color: 0x48e6ff,
+      transparent: true,
+      opacity: 0.55,
+      blending: THREE.AdditiveBlending,
+      linewidth: 1
+    });
+
+    for (let i = 0; i < tentacleCount; i++) {
+      const angle = (i * Math.PI * 2) / tentacleCount;
+      const ringRadius = bellRadius * 0.94;
+      const baseX = Math.cos(angle) * ringRadius;
+      const baseZ = Math.sin(angle) * ringRadius;
+
+      const points = [];
+      for (let j = 0; j < tentaclePointsCount; j++) {
+        const pY = -(j / (tentaclePointsCount - 1)) * tentacleLength;
+        points.push(new THREE.Vector3(baseX, pY, baseZ));
+      }
+
+      const geom = new THREE.BufferGeometry().setFromPoints(points);
+      const line = new THREE.Line(geom, tentacleLineMat);
+      jellyfishGroup.add(line);
+
+      tentacles.push({
+        line: line,
+        baseAngle: angle,
+        baseX: baseX,
+        baseZ: baseZ,
+        length: tentacleLength + (Math.random() - 0.5) * 1.5,
+        speedOffset: Math.random() * Math.PI * 2,
+        phaseShift: Math.random() * 0.6
+      });
+    }
+
+    // --- 5. 海洋深渊微粒 (Marine Snow) ---
+    const snowCount = 1800;
+    const snowGeom = new THREE.BufferGeometry();
+    const snowPos = new Float32Array(snowCount * 3);
+    const snowVel = new Float32Array(snowCount * 3);
+    const snowSizes = new Float32Array(snowCount);
+
+    for (let i = 0; i < snowCount; i++) {
+      snowPos[i * 3 + 0] = (Math.random() - 0.5) * 36;
+      snowPos[i * 3 + 1] = (Math.random() - 0.5) * 36;
+      snowPos[i * 3 + 2] = (Math.random() - 0.5) * 36;
+
+      snowVel[i * 3 + 0] = (Math.random() - 0.5) * 0.008;
+      snowVel[i * 3 + 1] = -0.003 - Math.random() * 0.009;
+      snowVel[i * 3 + 2] = (Math.random() - 0.5) * 0.008;
+
+      snowSizes[i] = Math.random() * 2.8 + 0.8;
+    }
+
+    snowGeom.setAttribute('position', new THREE.BufferAttribute(snowPos, 3));
+    snowGeom.setAttribute('size', new THREE.BufferAttribute(snowSizes, 1));
+
+    function createCircleTexture() {
+      const c = document.createElement('canvas');
+      c.width = 64;
+      c.height = 64;
+      const ctx = c.getContext('2d');
+      const grad = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+      grad.addColorStop(0, 'rgba(255, 255, 255, 1)');
+      grad.addColorStop(0.35, 'rgba(100, 230, 255, 0.7)');
+      grad.addColorStop(0.7, 'rgba(40, 140, 255, 0.25)');
+      grad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, 64, 64);
+      return new THREE.CanvasTexture(c);
+    }
+
+    const snowMat = new THREE.PointsMaterial({
+      size: 0.18,
+      map: createCircleTexture(),
+      transparent: true,
+      opacity: 0.75,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false
+    });
+
+    const snowParticles = new THREE.Points(snowGeom, snowMat);
+    scene.add(snowParticles);
+
+    // --- 6. 顶部透射水光束 (God Rays) ---
+    const rayGroup = new THREE.Group();
+    scene.add(rayGroup);
+
+    const rayMat = new THREE.ShaderMaterial({
+      uniforms: {
+        uTime: { value: 0 }
+      },
+      vertexShader: `
+        varying vec2 vUv;
+        void main() {
+          vUv = uv;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: `
+        uniform float uTime;
+        varying vec2 vUv;
+
+        void main() {
+          float beam1 = sin(vUv.x * 7.0 + uTime * 0.4) * 0.5 + 0.5;
+          float beam2 = cos(vUv.x * 13.0 - uTime * 0.3) * 0.5 + 0.5;
+          float lightShaft = pow(beam1 * beam2, 1.4);
+
+          float verticalFade = smoothstep(1.0, 0.2, vUv.y) * smoothstep(0.0, 0.2, vUv.y);
+          float alpha = lightShaft * verticalFade * 0.16;
+
+          vec3 color = mix(vec3(0.05, 0.45, 0.75), vec3(0.2, 0.9, 0.95), vUv.y);
+          gl_FragColor = vec4(color, alpha);
+        }
+      `,
+      transparent: true,
+      blending: THREE.AdditiveBlending,
+      side: THREE.DoubleSide,
+      depthWrite: false
+    });
+
+    for (let i = 0; i < 5; i++) {
+      const plane = new THREE.PlaneGeometry(12, 28);
+      const mesh = new THREE.Mesh(plane, rayMat);
+      mesh.position.set((i - 2) * 5.2, 6, -6 + i * 1.5);
+      mesh.rotation.z = -0.15 + i * 0.08;
+      mesh.rotation.y = 0.25 * i;
+      rayGroup.add(mesh);
+    }
+
+    // --- 7. 动画主循环与动力学模拟 ---
+    let prevTime = performance.now();
+    let globalY = -0.5;
+    let verticalVelocity = 0;
+
+    function animate(currentTime) {
+      requestAnimationFrame(animate);
+
+      const delta = Math.min((currentTime - prevTime) * 0.001, 0.1);
+      prevTime = currentTime;
+      const elapsedTime = currentTime * 0.001;
+
+      const isFleeing = (jellyState.status === 'fleeing');
+
+      // 1. 获取水母推进物理状态
+      const swim = getSwimCycle(elapsedTime, isFleeing, jellyState.fleeProgress);
+
+      if (!isFleeing) {
+        // 常态漂浮动力学
+        verticalVelocity += swim.propel;
+        verticalVelocity *= 0.965;
+        globalY += verticalVelocity;
+
+        if (globalY > 1.2) {
+          verticalVelocity -= 0.002;
+        } else if (globalY < -1.4) {
+          verticalVelocity += 0.002;
+        }
+
+        jellyfishGroup.position.y = globalY + Math.sin(elapsedTime * 0.8) * 0.2;
+        jellyfishGroup.rotation.z = Math.sin(elapsedTime * 0.6) * 0.09;
+        jellyfishGroup.rotation.x = Math.cos(elapsedTime * 0.5) * 0.07;
+        jellyfishGroup.rotation.y = elapsedTime * 0.06;
+      } else {
+        // 受惊狂奔逃跑动力学 (Fleeing Dynamics)
+        jellyState.fleeProgress += delta;
+
+        // 逃跑加速度爆发：初始剧烈推进，随后迅速远去消失在深海黑暗中
+        const fleePhase = jellyState.fleeProgress / jellyState.fleeDuration;
+        const currentSpeed = 7.5 * Math.exp(-fleePhase * 0.35) * (1.0 + Math.max(0, swim.contract) * 0.8);
+
+        jellyfishGroup.position.addScaledVector(jellyState.targetDir, currentSpeed * delta);
+
+        // 水母身体倾斜朝向逃生矢量
+        const lookDir = jellyState.targetDir.clone();
+        jellyfishGroup.rotation.z = -lookDir.x * 0.75;
+        jellyfishGroup.rotation.x = lookDir.z * 0.65;
+        jellyfishGroup.rotation.y += delta * 1.5;
+
+        // 逃跑后在远方深海平缓转身并重新游回视野
+        if (fleePhase >= 1.0) {
+          jellyState.respawnTimer += delta;
+          if (jellyState.respawnTimer > 1.2) {
+            // 平滑重置回初始漂浮状态
+            jellyState.status = 'drifting';
+            jellyState.respawnTimer = 0;
+            globalY = -1.2;
+            verticalVelocity = 0.03;
+            jellyfishGroup.position.set(0, -1.2, 0);
+          }
+        }
+      }
+
+      // 2. 更新伞体着色器参数
+      bellUniforms.uTime.value = elapsedTime * (isFleeing ? 3.0 : 1.0);
+      bellUniforms.uContract.value = swim.contract;
+
+      // 内部光源同步
+      innerCoreLight.position.copy(jellyfishGroup.position);
+      innerCoreLight.intensity = (2.4 + Math.max(0, swim.contract) * 3.5) * (isFleeing ? 1.5 : 1.0);
+
+      // 3. 更新口腕
+      oralArmMat.uniforms.uTime.value = elapsedTime * (isFleeing ? 2.5 : 1.0);
+      oralArmRibbons.forEach((ribbon) => {
+        const spread = 0.3 + (1.0 - swim.contract * 0.3) * (isFleeing ? 0.05 : 0.1);
+        const angle = ribbon.rotation.y;
+        ribbon.position.x = Math.cos(angle) * spread;
+        ribbon.position.z = Math.sin(angle) * spread;
+      });
+
+      // 4. 更新边缘细长触手 (逃跑时触手受到巨大的向后流体拉扯拖拽)
+      const dragMultiplier = isFleeing ? 3.8 : 1.0;
+      tentacles.forEach(tent => {
+        const geom = tent.line.geometry;
+        const posAttr = geom.attributes.position;
+        const array = posAttr.array;
+
+        const inward = 1.0 - (swim.contract * 0.38);
+        const curRootX = tent.baseX * inward;
+        const curRootZ = tent.baseZ * inward;
+
+        array[0] = curRootX;
+        array[1] = 0.0;
+        array[2] = curRootZ;
+
+        for (let j = 1; j < tentaclePointsCount; j++) {
+          const progress = j / (tentaclePointsCount - 1);
+          const idx = j * 3;
+
+          const wavePhase = (elapsedTime * (isFleeing ? 8.0 : 3.0)) - progress * 8.0 + tent.speedOffset;
+          const swayAmount = Math.pow(progress, 1.6) * 0.85;
+
+          const waveX = Math.sin(wavePhase) * swayAmount;
+          const waveZ = Math.cos(wavePhase * 0.85) * swayAmount;
+
+          const dragUpFactor = (Math.max(0, verticalVelocity) + (isFleeing ? 0.08 : 0)) * progress * 16.0 * dragMultiplier;
+
+          array[idx + 0] = curRootX + waveX * (isFleeing ? 0.4 : 1.0);
+          array[idx + 1] = -(progress * tent.length) - dragUpFactor;
+          array[idx + 2] = curRootZ + waveZ * (isFleeing ? 0.4 : 1.0);
+        }
+
+        posAttr.needsUpdate = true;
+      });
+
+      // 5. 更新微粒漂散
+      const pPositions = snowGeom.attributes.position.array;
+      for (let i = 0; i < snowCount; i++) {
+        const i3 = i * 3;
+        pPositions[i3 + 0] += snowVel[i3 + 0] + Math.sin(elapsedTime * 0.5 + i) * 0.003;
+        pPositions[i3 + 1] += snowVel[i3 + 1];
+        pPositions[i3 + 2] += snowVel[i3 + 2];
+
+        if (pPositions[i3 + 1] < -18) pPositions[i3 + 1] = 18;
+        if (pPositions[i3 + 0] < -18) pPositions[i3 + 0] = 18;
+        if (pPositions[i3 + 0] > 18) pPositions[i3 + 0] = -18;
+      }
+      snowGeom.attributes.position.needsUpdate = true;
+
+      // 6. 光束更新
+      rayMat.uniforms.uTime.value = elapsedTime;
+
+      // 7. 摄像机缓动运镜
+      camera.position.x = Math.sin(elapsedTime * 0.22) * 1.5;
+      camera.position.y = 1.0 + Math.cos(elapsedTime * 0.18) * 0.7;
+      camera.position.z = 10.2 + Math.sin(elapsedTime * 0.15) * 0.8;
+      
+      // 逃跑时镜头轻微跟随捕捉动势
+      const lookTargetY = isFleeing ? jellyfishGroup.position.y * 0.25 : jellyfishGroup.position.y * 0.5;
+      camera.lookAt(0, lookTargetY, 0);
+
+      renderer.render(scene, camera);
+    }
+
+    requestAnimationFrame(animate);
+
+    // --- 响应窗口自适应 ---
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    });
+  </script>
+<!--zc-home:start--><style>.zc-home-btn{position:fixed;top:16px;left:16px;z-index:2147483647;display:inline-flex;align-items:center;gap:6px;padding:8px 14px;font:500 13px/1.1 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Noto Sans SC",sans-serif;color:#111;background:rgba(255,255,255,.86);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);border:1px solid rgba(0,0,0,.08);border-radius:999px;text-decoration:none;box-shadow:0 2px 12px rgba(0,0,0,.2);transition:background .2s ease,transform .2s ease,box-shadow .2s ease}.zc-home-btn:hover{background:#fff;transform:translateY(-1px);box-shadow:0 4px 18px rgba(0,0,0,.26)}</style><a class="zc-home-btn" href="../">← 返回首页</a><!--zc-home:end-->
+</body>
+</html>
