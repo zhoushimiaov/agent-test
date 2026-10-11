@@ -101,7 +101,14 @@ const categories = [
     emoji: "🐋",
     blurb: "巨鲸漂浮于城市上空,超现实尺度加上云层穿插的前后遮挡关系。",
     exam: "超现实的尺度对比,以及鲸身与云层之间正确的前后遮挡(z 轴层叠)关系。",
-    versions: [],
+    lede: "一头巨鲸漂浮在城市上空缓缓游动,画面要有超现实的尺度反差 —— 鲸相对楼宇要足够夸张,还要处理好鲸身与云层的前后遮挡:有的云在鲸前、有的在鲸后,z 轴层叠正确才有真正的「穿行」感,一刀切全前或全后就露馅。下面按模型版本归档,缩略图为真实渲染效果,点击卡片查看可交互的在线页面。",
+    versions: [
+      ["gemini-3.8-flash", "Gemini 3.8 Flash", "Three.js 3D"],
+      ["deepseek-4.1-flash", "DeepSeek 4.1 Flash", "Canvas 2D"],
+      ["glm-5.3-flash", "GLM 5.3 Flash", "Canvas 2D"],
+      ["muse-spark", "Muse Spark", "Three.js 3D"],
+      ["opus-4.8", "Claude Opus 4.8", "Three.js 3D"],
+    ].map(([slug, name, sub]) => ({ slug, name, sub })),
   },
   {
     slug: "elephant-tightrope",

@@ -1,0 +1,158 @@
+{
+  "generatedAt": "2026-10-11T13:15:13.404Z",
+  "model": "jev-1.13.0",
+  "weights": {
+    "scale": 30,
+    "occlusion": 30,
+    "whale": 20,
+    "scene": 20
+  },
+  "dimLabels": {
+    "scale": "尺度反差",
+    "occlusion": "穿云遮挡",
+    "whale": "鲸鱼造型",
+    "scene": "城市氛围"
+  },
+  "results": [
+    {
+      "slug": "deepseek-4.1-flash",
+      "total": 86,
+      "dims": {
+        "scale": {
+          "score": 2.97,
+          "confidence": 0.97,
+          "frac": 0.99
+        },
+        "occlusion": {
+          "score": 1.9,
+          "confidence": 0.89,
+          "frac": 0.633
+        },
+        "whale": {
+          "score": 2.75,
+          "confidence": 0.76,
+          "frac": 0.917
+        },
+        "scene": {
+          "score": 2.83,
+          "confidence": 0.83,
+          "frac": 0.943
+        }
+      },
+      "jev": "jev-1.13.0",
+      "rank": 1
+    },
+    {
+      "slug": "muse-spark",
+      "total": 64,
+      "dims": {
+        "scale": {
+          "score": 1.01,
+          "confidence": 0.99,
+          "frac": 0.337
+        },
+        "occlusion": {
+          "score": 2.94,
+          "confidence": 0.95,
+          "frac": 0.98
+        },
+        "whale": {
+          "score": 1.76,
+          "confidence": 0.74,
+          "frac": 0.587
+        },
+        "scene": {
+          "score": 1.87,
+          "confidence": 0.86,
+          "frac": 0.623
+        }
+      },
+      "jev": "jev-1.13.0",
+      "rank": 2
+    },
+    {
+      "slug": "opus-4.8",
+      "total": 52,
+      "dims": {
+        "scale": {
+          "score": 1.17,
+          "confidence": 0.83,
+          "frac": 0.39
+        },
+        "occlusion": {
+          "score": 1.38,
+          "confidence": 0.41,
+          "frac": 0.46
+        },
+        "whale": {
+          "score": 1.02,
+          "confidence": 0.79,
+          "frac": 0.34
+        },
+        "scene": {
+          "score": 2.94,
+          "confidence": 0.95,
+          "frac": 0.98
+        }
+      },
+      "jev": "jev-1.13.0",
+      "rank": 3
+    },
+    {
+      "slug": "gemini-3.8-flash",
+      "total": 33,
+      "dims": {
+        "scale": {
+          "score": 1,
+          "confidence": 1,
+          "frac": 0.333
+        },
+        "occlusion": {
+          "score": 0,
+          "confidence": 1,
+          "frac": 0
+        },
+        "whale": {
+          "score": 1.55,
+          "confidence": 0.53,
+          "frac": 0.517
+        },
+        "scene": {
+          "score": 1.88,
+          "confidence": 0.82,
+          "frac": 0.627
+        }
+      },
+      "jev": "jev-1.13.0",
+      "rank": 4
+    },
+    {
+      "slug": "glm-5.3-flash",
+      "total": 15,
+      "dims": {
+        "scale": {
+          "score": 0.33,
+          "confidence": 0.67,
+          "frac": 0.11
+        },
+        "occlusion": {
+          "score": 0.01,
+          "confidence": 0.99,
+          "frac": 0.003
+        },
+        "whale": {
+          "score": 0.74,
+          "confidence": 0.74,
+          "frac": 0.247
+        },
+        "scene": {
+          "score": 0.95,
+          "confidence": 0.95,
+          "frac": 0.317
+        }
+      },
+      "jev": "jev-1.13.0",
+      "rank": 5
+    }
+  ]
+}

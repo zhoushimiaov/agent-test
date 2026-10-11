@@ -1,0 +1,729 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>巨鲸巡弋云端城市</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+        body, html {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #030611;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        }
+        #webgl-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            display: block;
+            z-index: 1;
+        }
+        /* 影视级暗角与微妙的梦境色彩增强滤镜 */
+        .cinematic-overlay {
+            position: absolute;
+            inset: 0;
+            pointer-events: none;
+            z-index: 2;
+            background: radial-gradient(circle at 50% 45%, rgba(0, 20, 45, 0) 45%, rgba(2, 6, 18, 0.75) 100%);
+            mix-blend-mode: multiply;
+        }
+        .grain-overlay {
+            position: absolute;
+            inset: 0;
+            pointer-events: none;
+            z-index: 3;
+            opacity: 0.18;
+            background-image: radial-gradient(rgba(100, 200, 255, 0.1) 1px, transparent 0);
+            background-size: 4px 4px;
+        }
+    </style>
+    <!-- Three.js CDN -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/simplex-noise/2.4.0/simplex-noise.min.js"></script>
+</head>
+<body>
+    <div class="cinematic-overlay"></div>
+    <div class="grain-overlay"></div>
+    <canvas id="webgl-canvas"></canvas>
+
+    <script>
+    (function () {
+        'use strict';
+
+        // 初始化 Simplex 噪声
+        const simplex = new SimplexNoise();
+
+        // 渲染器设置
+        const canvas = document.getElementById('webgl-canvas');
+        const renderer = new THREE.WebGLRenderer({
+            canvas: canvas,
+            antialias: true,
+            powerPreference: "high-performance"
+        });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        renderer.toneMappingExposure = 1.15;
+        renderer.shadowMap.enabled = false;
+
+        // 场景与透视相机
+        const scene = new THREE.Scene();
+        // 暮色深蓝与天青色的深远雾气
+        const fogColor = new THREE.Color(0x061126);
+        scene.background = fogColor;
+        scene.fog = new THREE.FogExp2(fogColor, 0.0016);
+
+        const camera = new THREE.PerspectiveCamera(52, window.innerWidth / window.innerHeight, 0.1, 4000);
+        camera.position.set(0, 160, 400);
+
+        // -------------------------------------------------------------
+        // 1. 光照系统 (暮色余晖 + 赛博霓虹上泛光)
+        // -------------------------------------------------------------
+        const ambientLight = new THREE.AmbientLight(0x142845, 1.6);
+        scene.add(ambientLight);
+
+        // 暖暮色月华/夕照主光
+        const moonLight = new THREE.DirectionalLight(0xa6d1ff, 2.2);
+        moonLight.position.set(-300, 500, -200);
+        scene.add(moonLight);
+
+        // 来自城市的下部微光补光 (霓虹泛光向上映射)
+        const cityUnderglow = new THREE.DirectionalLight(0x38bdf8, 1.4);
+        cityUnderglow.position.set(200, -300, 300);
+        scene.add(cityUnderglow);
+
+        const warmAccentLight = new THREE.PointLight(0xff77aa, 2.5, 900);
+        warmAccentLight.position.set(0, 80, 0);
+        scene.add(warmAccentLight);
+
+        // -------------------------------------------------------------
+        // 2. 远景星空与极光天穹
+        // -------------------------------------------------------------
+        const skyStarGeo = new THREE.BufferGeometry();
+        const starCount = 1800;
+        const starPositions = new Float32Array(starCount * 3);
+        const starColors = new Float32Array(starCount * 3);
+        for (let i = 0; i < starCount; i++) {
+            const r = 1600 + Math.random() * 400;
+            const theta = Math.random() * Math.PI * 2;
+            const phi = Math.acos(Math.random() * 0.9); // 上半天球
+            const x = r * Math.sin(phi) * Math.cos(theta);
+            const y = r * Math.cos(phi) + 100;
+            const z = r * Math.sin(phi) * Math.sin(theta);
+            starPositions[i * 3] = x;
+            starPositions[i * 3 + 1] = y;
+            starPositions[i * 3 + 2] = z;
+
+            const c = new THREE.Color().setHSL(0.58 + Math.random() * 0.15, 0.8, 0.7 + Math.random() * 0.3);
+            starColors[i * 3] = c.r;
+            starColors[i * 3 + 1] = c.g;
+            starColors[i * 3 + 2] = c.b;
+        }
+        skyStarGeo.setAttribute('position', new THREE.BufferAttribute(starPositions, 3));
+        skyStarGeo.setAttribute('color', new THREE.BufferAttribute(starColors, 3));
+
+        const starMat = new THREE.PointsMaterial({
+            size: 3.5,
+            vertexColors: true,
+            transparent: true,
+            opacity: 0.85,
+            blending: THREE.AdditiveBlending
+        });
+        const starField = new THREE.Points(skyStarGeo, starMat);
+        scene.add(starField);
+
+        // -------------------------------------------------------------
+        // 3. 巨型赛博/现代立体城市群构建 (InstancedMesh 高性能渲染)
+        // -------------------------------------------------------------
+        const cityGroup = new THREE.Group();
+        scene.add(cityGroup);
+
+        const gridX = 28;
+        const gridZ = 28;
+        const buildingCount = gridX * gridZ;
+        const bSpacing = 42;
+        const cityOriginX = -(gridX * bSpacing) / 2;
+        const cityOriginZ = -(gridZ * bSpacing) / 2;
+
+        const baseBoxGeo = new THREE.BoxGeometry(1, 1, 1);
+        
+        // 建筑表面材质：深色金属质感反光
+        const buildingMat = new THREE.MeshStandardMaterial({
+            color: 0x07111e,
+            roughness: 0.35,
+            metalness: 0.85,
+            wireframe: false
+        });
+
+        const instancedBuildings = new THREE.InstancedMesh(baseBoxGeo, buildingMat, buildingCount);
+        const matrixDummy = new THREE.Object3D();
+
+        // 窗口点阵生成 (提取发光网格)
+        const windowGeoList = [];
+        const rooftopAntennaPoints = [];
+
+        for (let ix = 0; ix < gridX; ix++) {
+            for (let iz = 0; iz < gridZ; iz++) {
+                const idx = ix * gridZ + iz;
+                const wx = cityOriginX + ix * bSpacing + (Math.random() - 0.5) * 8;
+                const wz = cityOriginZ + iz * bSpacing + (Math.random() - 0.5) * 8;
+                
+                // 距离中心距离决定高度分布(中心高楼林立，外围递减)
+                const distFromCenter = Math.sqrt(wx * wx + wz * wz);
+                let height = Math.max(30, 240 - distFromCenter * 0.32 + (Math.random() * 80 - 40));
+                
+                // 某些地标摩天超高层
+                if (Math.random() < 0.04 && distFromCenter < 350) {
+                    height += 120 + Math.random() * 100;
+                }
+
+                const width = 18 + Math.random() * 14;
+                const depth = 18 + Math.random() * 14;
+                const yPos = height / 2 - 80; // 沉降在云海之下
+
+                matrixDummy.position.set(wx, yPos, wz);
+                matrixDummy.scale.set(width, height, depth);
+                matrixDummy.rotation.set(0, (Math.random() > 0.5 ? 0 : Math.PI / 2), 0);
+                matrixDummy.updateMatrix();
+
+                instancedBuildings.setMatrixAt(idx, matrixDummy.matrix);
+
+                // 天线或楼顶红色警示航标灯
+                if (height > 160) {
+                    rooftopAntennaPoints.push(wx, yPos + height / 2 + 3, wz);
+                }
+            }
+        }
+        instancedBuildings.instanceMatrix.needsUpdate = true;
+        cityGroup.add(instancedBuildings);
+
+        // 楼顶航空警示红灯 (闪烁点集)
+        const beaconCount = rooftopAntennaPoints.length / 3;
+        const beaconGeo = new THREE.BufferGeometry();
+        beaconGeo.setAttribute('position', new THREE.Float32BufferAttribute(rooftopAntennaPoints, 3));
+        const beaconMat = new THREE.PointsMaterial({
+            color: 0xff3b30,
+            size: 4.5,
+            transparent: true,
+            blending: THREE.AdditiveBlending
+        });
+        const beaconPoints = new THREE.Points(beaconGeo, beaconMat);
+        cityGroup.add(beaconPoints);
+
+        // 城市纵横车流霓虹光轨 (流光线条)
+        const trafficCount = 380;
+        const trafficGeo = new THREE.BufferGeometry();
+        const trafficPos = new Float32Array(trafficCount * 3);
+        const trafficColors = new Float32Array(trafficCount * 3);
+        const trafficSpeeds = new Float32Array(trafficCount);
+        const trafficAxes = new Uint8Array(trafficCount); // 0: X轴, 1: Z轴
+
+        for (let i = 0; i < trafficCount; i++) {
+            const axis = Math.random() > 0.5 ? 0 : 1;
+            trafficAxes[i] = axis;
+            trafficSpeeds[i] = 1.2 + Math.random() * 2.2;
+
+            if (axis === 0) {
+                // X 轴道路
+                trafficPos[i * 3] = (Math.random() - 0.5) * 1100;
+                trafficPos[i * 3 + 1] = -75;
+                const laneGrid = Math.floor(Math.random() * gridZ);
+                trafficPos[i * 3 + 2] = cityOriginZ + laneGrid * bSpacing;
+            } else {
+                // Z 轴道路
+                const laneGrid = Math.floor(Math.random() * gridX);
+                trafficPos[i * 3] = cityOriginX + laneGrid * bSpacing;
+                trafficPos[i * 3 + 1] = -75;
+                trafficPos[i * 3 + 2] = (Math.random() - 0.5) * 1100;
+            }
+
+            const isCyan = Math.random() > 0.4;
+            const c = isCyan ? new THREE.Color(0x00f0ff) : new THREE.Color(0xff4477);
+            trafficColors[i * 3] = c.r;
+            trafficColors[i * 3 + 1] = c.g;
+            trafficColors[i * 3 + 2] = c.b;
+        }
+
+        trafficGeo.setAttribute('position', new THREE.BufferAttribute(trafficPos, 3));
+        trafficGeo.setAttribute('color', new THREE.BufferAttribute(trafficColors, 3));
+        const trafficMat = new THREE.PointsMaterial({
+            size: 5.5,
+            vertexColors: true,
+            transparent: true,
+            opacity: 0.9,
+            blending: THREE.AdditiveBlending
+        });
+        const trafficSystem = new THREE.Points(trafficGeo, trafficMat);
+        cityGroup.add(trafficSystem);
+
+        // -------------------------------------------------------------
+        // 4. 多层动态流转云海系统 (Volumetric Cloud Layer)
+        // -------------------------------------------------------------
+        // 生成具有软边缘光晕的云朵贴图
+        function createCloudTexture() {
+            const c = document.createElement('canvas');
+            c.width = 128;
+            c.height = 128;
+            const ctx = c.getContext('2d');
+            const grad = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
+            grad.addColorStop(0, 'rgba(195, 225, 255, 0.85)');
+            grad.addColorStop(0.35, 'rgba(100, 160, 240, 0.45)');
+            grad.addColorStop(0.75, 'rgba(40, 80, 160, 0.12)');
+            grad.addColorStop(1, 'rgba(0, 10, 35, 0)');
+            ctx.fillStyle = grad;
+            ctx.fillRect(0, 0, 128, 128);
+            return new THREE.CanvasTexture(c);
+        }
+        const cloudTexture = createCloudTexture();
+
+        // 中层主云海 (沉浸在建筑半腰，高楼穿云破雾而出)
+        const cloudCount = 180;
+        const cloudGeo = new THREE.BufferGeometry();
+        const cloudPositions = new Float32Array(cloudCount * 3);
+        const cloudScales = new Float32Array(cloudCount);
+        const cloudSpeeds = new Float32Array(cloudCount);
+
+        for (let i = 0; i < cloudCount; i++) {
+            cloudPositions[i * 3] = (Math.random() - 0.5) * 1600;
+            cloudPositions[i * 3 + 1] = 10 + (Math.random() - 0.5) * 60; // 云平层高度在 0 ~ 50 左右
+            cloudPositions[i * 3 + 2] = (Math.random() - 0.5) * 1600;
+            cloudScales[i] = 120 + Math.random() * 180;
+            cloudSpeeds[i] = 0.08 + Math.random() * 0.14;
+        }
+
+        cloudGeo.setAttribute('position', new THREE.BufferAttribute(cloudPositions, 3));
+        const cloudMat = new THREE.PointsMaterial({
+            size: 240,
+            map: cloudTexture,
+            transparent: true,
+            opacity: 0.4,
+            depthWrite: false,
+            blending: THREE.NormalBlending
+        });
+        const cloudPuffs = new THREE.Points(cloudGeo, cloudMat);
+        scene.add(cloudPuffs);
+
+        // 高空薄雾卷云
+        const highCloudGeo = new THREE.BufferGeometry();
+        const highCloudCount = 70;
+        const highCloudPos = new Float32Array(highCloudCount * 3);
+        for (let i = 0; i < highCloudCount; i++) {
+            highCloudPos[i * 3] = (Math.random() - 0.5) * 2200;
+            highCloudPos[i * 3 + 1] = 260 + Math.random() * 120;
+            highCloudPos[i * 3 + 2] = (Math.random() - 0.5) * 2200;
+        }
+        highCloudGeo.setAttribute('position', new THREE.BufferAttribute(highCloudPos, 3));
+        const highCloudMat = new THREE.PointsMaterial({
+            size: 380,
+            map: cloudTexture,
+            transparent: true,
+            opacity: 0.22,
+            depthWrite: false,
+            blending: THREE.AdditiveBlending
+        });
+        const highClouds = new THREE.Points(highCloudGeo, highCloudMat);
+        scene.add(highClouds);
+
+        // -------------------------------------------------------------
+        // 5. 华美梦幻空灵巨鲸 (Procedural Whale & Astral Fin Glow)
+        // -------------------------------------------------------------
+        // 我们利用骨骼化控制或基于顶点脊柱变形的高精度自建网格
+        // 保证巨鲸拥有真实的座头鲸形态：饱满流线头部、长胸鳍、双叶尾鳍、背鳍与发光腹纹
+        const whaleGroup = new THREE.Group();
+        scene.add(whaleGroup);
+
+        // 创建鲸鱼主躯干网格
+        // 鲸鱼长约 120 单位，宽 32 单位
+        const segmentsX = 42;
+        const segmentsY = 24;
+        const bodyGeo = new THREE.CylinderGeometry(1, 1, 120, segmentsY, segmentsX, true);
+        // 让圆柱沿 Z 轴摆放，头在 +Z，尾在 -Z
+        bodyGeo.rotateX(Math.PI / 2);
+
+        const bodyPosAttr = bodyGeo.attributes.position;
+        const origBodyPositions = new Float32Array(bodyPosAttr.count * 3);
+        const whaleColors = new Float32Array(bodyPosAttr.count * 3);
+
+        for (let i = 0; i < bodyPosAttr.count; i++) {
+            let x = bodyPosAttr.getX(i);
+            let y = bodyPosAttr.getY(i);
+            let z = bodyPosAttr.getZ(i);
+
+            // 将 z 归一化到 [-1, 1] 范围 (-1 尾部，+1 头部)
+            const u = z / 60; 
+
+            // 鲸鱼轮廓函数
+            let widthScale = 1.0;
+            let heightScale = 1.0;
+            let yOffset = 0.0;
+
+            if (u > 0.4) {
+                // 头部拱起与收圆
+                const t = (u - 0.4) / 0.6;
+                widthScale = 16 * Math.sqrt(Math.max(0, 1 - t * t * 0.95));
+                heightScale = 14 * (1 - t * 0.6);
+                yOffset = -3 * t; // 头部微向下颔
+            } else if (u > -0.5) {
+                // 腹胸部宽大
+                const t = (u + 0.5) / 0.9;
+                widthScale = 16.5 * Math.sin(t * Math.PI * 0.5 + 0.3);
+                heightScale = 14.5 * Math.sin(t * Math.PI * 0.5 + 0.3);
+            } else {
+                // 尾柄逐渐变细收窄
+                const t = (-0.5 - u) / 0.5;
+                widthScale = Math.max(1.8, 11 * (1 - t * 0.82));
+                heightScale = Math.max(2.2, 10 * (1 - t * 0.8));
+                yOffset = 2 * t;
+            }
+
+            // 腹部展开与扁平度塑形
+            x *= widthScale;
+            y = (y * heightScale) + yOffset;
+
+            // 给背部轻微加拱，下腹褶皱感
+            if (y < 0) {
+                y *= 0.85; // 下腹略平
+            }
+
+            bodyPosAttr.setXYZ(i, x, y, z);
+            origBodyPositions[i * 3] = x;
+            origBodyPositions[i * 3 + 1] = y;
+            origBodyPositions[i * 3 + 2] = z;
+
+            // 鲸体渐变色彩：背部深邃夜空靛青，下腹闪烁青金与星光紫
+            const isBelly = y < 0;
+            const bellyGlow = isBelly ? Math.abs(y) / (heightScale + 0.1) : 0;
+            const color = new THREE.Color();
+            if (isBelly) {
+                color.setHSL(0.52 + bellyGlow * 0.08, 0.85, 0.35 + bellyGlow * 0.45);
+            } else {
+                color.setHSL(0.62, 0.7, 0.15 + (y / 15) * 0.1);
+            }
+            whaleColors[i * 3] = color.r;
+            whaleColors[i * 3 + 1] = color.g;
+            whaleColors[i * 3 + 2] = color.b;
+        }
+
+        bodyGeo.setAttribute('color', new THREE.BufferAttribute(whaleColors, 3));
+        bodyGeo.computeVertexNormals();
+
+        // 鲸体材质：半透明丝绸深海生物质感 + 边缘泛光
+        const whaleBodyMat = new THREE.MeshStandardMaterial({
+            vertexColors: true,
+            roughness: 0.25,
+            metalness: 0.5,
+            emissive: 0x06284a,
+            emissiveIntensity: 0.6,
+            side: THREE.DoubleSide
+        });
+        const whaleBodyMesh = new THREE.Mesh(bodyGeo, whaleBodyMat);
+        whaleGroup.add(whaleBodyMesh);
+
+        // 巨鲸侧鳍 (优雅长胸鳍，类似大翅鲸翅膀)
+        function createFlipperGeometry(isLeft) {
+            const shape = new THREE.Shape();
+            const sign = isLeft ? 1 : -1;
+            shape.moveTo(0, 0);
+            shape.bezierCurveTo(sign * 15, -4, sign * 38, -18, sign * 56, -32);
+            shape.bezierCurveTo(sign * 54, -36, sign * 42, -32, sign * 28, -22);
+            shape.bezierCurveTo(sign * 14, -12, sign * 4, -4, 0, 0);
+
+            const extrudeSettings = {
+                steps: 6,
+                depth: 1.8,
+                bevelEnabled: true,
+                bevelThickness: 1.2,
+                bevelSize: 1,
+                bevelSegments: 4
+            };
+            const geo = new THREE.ExtrudeGeometry(shape, extrudeSettings);
+            geo.center();
+            return geo;
+        }
+
+        const flipperMat = new THREE.MeshStandardMaterial({
+            color: 0x00e5ff,
+            emissive: 0x0088cc,
+            emissiveIntensity: 0.7,
+            roughness: 0.2,
+            metalness: 0.4,
+            transparent: true,
+            opacity: 0.92
+        });
+
+        const leftFlipperGeo = createFlipperGeometry(true);
+        const leftFlipper = new THREE.Mesh(leftFlipperGeo, flipperMat);
+        leftFlipper.position.set(16, -2, 18);
+        leftFlipper.rotation.set(0.1, 0, -0.35);
+        whaleGroup.add(leftFlipper);
+
+        const rightFlipperGeo = createFlipperGeometry(false);
+        const rightFlipper = new THREE.Mesh(rightFlipperGeo, flipperMat);
+        rightFlipper.position.set(-16, -2, 18);
+        rightFlipper.rotation.set(0.1, 0, 0.35);
+        whaleGroup.add(rightFlipper);
+
+        // 巨鲸尾鳍 (巨大双叶尾翼)
+        const tailShape = new THREE.Shape();
+        tailShape.moveTo(0, 0);
+        tailShape.bezierCurveTo(18, -4, 38, 12, 48, 18);
+        tailShape.bezierCurveTo(34, 14, 18, 4, 0, 8);
+        tailShape.bezierCurveTo(-18, 4, -34, 14, -48, 18);
+        tailShape.bezierCurveTo(-38, 12, -18, -4, 0, 0);
+
+        const tailGeo = new THREE.ExtrudeGeometry(tailShape, {
+            steps: 4,
+            depth: 1.5,
+            bevelEnabled: true,
+            bevelThickness: 0.8,
+            bevelSize: 0.8,
+            bevelSegments: 3
+        });
+        tailGeo.center();
+        const tailMat = new THREE.MeshStandardMaterial({
+            color: 0x38bdf8,
+            emissive: 0x0ea5e9,
+            emissiveIntensity: 0.85,
+            roughness: 0.25,
+            metalness: 0.3,
+            transparent: true,
+            opacity: 0.95
+        });
+        const tailFin = new THREE.Mesh(tailGeo, tailMat);
+        tailFin.position.set(0, 0, -60);
+        tailFin.rotation.set(Math.PI / 2, 0, 0);
+        whaleGroup.add(tailFin);
+
+        // 背鳍
+        const dorsalShape = new THREE.Shape();
+        dorsalShape.moveTo(0, 0);
+        dorsalShape.bezierCurveTo(0, 5, 4, 12, 5, 14);
+        dorsalShape.bezierCurveTo(2, 11, -3, 6, -10, 0);
+        dorsalShape.closePath();
+        const dorsalGeo = new THREE.ExtrudeGeometry(dorsalShape, { depth: 1.2, bevelEnabled: false });
+        dorsalGeo.center();
+        const dorsalFin = new THREE.Mesh(dorsalGeo, flipperMat);
+        dorsalFin.position.set(0, 11, -16);
+        dorsalFin.rotation.set(0, Math.PI / 2, 0);
+        whaleGroup.add(dorsalFin);
+
+        // 巨鲸体侧星辉粒子流 (游动时脱落的光屑与气泡星屑)
+        const whaleParticleCount = 420;
+        const whalePartGeo = new THREE.BufferGeometry();
+        const whalePartPos = new Float32Array(whaleParticleCount * 3);
+        const whalePartColors = new Float32Array(whaleParticleCount * 3);
+        const whalePartLifetimes = new Float32Array(whaleParticleCount);
+
+        for (let i = 0; i < whaleParticleCount; i++) {
+            whalePartPos[i * 3] = (Math.random() - 0.5) * 40;
+            whalePartPos[i * 3 + 1] = (Math.random() - 0.5) * 20;
+            whalePartPos[i * 3 + 2] = (Math.random() - 0.5) * 120;
+            whalePartLifetimes[i] = Math.random();
+
+            const c = new THREE.Color().setHSL(0.5 + Math.random() * 0.15, 0.9, 0.65);
+            whalePartColors[i * 3] = c.r;
+            whalePartColors[i * 3 + 1] = c.g;
+            whalePartColors[i * 3 + 2] = c.b;
+        }
+
+        whalePartGeo.setAttribute('position', new THREE.BufferAttribute(whalePartPos, 3));
+        whalePartGeo.setAttribute('color', new THREE.BufferAttribute(whalePartColors, 3));
+        const whalePartMat = new THREE.PointsMaterial({
+            size: 3.2,
+            vertexColors: true,
+            transparent: true,
+            opacity: 0.75,
+            blending: THREE.AdditiveBlending
+        });
+        const whaleAura = new THREE.Points(whalePartGeo, whalePartMat);
+        whaleGroup.add(whaleAura);
+
+        // 鲸鱼本体点光源 (照亮它周围拂过的云团与擦过的摩天大楼尖顶)
+        const whaleLight = new THREE.PointLight(0x38bdf8, 3.5, 320);
+        whaleLight.position.set(0, -6, 10);
+        whaleGroup.add(whaleLight);
+
+        // -------------------------------------------------------------
+        // 6. 巨鲸游动航线与镜头轨迹 (闭环三维贝塞尔曲线系统)
+        // -------------------------------------------------------------
+        // 设定一条穿梭在云层起伏与摩天楼群上空的宏大优雅闭合轨迹
+        const curvePoints = [
+            new THREE.Vector3(0, 160, 480),
+            new THREE.Vector3(380, 140, 260),
+            new THREE.Vector3(460, 110, -220),
+            new THREE.Vector3(200, 95, -520),
+            new THREE.Vector3(-260, 130, -420),
+            new THREE.Vector3(-450, 165, -120),
+            new THREE.Vector3(-360, 185, 280),
+            new THREE.Vector3(-140, 175, 460)
+        ];
+        const flightPath = new THREE.CatmullRomCurve3(curvePoints, true, 'centripetal', 0.25);
+
+        // -------------------------------------------------------------
+        // 7. 动画驱动主循环 (无交互循环渲染)
+        // -------------------------------------------------------------
+        const clock = new THREE.Clock();
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            const elapsedTime = clock.getElapsedTime();
+            
+            // 鲸鱼巡游循环进度 (约 45 秒完整周游一次城市)
+            const loopDuration = 48.0;
+            const progress = (elapsedTime / loopDuration) % 1.0;
+
+            // 获取当前位置与朝向切线
+            const currentPos = flightPath.getPointAt(progress);
+            const forwardTangent = flightPath.getTangentAt(progress).normalize();
+            
+            // 更新鲸鱼全局位置与方向
+            whaleGroup.position.copy(currentPos);
+
+            // 构建朝向矩阵 (LookAt forward)
+            const targetPos = new THREE.Vector3().addVectors(currentPos, forwardTangent);
+            whaleGroup.lookAt(targetPos);
+
+            // 鲸鱼游动时的姿态倾斜 (转弯向心滚转 Roll + 俯仰 Pitch 微调)
+            const nextProgress = (progress + 0.02) % 1.0;
+            const nextTangent = flightPath.getTangentAt(nextProgress);
+            const turnAngle = forwardTangent.clone().cross(nextTangent).y;
+            whaleGroup.rotateZ(turnAngle * 18.0); // 侧倾滚转
+
+            // ---------------------------------------------------------
+            // 7.1 巨鲸有机流体游动波动 (脊柱正弦骨传导波)
+            // ---------------------------------------------------------
+            const swimSpeed = 2.4;
+            const waveFreq = 0.045; // 尾鳍波动空间频率
+            const strokePhase = elapsedTime * swimSpeed;
+
+            const posAttr = bodyGeo.attributes.position;
+            for (let i = 0; i < posAttr.count; i++) {
+                const ox = origBodyPositions[i * 3];
+                const oy = origBodyPositions[i * 3 + 1];
+                const oz = origBodyPositions[i * 3 + 2];
+
+                // 距离尾部越近，振幅越大
+                // oz 从 60 (头) 到 -60 (尾)
+                const tailFactor = Math.max(0, (25 - oz) / 85);
+                const spineWaveY = Math.sin(strokePhase + oz * waveFreq) * 6.5 * Math.pow(tailFactor, 1.8);
+                const spineWaveX = Math.cos(strokePhase * 0.5 + oz * waveFreq * 0.7) * 2.8 * Math.pow(tailFactor, 1.5);
+
+                posAttr.setXYZ(i, ox + spineWaveX, oy + spineWaveY, oz);
+            }
+            posAttr.needsUpdate = true;
+            bodyGeo.computeVertexNormals();
+
+            // 尾鳍随波大幅摆动
+            const tailWaveY = Math.sin(strokePhase - 60 * waveFreq) * 18.0;
+            const tailPitch = Math.cos(strokePhase - 60 * waveFreq) * 0.42;
+            tailFin.position.set(0, tailWaveY, -60);
+            tailFin.rotation.set(Math.PI / 2 + tailPitch, 0, 0);
+
+            // 胸鳍像翅膀般缓慢优雅拍打浮动
+            const flipperFlap = Math.sin(strokePhase * 0.6) * 0.22;
+            leftFlipper.rotation.z = -0.35 + flipperFlap;
+            leftFlipper.rotation.x = 0.1 + Math.cos(strokePhase * 0.6) * 0.12;
+            rightFlipper.rotation.z = 0.35 - flipperFlap;
+            rightFlipper.rotation.x = 0.1 + Math.cos(strokePhase * 0.6) * 0.12;
+
+            // 鲸鱼周身光华闪烁与星屑后掠运动
+            const auraPositions = whaleAura.geometry.attributes.position;
+            for (let i = 0; i < whaleParticleCount; i++) {
+                let pz = auraPositions.getZ(i);
+                pz -= 0.65; // 向后飘逸
+                if (pz < -70) {
+                    pz = 50 + Math.random() * 20;
+                    auraPositions.setX(i, (Math.random() - 0.5) * 36);
+                    auraPositions.setY(i, (Math.random() - 0.5) * 24);
+                }
+                auraPositions.setZ(i, pz);
+            }
+            auraPositions.needsUpdate = true;
+
+            // ---------------------------------------------------------
+            // 7.2 城市车流光轨流动更新
+            // ---------------------------------------------------------
+            const trafficPositions = trafficSystem.geometry.attributes.position;
+            for (let i = 0; i < trafficCount; i++) {
+                const axis = trafficAxes[i];
+                const spd = trafficSpeeds[i];
+                if (axis === 0) {
+                    let tx = trafficPositions.getX(i) + spd;
+                    if (tx > 550) tx = -550;
+                    trafficPositions.setX(i, tx);
+                } else {
+                    let tz = trafficPositions.getZ(i) + spd;
+                    if (tz > 550) tz = -550;
+                    trafficPositions.setZ(i, tz);
+                }
+            }
+            trafficPositions.needsUpdate = true;
+
+            // 航标灯红光有节奏地频闪
+            beaconMat.opacity = 0.4 + 0.6 * Math.sin(elapsedTime * 4.5);
+
+            // ---------------------------------------------------------
+            // 7.3 云海动态平移飘散 (宛如仙境流动气流)
+            // ---------------------------------------------------------
+            const cPos = cloudPuffs.geometry.attributes.position;
+            for (let i = 0; i < cloudCount; i++) {
+                let cx = cPos.getX(i) - cloudSpeeds[i] * 1.5;
+                if (cx < -800) cx = 800;
+                cPos.setX(i, cx);
+            }
+            cPos.needsUpdate = true;
+
+            // ---------------------------------------------------------
+            // 7.4 电影质感运镜 (Cinematic Camera Track & Smooth Tracking)
+            // ---------------------------------------------------------
+            // 镜头采用双阶段运镜：既有陪伴巨鲸侧飞、穿越云隙的特写，
+            // 也有拉升至大广角俯瞰整个巨鲸掠过林立高楼的宏阔大景
+            const camProgress = (progress + 0.94) % 1.0; // 稍稍偏后的游荡跟随视角
+            const baseCamPos = flightPath.getPointAt(camProgress);
+
+            // 计算多轴摄影机环绕平滑漂移
+            const camAngle = elapsedTime * 0.085;
+            const camDist = 180 + Math.sin(elapsedTime * 0.12) * 65;
+            const camHeight = 90 + Math.cos(elapsedTime * 0.15) * 45;
+
+            // 镜头目标点紧随巨鲸头部前方
+            const camLookTarget = currentPos.clone().add(forwardTangent.clone().multiplyScalar(40));
+
+            // 摄影机自适应平滑跟随插值
+            const idealCamX = currentPos.x + Math.sin(camAngle) * camDist;
+            const idealCamY = currentPos.y + camHeight;
+            const idealCamZ = currentPos.z + Math.cos(camAngle) * camDist;
+
+            camera.position.lerp(new THREE.Vector3(idealCamX, idealCamY, idealCamZ), 0.035);
+            camera.lookAt(camLookTarget);
+
+            // 渲染
+            renderer.render(scene, camera);
+        }
+
+        // 视口响应自适应调整
+        window.addEventListener('resize', onWindowResize, false);
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        // 启动动画循环
+        animate();
+    })();
+    </script>
+<!--zc-home:start--><style>.zc-home-btn{position:fixed;top:16px;left:16px;z-index:2147483647;display:inline-flex;align-items:center;gap:6px;padding:8px 14px;font:500 13px/1.1 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Noto Sans SC",sans-serif;color:#111;background:rgba(255,255,255,.86);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);border:1px solid rgba(0,0,0,.08);border-radius:999px;text-decoration:none;box-shadow:0 2px 12px rgba(0,0,0,.2);transition:background .2s ease,transform .2s ease,box-shadow .2s ease}.zc-home-btn:hover{background:#fff;transform:translateY(-1px);box-shadow:0 4px 18px rgba(0,0,0,.26)}</style><a class="zc-home-btn" href="../">← 返回首页</a><!--zc-home:end-->
+</body>
+</html>

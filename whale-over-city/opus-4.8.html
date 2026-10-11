@@ -1,0 +1,524 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>巨鲸游城 · 哥谭 Gotham</title>
+<!--
+  作品：一头巨鲸在哥谭市 (Gotham) 夜空上空游动（noir / 梦境）
+  模型：claude-opus-4-8
+  技术：Three.js r160 (CDN) + UnrealBloom 后期辉光，纯 3D，自动循环播放
+  交互：打开即自动电影运镜；按 WASD / 拖拽鼠标可自由飞行探索，闲置后自动回到运镜
+  完成时间 / token 消耗见文末注释与交付说明
+-->
+<style>
+  html,body{margin:0;height:100%;background:#04060e;overflow:hidden;}
+  #c{display:block;width:100vw;height:100vh;}
+  /* 轻微暗角，增强电影感 */
+  #vig{position:fixed;inset:0;pointer-events:none;
+       box-shadow:inset 0 0 260px 80px rgba(2,3,10,0.7);}
+  #hint{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);
+    font:13px/1.4 -apple-system,"Segoe UI",Roboto,"Microsoft YaHei",sans-serif;
+    color:rgba(216,224,248,0.72);letter-spacing:1px;white-space:nowrap;
+    padding:8px 18px;border-radius:22px;background:rgba(8,12,28,0.4);
+    -webkit-backdrop-filter:blur(5px);backdrop-filter:blur(5px);
+    pointer-events:none;transition:opacity 1.2s ease;z-index:10;}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="vig"></div>
+<div id="hint">WASD 移动 · 空格/E 升 · Q 降 · Shift 加速 · 拖拽鼠标转视角</div>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+}}
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+
+// ---------- helpers ----------
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+const lerp=(a,b,t)=>a+(b-a)*t;
+const smoothstep=(e0,e1,x)=>{const t=clamp((x-e0)/(e1-e0),0,1);return t*t*(3-2*t);};
+function profileInterp(ctrl,t){
+  for(let i=0;i<ctrl.length-1;i++){
+    const [t0,v0]=ctrl[i],[t1,v1]=ctrl[i+1];
+    if(t>=t0&&t<=t1) return lerp(v0,v1,smoothstep(t0,t1,t));
+  }
+  return ctrl[ctrl.length-1][1];
+}
+// ---------- renderer / scene / camera ----------
+const canvas=document.getElementById('c');
+const renderer=new THREE.WebGLRenderer({canvas,antialias:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+renderer.setSize(innerWidth,innerHeight);
+renderer.toneMapping=THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure=1.05;
+
+const scene=new THREE.Scene();
+
+// screen-space gradient sky (zenith indigo -> warm horizon)
+function makeSky(){
+  const c=document.createElement('canvas');c.width=16;c.height=256;
+  const ctx=c.getContext('2d');
+  const g=ctx.createLinearGradient(0,0,0,256);
+  g.addColorStop(0.00,'#04060e');
+  g.addColorStop(0.30,'#0a1020');
+  g.addColorStop(0.55,'#131d33');
+  g.addColorStop(0.74,'#223047');
+  g.addColorStop(0.88,'#3a4038');
+  g.addColorStop(1.00,'#5c4a2e');
+  ctx.fillStyle=g;ctx.fillRect(0,0,16,256);
+  const tex=new THREE.CanvasTexture(c);tex.colorSpace=THREE.SRGBColorSpace;return tex;
+}
+scene.background=makeSky();
+scene.fog=new THREE.FogExp2(0x101a2c,0.00052);
+
+const camera=new THREE.PerspectiveCamera(55,innerWidth/innerHeight,1,8000);
+camera.position.set(380,170,380);
+
+// ---------- lights (moonlit Gotham night) ----------
+scene.add(new THREE.HemisphereLight(0x8ea2c8,0x14121f,0.5));
+const moon=new THREE.DirectionalLight(0xbcd0ff,1.2);
+moon.position.set(-480,260,-300);scene.add(moon);
+const fill=new THREE.DirectionalLight(0x3a4e8a,0.4);
+fill.position.set(360,80,240);scene.add(fill);
+const cityGlow=new THREE.DirectionalLight(0xffb060,0.4);  // warm sodium uplight from the streets
+cityGlow.position.set(0,-160,0);scene.add(cityGlow);
+scene.add(new THREE.AmbientLight(0x1c2440,0.5));
+
+// radial sprite texture factory
+function radialTex(stops){
+  const s=256,c=document.createElement('canvas');c.width=c.height=s;
+  const ctx=c.getContext('2d');
+  const g=ctx.createRadialGradient(s/2,s/2,0,s/2,s/2,s/2);
+  stops.forEach(([o,col])=>g.addColorStop(o,col));
+  ctx.fillStyle=g;ctx.fillRect(0,0,s,s);
+  const t=new THREE.CanvasTexture(c);t.colorSpace=THREE.SRGBColorSpace;return t;
+}
+// pale cold moon high in the Gotham sky
+const moonTex=radialTex([[0,'rgba(242,246,255,1)'],[0.4,'rgba(212,226,255,0.95)'],
+  [0.55,'rgba(170,190,230,0.5)'],[1,'rgba(150,170,220,0)']]);
+const moonSprite=new THREE.Sprite(new THREE.SpriteMaterial({map:moonTex,
+  blending:THREE.AdditiveBlending,depthWrite:false,transparent:true,fog:false}));
+moonSprite.scale.set(360,360,1);moonSprite.position.set(-760,560,-900);scene.add(moonSprite);
+
+// stars in the upper sky
+(function stars(){
+  const N=900,pos=new Float32Array(N*3);
+  for(let i=0;i<N;i++){
+    const r=3200+Math.random()*2000, th=Math.random()*Math.PI*2, ph=Math.random()*Math.PI*0.4;
+    pos[i*3]=r*Math.sin(ph)*Math.cos(th);
+    pos[i*3+1]=r*Math.cos(ph)+300;
+    pos[i*3+2]=r*Math.sin(ph)*Math.sin(th);
+  }
+  const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.BufferAttribute(pos,3));
+  scene.add(new THREE.Points(g,new THREE.PointsMaterial({color:0xffffff,size:4,
+    sizeAttenuation:true,transparent:true,opacity:0.85,depthWrite:false,fog:false})));
+})();
+
+// ---------- city ----------
+const cityGroup=new THREE.Group();scene.add(cityGroup);
+const ground=new THREE.Mesh(new THREE.CircleGeometry(3200,64),
+  new THREE.MeshStandardMaterial({color:0x090c22,roughness:1,metalness:0}));
+ground.rotation.x=-Math.PI/2;ground.position.y=-40;cityGroup.add(ground);
+
+function windowTex(seed){
+  const w=64,h=128,c=document.createElement('canvas');c.width=w;c.height=h;
+  const ctx=c.getContext('2d');ctx.fillStyle='#05060f';ctx.fillRect(0,0,w,h);
+  const cols=5,rows=12,mx=6,my=5,cw=(w-mx*(cols+1))/cols,ch=(h-my*(rows+1))/rows;
+  let s=seed*9301+49297;const rnd=()=>{s=(s*9301+49297)%233280;return s/233280;};
+  for(let r=0;r<rows;r++)for(let cc=0;cc<cols;cc++){
+    if(rnd()<0.5){
+      const b=rnd();
+      ctx.fillStyle = rnd()<0.42
+        ? `rgba(255,${180+(b*55|0)},${90+(b*60|0)},${0.5+b*0.5})`      // sodium amber
+        : `rgba(${165+(b*65|0)},${196+(b*50|0)},255,${0.45+b*0.5})`;   // cold office light
+      ctx.fillRect(mx+cc*(cw+mx),my+r*(ch+my),cw,ch);
+    }
+  }
+  const t=new THREE.CanvasTexture(c);t.colorSpace=THREE.SRGBColorSpace;return t;
+}
+const buildMat=[0,1,2].map(i=>new THREE.MeshStandardMaterial({
+  color:0x10152c,roughness:0.9,metalness:0.1,
+  emissive:0xffffff,emissiveMap:windowTex(i+1),emissiveIntensity:1.35}));
+const boxGeo=new THREE.BoxGeometry(1,1,1);
+const buckets=[[],[],[]];
+const CITY_R=1600,CITY_N=680,dummy=new THREE.Object3D();
+for(let i=0;i<CITY_N;i++){
+  const ang=Math.random()*Math.PI*2, rad=Math.pow(Math.random(),0.6)*CITY_R;
+  const x=Math.cos(ang)*rad, z=Math.sin(ang)*rad;
+  const central=1-smoothstep(0,CITY_R,rad);
+  const w=lerp(16,44,Math.random()), d=lerp(16,44,Math.random());
+  const h=lerp(18,64,Math.random())*(0.55+central*2.0);
+  dummy.position.set(x,-40+h/2,z);
+  dummy.scale.set(w,h,d);
+  dummy.rotation.y=(Math.random()*4|0)*Math.PI/2;
+  dummy.updateMatrix();
+  buckets[i%3].push(dummy.matrix.clone());
+}
+buckets.forEach((mats,gi)=>{
+  const im=new THREE.InstancedMesh(boxGeo,buildMat[gi],mats.length);
+  mats.forEach((m,k)=>im.setMatrixAt(k,m));
+  im.instanceMatrix.needsUpdate=true;cityGroup.add(im);
+});
+
+// ---------- landmark towers (Gotham skyline) ----------
+const lmWinTex=windowTex(7);
+const landmarkMat=new THREE.MeshStandardMaterial({color:0x0c1124,roughness:0.85,metalness:0.18,
+  emissive:0xffffff,emissiveMap:lmWinTex,emissiveIntensity:1.1});
+const spireMat=new THREE.MeshStandardMaterial({color:0x090d1a,roughness:0.55,metalness:0.45});
+const beacons=[];
+const GROUND=-40;
+function makeLandmark(x,z,h,style){
+  const g=new THREE.Group();
+  const nSeg=3+(Math.random()*3|0), segH=h/nSeg;
+  let w=lerp(34,56,Math.random());
+  for(let s=0;s<nSeg;s++){
+    const m=new THREE.Mesh(boxGeo,landmarkMat);
+    m.scale.set(w,segH*1.02,w*lerp(0.82,1,Math.random()));
+    m.position.set(x,GROUND+segH*(s+0.5),z);
+    g.add(m);
+    w*=lerp(0.72,0.86,Math.random());
+  }
+  const topY=GROUND+h;
+  if(style!=='flat'){
+    const spireH=lerp(h*0.2,h*0.42,Math.random());
+    const spire=new THREE.Mesh(new THREE.ConeGeometry(w*0.55,spireH,6),spireMat);
+    spire.position.set(x,topY+spireH/2,z);g.add(spire);
+    const ant=new THREE.Mesh(new THREE.CylinderGeometry(0.7,0.7,spireH*0.9,6),spireMat);
+    ant.position.set(x,topY+spireH+spireH*0.45,z);g.add(ant);
+    const bk=new THREE.Mesh(new THREE.SphereGeometry(2.4,12,12),
+      new THREE.MeshStandardMaterial({color:0x400000,emissive:0xff2a18,emissiveIntensity:3}));
+    bk.position.set(x,topY+spireH+spireH*0.9,z);g.add(bk);beacons.push(bk);
+  }
+  if(style==='gothic'){
+    for(const dx of [-w*0.6,w*0.6])for(const dz of [-w*0.6,w*0.6]){
+      const pin=new THREE.Mesh(new THREE.ConeGeometry(w*0.16,h*0.14,5),spireMat);
+      pin.position.set(x+dx,topY+h*0.07,z+dz);g.add(pin);
+    }
+  }
+  cityGroup.add(g);return g;
+}
+[[0,0,440,'deco'],[180,120,330,'gothic'],[-160,90,310,'gothic'],[120,-200,350,'deco'],
+ [-240,-140,290,'spire'],[300,40,270,'spire'],[-80,260,300,'gothic'],[240,-320,290,'deco'],
+ [-360,120,275,'spire'],[60,360,320,'gothic'],[-300,-280,265,'spire'],[380,220,255,'deco'],
+ [-120,-360,285,'gothic'],[340,-120,300,'deco']
+].forEach(([x,z,h,st])=>makeLandmark(x,z,h,st));
+
+// ---------- the Bat-Signal ----------
+function makeBatSignalTex(){
+  const s=256,c=document.createElement('canvas');c.width=c.height=s;
+  const ctx=c.getContext('2d');
+  const g=ctx.createRadialGradient(s/2,s/2,0,s/2,s/2,s/2);
+  g.addColorStop(0,'rgba(250,246,214,0.96)');g.addColorStop(0.45,'rgba(242,232,176,0.85)');
+  g.addColorStop(0.72,'rgba(222,210,150,0.32)');g.addColorStop(1,'rgba(222,210,150,0)');
+  ctx.fillStyle=g;ctx.fillRect(0,0,s,s);
+  ctx.fillStyle='rgba(9,9,13,0.93)';
+  const cx=s/2,cy=s/2+10,u=s*0.42;
+  ctx.beginPath();ctx.moveTo(cx,cy-0.28*u);
+  ctx.lineTo(cx+0.10*u,cy-0.52*u);ctx.lineTo(cx+0.16*u,cy-0.26*u);
+  ctx.quadraticCurveTo(cx+0.34*u,cy-0.30*u,cx+0.5*u,cy-0.12*u);
+  ctx.quadraticCurveTo(cx+0.86*u,cy-0.18*u,cx+1.0*u,cy-0.30*u);
+  ctx.quadraticCurveTo(cx+0.9*u,cy-0.02*u,cx+0.82*u,cy+0.18*u);
+  ctx.quadraticCurveTo(cx+0.78*u,cy+0.02*u,cx+0.66*u,cy+0.10*u);
+  ctx.quadraticCurveTo(cx+0.62*u,cy+0.26*u,cx+0.5*u,cy+0.34*u);
+  ctx.quadraticCurveTo(cx+0.46*u,cy+0.16*u,cx+0.34*u,cy+0.22*u);
+  ctx.quadraticCurveTo(cx+0.26*u,cy+0.42*u,cx+0.12*u,cy+0.5*u);
+  ctx.quadraticCurveTo(cx+0.06*u,cy+0.30*u,cx,cy+0.42*u);
+  ctx.quadraticCurveTo(cx-0.06*u,cy+0.30*u,cx-0.12*u,cy+0.5*u);
+  ctx.quadraticCurveTo(cx-0.26*u,cy+0.42*u,cx-0.34*u,cy+0.22*u);
+  ctx.quadraticCurveTo(cx-0.46*u,cy+0.16*u,cx-0.5*u,cy+0.34*u);
+  ctx.quadraticCurveTo(cx-0.62*u,cy+0.26*u,cx-0.66*u,cy+0.10*u);
+  ctx.quadraticCurveTo(cx-0.78*u,cy+0.02*u,cx-0.82*u,cy+0.18*u);
+  ctx.quadraticCurveTo(cx-0.9*u,cy-0.02*u,cx-1.0*u,cy-0.30*u);
+  ctx.quadraticCurveTo(cx-0.86*u,cy-0.18*u,cx-0.5*u,cy-0.12*u);
+  ctx.quadraticCurveTo(cx-0.34*u,cy-0.30*u,cx-0.16*u,cy-0.26*u);
+  ctx.lineTo(cx-0.10*u,cy-0.52*u);ctx.lineTo(cx,cy-0.28*u);
+  ctx.closePath();ctx.fill();
+  const t=new THREE.CanvasTexture(c);t.colorSpace=THREE.SRGBColorSpace;return t;
+}
+const signal=new THREE.Sprite(new THREE.SpriteMaterial({map:makeBatSignalTex(),
+  transparent:true,depthWrite:false,fog:false,opacity:0.9}));
+signal.scale.set(250,250,1);signal.position.set(40,560,-330);scene.add(signal);
+// searchlight beam rising from the GCPD rooftop
+const beamGeo=new THREE.ConeGeometry(95,780,30,1,true);
+beamGeo.rotateX(Math.PI);beamGeo.translate(0,390,0);
+const beam=new THREE.Mesh(beamGeo,new THREE.MeshBasicMaterial({color:0xb2c6ff,
+  transparent:true,opacity:0.06,blending:THREE.AdditiveBlending,depthWrite:false,
+  side:THREE.DoubleSide,fog:false}));
+beam.position.set(120,GROUND+350,-200);beam.rotation.z=0.1;beam.rotation.x=-0.16;
+scene.add(beam);
+//__CITY_END__
+
+// ---------- whale geometry ----------
+function geomFromTris(verts){
+  const g=new THREE.BufferGeometry();
+  g.setAttribute('position',new THREE.Float32BufferAttribute(verts,3));
+  const n=verts.length/3,idx=[];for(let i=0;i<n;i++)idx.push(i);
+  g.setIndex(idx);return g;
+}
+function transformTris(local,mat){
+  const out=[],v=new THREE.Vector3();
+  for(let i=0;i<local.length;i+=3){
+    v.set(local[i],local[i+1],local[i+2]).applyMatrix4(mat);
+    out.push(v.x,v.y,v.z);
+  }
+  return out;
+}
+const X_HEAD=28, X_TAIL=-34, R_MAX=9.2;
+function buildWhale(){
+  const N=120,M=30;
+  const ctrl=[[0.00,0.02],[0.03,0.20],[0.07,0.40],[0.14,0.66],[0.26,0.92],
+    [0.40,1.00],[0.52,0.97],[0.64,0.88],[0.75,0.70],[0.85,0.48],
+    [0.93,0.28],[0.98,0.12],[1.00,0.02]];
+  const pos=[];
+  for(let i=0;i<=N;i++){
+    const t=i/N, x=lerp(X_HEAD,X_TAIL,t), R=R_MAX*profileInterp(ctrl,t);
+    for(let j=0;j<M;j++){
+      const a=j/M*Math.PI*2, cy=Math.sin(a), cz=Math.cos(a);
+      pos.push(x, R*cy*(cy<0?1.14:0.95), R*cz*0.92);
+    }
+  }
+  const idx=[];
+  for(let i=0;i<N;i++)for(let j=0;j<M;j++){
+    const a=i*M+j,b=i*M+(j+1)%M,c=(i+1)*M+j,d=(i+1)*M+(j+1)%M;
+    idx.push(a,c,b, b,c,d);
+  }
+  const body=new THREE.BufferGeometry();
+  body.setAttribute('position',new THREE.Float32BufferAttribute(pos,3));
+  body.setIndex(idx);
+  // long humpback pectoral fin (local, extends +z)
+  const pec=[0,0,0, 3.5,0,10, 0.6,0,24,   0,0,0, 0.6,0,24, -4.5,0,11];
+  const mR=new THREE.Matrix4().makeTranslation(11.5,-2.4,6.4)
+    .multiply(new THREE.Matrix4().makeRotationY(-0.5))
+    .multiply(new THREE.Matrix4().makeRotationX(0.55));
+  const mL=new THREE.Matrix4().makeScale(1,1,-1).multiply(mR);
+  // horizontal tail flukes (local, extends +z)
+  const flk=[0,0,0, 7,0,4, 2,0,19,   0,0,0, 2,0,19, -6,0,7];
+  const mFR=new THREE.Matrix4().makeTranslation(-30,0,1.2);
+  const mFL=new THREE.Matrix4().makeScale(1,1,-1).multiply(mFR);
+  // small dorsal hump
+  const dor=[3,8.3,0, -4,8.3,0, -2,12.4,0];
+
+  const parts=[body,
+    geomFromTris(transformTris(pec,mR)),
+    geomFromTris(transformTris(pec,mL)),
+    geomFromTris(transformTris(flk,mFR)),
+    geomFromTris(transformTris(flk,mFL)),
+    geomFromTris(dor)];
+  const merged=mergeGeometries(parts,false);
+  merged.computeVertexNormals();
+  return merged;
+}
+
+const geo=buildWhale();
+// countershading via vertex colors (pale belly, deep-blue back)
+const pA=geo.attributes.position;
+const colors=new Float32Array(pA.count*3);
+const back=new THREE.Color(0x2a3a63), belly=new THREE.Color(0xaebfd8), tmp=new THREE.Color();
+for(let i=0;i<pA.count;i++){
+  tmp.copy(belly).lerp(back,smoothstep(-7,7,pA.getY(i)));
+  colors[i*3]=tmp.r;colors[i*3+1]=tmp.g;colors[i*3+2]=tmp.b;
+}
+geo.setAttribute('color',new THREE.Float32BufferAttribute(colors,3));
+const origPos=pA.array.slice();
+
+const whaleMat=new THREE.MeshStandardMaterial({vertexColors:true,roughness:0.8,
+  metalness:0.05,side:THREE.DoubleSide});
+const whale=new THREE.Mesh(geo,whaleMat);
+const whaleGroup=new THREE.Group();whaleGroup.add(whale);
+whaleGroup.scale.setScalar(1.5); // a truly giant whale
+scene.add(whaleGroup);
+
+// eyes
+const eyeGeo=new THREE.SphereGeometry(1.25,16,16);
+const eyeMat=new THREE.MeshStandardMaterial({color:0x080810,roughness:0.25,metalness:0.1});
+const eyeR=new THREE.Mesh(eyeGeo,eyeMat), eyeL=new THREE.Mesh(eyeGeo,eyeMat);
+eyeR.position.set(18,-2.6,5.4);eyeL.position.set(18,-2.6,-5.4);
+whale.add(eyeR,eyeL);
+// swimming undulation: vertical traveling wave, growing toward the tail
+function deform(time){
+  const arr=pA.array;
+  for(let i=0;i<arr.length;i+=3){
+    const x=origPos[i];
+    const s=clamp((X_HEAD-x)/(X_HEAD-X_TAIL),0,1); // 0 nose .. 1 tail
+    const amp=6.6*Math.pow(s,1.7);
+    arr[i+1]=origPos[i+1]+amp*Math.sin(s*3.0-time*2.6);
+  }
+  pA.needsUpdate=true;
+  geo.computeVertexNormals();
+}
+
+// ---------- flight path (closed loop above the city) ----------
+const path=new THREE.CatmullRomCurve3([
+  new THREE.Vector3(360,150,0),
+  new THREE.Vector3(240,198,300),
+  new THREE.Vector3(0,172,410),
+  new THREE.Vector3(-290,208,250),
+  new THREE.Vector3(-395,158,0),
+  new THREE.Vector3(-250,198,-300),
+  new THREE.Vector3(0,180,-410),
+  new THREE.Vector3(285,208,-260)
+],true,'catmullrom',0.5);
+
+const UP=new THREE.Vector3(0,1,0);
+const _tan=new THREE.Vector3(),_right=new THREE.Vector3(),_up=new THREE.Vector3();
+const _m=new THREE.Matrix4(),_q=new THREE.Quaternion(),_qb=new THREE.Quaternion();
+function moveWhale(time){
+  const u=(time*0.013)%1;
+  const p=path.getPointAt(u);
+  path.getTangentAt(u,_tan).normalize();
+  whaleGroup.position.copy(p);
+  _right.crossVectors(UP,_tan).normalize();
+  _up.crossVectors(_tan,_right).normalize();
+  _m.makeBasis(_tan,_up,_right);
+  _q.setFromRotationMatrix(_m);
+  const t2=path.getTangentAt((u+0.012)%1,new THREE.Vector3());
+  const turn=t2.x*_tan.z-t2.z*_tan.x;          // signed horizontal turn
+  _qb.setFromAxisAngle(_tan,clamp(turn*20,-0.55,0.55)); // bank into turns
+  _q.premultiply(_qb);
+  whaleGroup.quaternion.slerp(_q,0.08);
+  return p;
+}
+// ---------- cinematic camera (slow orbit that keeps the whale framed) ----------
+const camTarget=new THREE.Vector3(0,160,0);
+const _desired=new THREE.Vector3();
+function moveCamera(time,whalePos){
+  camTarget.lerp(whalePos,0.045);
+  const ang=time*0.05;
+  const dist=270+80*Math.sin(time*0.07);
+  const h=66+58*Math.sin(time*0.045+1.0);
+  _desired.set(camTarget.x+Math.cos(ang)*dist,
+    Math.max(camTarget.y+h,25),
+    camTarget.z+Math.sin(ang)*dist);
+  camera.position.lerp(_desired,0.04);
+  camera.lookAt(camTarget.x,camTarget.y-12,camTarget.z);
+}
+
+// ---------- clouds (soft drifting billboards) ----------
+const cloudTex=radialTex([[0,'rgba(255,232,242,0.95)'],[0.4,'rgba(228,198,230,0.5)'],
+  [1,'rgba(206,178,220,0)']]);
+const clouds=[];
+const cloudGroup=new THREE.Group();scene.add(cloudGroup);
+function addCloud(cx,cy,cz,scale,puffs){
+  for(let k=0;k<puffs;k++){
+    const col=new THREE.Color().setHSL(0.6+Math.random()*0.08,0.28,0.46);
+    const sp=new THREE.Sprite(new THREE.SpriteMaterial({map:cloudTex,color:col,
+      transparent:true,opacity:0.45+Math.random()*0.3,depthWrite:false,fog:false}));
+    const sx=scale*(0.6+Math.random()*0.8);
+    sp.scale.set(sx*2.2,sx*1.3,1);
+    sp.position.set(cx+(Math.random()-0.5)*scale*2.5,
+      cy+(Math.random()-0.5)*scale*0.5,
+      cz+(Math.random()-0.5)*scale*2.5);
+    cloudGroup.add(sp);clouds.push(sp);
+  }
+}
+for(let i=0;i<15;i++){
+  const ang=Math.random()*Math.PI*2, rad=Math.random()*1800;
+  addCloud(Math.cos(ang)*rad,lerp(70,270,Math.random()),Math.sin(ang)*rad,
+    lerp(60,145,Math.random()),6+(Math.random()*5|0));
+}
+function moveClouds(dt){
+  for(const sp of clouds){
+    sp.position.x+=dt*7;
+    if(sp.position.x>2100)sp.position.x-=4200;
+  }
+}
+// ---------- post-processing (bloom) ----------
+const composer=new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene,camera));
+const bloom=new UnrealBloomPass(new THREE.Vector2(innerWidth,innerHeight),0.95,0.55,0.62);
+composer.addPass(bloom);
+composer.addPass(new OutputPass());
+
+addEventListener('resize',()=>{
+  camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth,innerHeight);
+  composer.setSize(innerWidth,innerHeight);
+});
+
+// ---------- interaction: WASD free-fly + drag-to-look ----------
+const clock=new THREE.Clock();
+const keys=new Set();
+let manual=false,lastInput=-999;
+let yaw=0,pitch=0,dragging=false,lastMX=0,lastMY=0;
+const flyPos=new THREE.Vector3();
+const MOVE=['w','a','s','d','q','e',' ','shift','arrowup','arrowdown','arrowleft','arrowright'];
+function enterManual(){
+  if(manual)return;
+  manual=true;flyPos.copy(camera.position);
+  const d=new THREE.Vector3();camera.getWorldDirection(d);
+  pitch=Math.asin(clamp(d.y,-1,1));yaw=Math.atan2(d.x,d.z);
+}
+addEventListener('keydown',e=>{
+  const k=e.key.toLowerCase();
+  if(MOVE.includes(k)){keys.add(k);lastInput=clock.elapsedTime;enterManual();if(k===' ')e.preventDefault();}
+});
+addEventListener('keyup',e=>keys.delete(e.key.toLowerCase()));
+const cvs=renderer.domElement;
+cvs.addEventListener('mousedown',e=>{dragging=true;lastMX=e.clientX;lastMY=e.clientY;enterManual();lastInput=clock.elapsedTime;});
+addEventListener('mouseup',()=>dragging=false);
+addEventListener('mousemove',e=>{
+  if(!dragging)return;
+  yaw-=(e.clientX-lastMX)*0.0032;
+  pitch=clamp(pitch-(e.clientY-lastMY)*0.0032,-1.45,1.45);
+  lastMX=e.clientX;lastMY=e.clientY;lastInput=clock.elapsedTime;
+});
+const _fwd=new THREE.Vector3(),_rgt=new THREE.Vector3(),_tgt=new THREE.Vector3();
+function flyCamera(dt,time){
+  _fwd.set(Math.sin(yaw)*Math.cos(pitch),Math.sin(pitch),Math.cos(yaw)*Math.cos(pitch));
+  _rgt.crossVectors(_fwd,UP).normalize();
+  const spd=250*(keys.has('shift')?2.8:1)*dt;
+  if(keys.has('w')||keys.has('arrowup'))flyPos.addScaledVector(_fwd,spd);
+  if(keys.has('s')||keys.has('arrowdown'))flyPos.addScaledVector(_fwd,-spd);
+  if(keys.has('d')||keys.has('arrowright'))flyPos.addScaledVector(_rgt,spd);
+  if(keys.has('a')||keys.has('arrowleft'))flyPos.addScaledVector(_rgt,-spd);
+  if(keys.has(' ')||keys.has('e'))flyPos.y+=spd;
+  if(keys.has('q'))flyPos.y-=spd;
+  flyPos.y=Math.max(flyPos.y,-20);
+  camera.position.copy(flyPos);
+  _tgt.copy(flyPos).add(_fwd);camera.lookAt(_tgt);
+  if(time-lastInput>12&&!dragging)manual=false; // idle -> back to cinematic
+}
+const hintEl=document.getElementById('hint');
+setTimeout(()=>{if(hintEl)hintEl.style.opacity='0';},8000);
+
+// ---------- main loop ----------
+function animate(){
+  requestAnimationFrame(animate);
+  const dt=Math.min(clock.getDelta(),0.05);
+  const t=clock.elapsedTime;
+  deform(t);
+  const p=moveWhale(t);
+  if(manual)flyCamera(dt,t); else moveCamera(t,p);
+  moveClouds(dt);
+  const pulse=0.5+0.5*Math.sin(t*3.0);
+  for(const b of beacons)b.material.emissiveIntensity=1.6+pulse*3.4;
+  signal.material.opacity=0.82+0.08*Math.sin(t*1.7)+0.04*Math.sin(t*11.0);
+  composer.render();
+}
+animate();
+</script>
+<!--
+  ============ 交付记录 ============
+  模型：claude-opus-4-8
+  完成时间：2026-10-11 20:56 (Asia/Shanghai, UTC+8)
+  版本：哥谭 (Gotham) 夜景 + WASD 自由飞行交互 + 地标塔楼 + 蝙蝠灯
+  本会话累计 token 消耗（截至交付时，来自 model-io 记录）：
+    · 输入(含每轮重发上下文) ≈ 6,353,352 tokens
+    · 输出(生成)           ≈ 31,925 tokens
+    · 合计                 ≈ 6,385,277 tokens
+    · 模型调用 51 次
+  ==================================
+-->
+<!--zc-home:start--><style>.zc-home-btn{position:fixed;top:16px;left:16px;z-index:2147483647;display:inline-flex;align-items:center;gap:6px;padding:8px 14px;font:500 13px/1.1 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Noto Sans SC",sans-serif;color:#111;background:rgba(255,255,255,.86);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);border:1px solid rgba(0,0,0,.08);border-radius:999px;text-decoration:none;box-shadow:0 2px 12px rgba(0,0,0,.2);transition:background .2s ease,transform .2s ease,box-shadow .2s ease}.zc-home-btn:hover{background:#fff;transform:translateY(-1px);box-shadow:0 4px 18px rgba(0,0,0,.26)}</style><a class="zc-home-btn" href="../">← 返回首页</a><!--zc-home:end-->
+</body>
+</html>

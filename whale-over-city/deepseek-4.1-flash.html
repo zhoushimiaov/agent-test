@@ -1,0 +1,1052 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>巨鲸游过城市上空</title>
+<!--
+  ============================================================
+  巨鲸游过城市上空 / A Leviathan Drifts Over the City
+  ------------------------------------------------------------
+  单文件 Canvas 2D 动画 · 无任何第三方依赖 · 双击即播 · 自动循环
+
+  模型     : DeepSeek-V4.1-Flash  (provider: new-provider-7)
+  完成时间 : 2026-10-11 20:04 (+08:00)
+  消耗 token: 本会话实测 —— 输入 5,162,276 / 输出 84,821（含推理 48,735），
+              合计 5,247,097；其中输入有 4,957,568 命中缓存。
+              峰值上下文 129,380 tokens，共 54 次请求。
+              （数据来源：~/.zcode/cli/rollout/model-io-<sessionId>.jsonl 的 usage 字段）
+
+  技术要点：
+   · 鲸鱼不是贴图，是每帧用参数化脊线 + 横截面半径剖线现场"雕"出来的
+     实体轮廓，因此摆尾是真正的身体波动，不是整体旋转。
+   · 城市分 5 层预渲染到离屏 canvas，运行时只做 drawImage + 视差偏移。
+   · 云层用预渲染的柔化 sprite，分远/中/近三带，近景云从鲸鱼前方掠过。
+  ============================================================
+-->
+<style>
+  html, body {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: #03050c;
+  }
+  #scene {
+    display: block;
+    width: 100vw;
+    height: 100vh;
+  }
+</style>
+</head>
+<body>
+<canvas id="scene"></canvas>
+<script>
+(function () {
+  'use strict';
+
+  var cv  = document.getElementById('scene');
+  var ctx = cv.getContext('2d', { alpha: false });
+
+  var TAU = Math.PI * 2;
+  var W = 0, H = 0, DPR = 1, PAD = 160;
+
+  /* ------------------------------------------------------------------ */
+  /* 小工具                                                              */
+  /* ------------------------------------------------------------------ */
+  function clamp(v, a, b) { return v < a ? a : (v > b ? b : v); }
+  function smooth(t) { t = clamp(t, 0, 1); return t * t * (3 - 2 * t); }
+
+  // 确定性随机：同一屏幕尺寸每次刷新画面完全一致
+  function mulberry32(a) {
+    return function () {
+      a |= 0; a = a + 0x6D2B79F5 | 0;
+      var t = Math.imul(a ^ a >>> 15, 1 | a);
+      t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+      return ((t ^ t >>> 14) >>> 0) / 4294967296;
+    };
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* 鲸鱼体型剖线（非均匀 Catmull-Rom，C1 连续）                          */
+  /* u = 0 → 尾柄末端 ; u = 1 → 吻端                                     */
+  /* 数值 = 该处横截面半高，1.0 为最大围度                                 */
+  /* ------------------------------------------------------------------ */
+  var GIRTH_PTS = [
+    [0.000, 0.030],  // 尾柄尖
+    [0.045, 0.092],
+    [0.100, 0.152],  // 尾柄最细处
+    [0.150, 0.168],
+    [0.230, 0.450],  // 迅速膨大
+    [0.320, 0.730],
+    [0.400, 0.905],
+    [0.480, 0.985],
+    [0.560, 1.000],  // 最大围度（约吻端后 44%）
+    [0.650, 0.980],
+    [0.740, 0.905],
+    [0.820, 0.792],
+    [0.880, 0.660],
+    [0.930, 0.536],
+    [0.970, 0.452],
+    [1.000, 0.384]   // 钝圆吻端
+  ];
+
+  function makeProfile(pts) {
+    return function (u) {
+      u = clamp(u, 0, 1);
+      var i = 0;
+      while (i < pts.length - 2 && u > pts[i + 1][0]) i++;
+      var p0 = pts[Math.max(i - 1, 0)];
+      var p1 = pts[i];
+      var p2 = pts[i + 1];
+      var p3 = pts[Math.min(i + 2, pts.length - 1)];
+      var du = p2[0] - p1[0];
+      var t  = du > 1e-6 ? (u - p1[0]) / du : 0;
+      var m1 = (p2[1] - p0[1]) / Math.max(p2[0] - p0[0], 1e-6) * du;
+      var m2 = (p3[1] - p1[1]) / Math.max(p3[0] - p1[0], 1e-6) * du;
+      var t2 = t * t, t3 = t2 * t;
+      return Math.max(0,
+        (2 * t3 - 3 * t2 + 1) * p1[1] + (t3 - 2 * t2 + t) * m1 +
+        (-2 * t3 + 3 * t2) * p2[1] + (t3 - t2) * m2);
+    };
+  }
+  var girth = makeProfile(GIRTH_PTS);
+
+  /* ------------------------------------------------------------------ */
+  /* 全局状态                                                            */
+  /* ------------------------------------------------------------------ */
+  var stars = [];
+  var cityLayers = [];   // { canvas, baseY, depth }
+  var flickerWins = [];  // 运行期闪烁的窗
+  var beacons = [];      // 楼顶航空障碍灯
+  var clouds = [];
+  var sprites = {};
+  var motes = [];
+  var horizonY = 0;
+
+  /* ------------------------------------------------------------------ */
+  /* 云 sprite（预渲染柔化）                                             */
+  /* ------------------------------------------------------------------ */
+  function makeCloudSprite(rand, w, h, rgb, puffs, blurPx, alphaMul) {
+    var tmp = document.createElement('canvas');
+    tmp.width = w; tmp.height = h;
+    var tg = tmp.getContext('2d');
+    var col = rgb[0] + ',' + rgb[1] + ',' + rgb[2];
+
+    for (var i = 0; i < puffs; i++) {
+      var px = w * (0.22 + 0.56 * rand());
+      var py = h * (0.42 + 0.34 * rand());
+      var pr = h * (0.24 + 0.30 * rand());
+      // 关键：保证每个气团连同模糊扩散半径都完整落在 sprite 画布内，
+      // 否则边缘会被裁成直角，在大片天空上露出难看的矩形接缝
+      var safe = blurPx * 2 + 4;
+      pr = Math.min(pr, px - safe, w - px - safe, py - safe, h - py - safe);
+      if (pr <= 1) continue;
+      var gr = tg.createRadialGradient(px, py, 0, px, py, pr);
+      gr.addColorStop(0.00, 'rgba(' + col + ',' + (0.72 * alphaMul) + ')');
+      gr.addColorStop(0.42, 'rgba(' + col + ',' + (0.34 * alphaMul) + ')');
+      gr.addColorStop(0.72, 'rgba(' + col + ',' + (0.10 * alphaMul) + ')');
+      gr.addColorStop(1.00, 'rgba(' + col + ',0)');
+      tg.fillStyle = gr;
+      tg.beginPath(); tg.arc(px, py, pr, 0, TAU); tg.fill();
+    }
+
+    var out = document.createElement('canvas');
+    out.width = w; out.height = h;
+    var g = out.getContext('2d');
+    // 不支持 ctx.filter 的浏览器会静默跳过，径向渐变本身已经足够柔
+    if (blurPx > 0) { try { g.filter = 'blur(' + blurPx + 'px)'; } catch (e) {} }
+    g.drawImage(tmp, 0, 0);
+    g.filter = 'none';
+    return out;
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* 城市：分层预渲染                                                    */
+  /* ------------------------------------------------------------------ */
+  // baseY 为地平线占屏高比例；层越近，地基越低、楼越高、颜色越暗
+  var CITY_CFG = [
+    { key: 'far',   baseY: 0.742, depth: 0.30, hMin: 0.020, hMax: 0.075,
+      wMin: 12, wMax: 34, gapMin: 1, gapMax: 7, fill: '#33445f', alpha: 0.62,
+      win: false, tall: 0.02 },
+    { key: 'mid',   baseY: 0.756, depth: 0.50, hMin: 0.035, hMax: 0.135,
+      wMin: 18, wMax: 48, gapMin: 2, gapMax: 11, fill: '#243349', alpha: 0.85,
+      win: true, winW: 3, winH: 4, winGapX: 4, winGapY: 5,
+      winChance: 0.30, winAlpha: 0.42, winColor: '#ffcf8e', tall: 0.06 },
+    { key: 'near',  baseY: 0.782, depth: 0.78, hMin: 0.055, hMax: 0.225,
+      wMin: 26, wMax: 66, gapMin: 4, gapMax: 17, fill: '#131d31', alpha: 0.95,
+      win: true, winW: 4, winH: 5, winGapX: 5, winGapY: 6,
+      winChance: 0.26, winAlpha: 0.80, winColor: '#ffc878', tall: 0.10 },
+    { key: 'fore',  baseY: 0.842, depth: 1.10, hMin: 0.090, hMax: 0.300,
+      wMin: 46, wMax: 116, gapMin: 9, gapMax: 32, fill: '#070b14', alpha: 1.0,
+      win: true, winW: 5, winH: 6, winGapX: 7, winGapY: 8,
+      winChance: 0.17, winAlpha: 0.92, winColor: '#ffb964', tall: 0.13 }
+  ];
+
+  function buildCityLayer(cfg, rand) {
+    var w = W + PAD * 2;
+    var c = document.createElement('canvas');
+    c.width  = Math.max(1, Math.round(w * DPR));
+    c.height = Math.max(1, Math.round(H * DPR));
+    var g = c.getContext('2d');
+    g.setTransform(DPR, 0, 0, DPR, 0, 0);
+
+    var baseY = H * cfg.baseY;
+    var blds = [];
+    var x = -20;
+
+    while (x < w + 20) {
+      var bw = cfg.wMin + rand() * (cfg.wMax - cfg.wMin);
+      var bh = (cfg.hMin + rand() * (cfg.hMax - cfg.hMin)) * H;
+      if (rand() < cfg.tall) bh *= 1.45 + rand() * 1.05;   // 少数摩天楼
+      bh = Math.min(bh, H * 0.36);
+      blds.push({ x: x, w: bw, h: bh, seed: rand() });
+      x += bw + cfg.gapMin + rand() * cfg.gapMax;
+    }
+
+    for (var i = 0; i < blds.length; i++) {
+      var b = blds[i];
+      var top = baseY - b.h;
+
+      g.globalAlpha = cfg.alpha;
+      g.fillStyle = cfg.fill;
+      g.fillRect(b.x, top, b.w, b.h + (H - baseY) + 4);
+
+      // 退台 / 塔冠
+      if (b.seed > 0.72 && b.w > 26) {
+        var inset = b.w * 0.20;
+        var crownH = b.h * (0.10 + b.seed * 0.10);
+        g.fillRect(b.x + inset, top - crownH, b.w - inset * 2, crownH + 2);
+        top -= crownH;
+      }
+      // 天线
+      if (b.seed > 0.90 && b.h > H * 0.12) {
+        g.fillRect(b.x + b.w * 0.5 - 1, top - H * 0.045, 2, H * 0.045);
+        beacons.push({ x: b.x + b.w * 0.5, y: top - H * 0.045, ph: rand() * TAU, layer: cfg });
+      }
+
+      // 顶部受月光/天光的极窄高光边
+      g.globalAlpha = cfg.alpha * 0.55;
+      g.fillStyle = 'rgba(150,180,225,0.30)';
+      g.fillRect(b.x, top, b.w, 1);
+
+      // 窗
+      if (cfg.win && b.h > 34) {
+        var stepX = cfg.winW + cfg.winGapX;
+        var stepY = cfg.winH + cfg.winGapY;
+        var cols = Math.max(1, Math.floor((b.w - 8) / stepX));
+        var rows = Math.max(1, Math.floor((b.h - 14) / stepY));
+        var ox = b.x + (b.w - (cols * stepX - cfg.winGapX)) * 0.5;
+        var oy = baseY - b.h + 8;
+
+        for (var r = 0; r < rows; r++) {
+          for (var k = 0; k < cols; k++) {
+            if (rand() > cfg.winChance) continue;
+            var wx = ox + k * stepX;
+            var wy = oy + r * stepY;
+            g.globalAlpha = cfg.winAlpha * (0.45 + rand() * 0.55);
+            g.fillStyle = rand() < 0.78 ? cfg.winColor : '#cfe2ff';
+            g.fillRect(wx, wy, cfg.winW, cfg.winH);
+
+            // 抽样一部分窗交给运行期做明灭
+            if (rand() < 0.012) {
+              flickerWins.push({
+                x: wx + PAD, y: wy,
+                ph: rand() * TAU,
+                sp: 0.25 + rand() * 0.9,
+                a: cfg.winAlpha,
+                c: cfg.winColor
+              });
+            }
+          }
+        }
+      }
+    }
+
+    g.globalAlpha = 1;
+    return { canvas: c, baseY: cfg.baseY, depth: cfg.depth, cfg: cfg };
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* 场景构建                                                            */
+  /* ------------------------------------------------------------------ */
+  function buildScene() {
+    var rand = mulberry32(20261011);
+    horizonY = H * 0.742;
+
+    // ---- 星 ----
+    stars = [];
+    var nStars = Math.round(clamp(W * H / 8200, 60, 420));
+    for (var i = 0; i < nStars; i++) {
+      var y = Math.pow(rand(), 1.25) * H * 0.62;
+      stars.push({
+        x: rand() * W,
+        y: y,
+        r: 0.35 + rand() * 1.25,
+        a: 0.12 + rand() * 0.72 * (1 - y / (H * 0.72)),
+        ph: rand() * TAU,
+        sp: 0.5 + rand() * 1.7
+      });
+    }
+
+    // ---- 城市 ----
+    cityLayers = [];
+    flickerWins = [];
+    beacons = [];
+    for (var li = 0; li < CITY_CFG.length; li++) {
+      cityLayers.push(buildCityLayer(CITY_CFG[li], rand));
+    }
+
+    // ---- 云 sprite ----
+    sprites.high = makeCloudSprite(rand, 460, 210, [126, 148, 186], 9,  14, 1.15);
+    sprites.mid  = makeCloudSprite(rand, 520, 250, [158, 174, 204], 10, 16, 1.25);
+    sprites.low  = makeCloudSprite(rand, 620, 300, [216, 180, 152], 11, 20, 1.30);
+    sprites.veil = makeCloudSprite(rand, 700, 320, [ 52,  64,  96], 10, 26, 1.10);
+
+    // ---- 云分布：四带，veil 带在鲸鱼前方掠过 ----
+    clouds = [];
+    var bands = [
+      { key: 'high', n: 16, yMin: 0.02, yMax: 0.30, sMin: 0.55, sMax: 1.15,
+        spd:  3.5, aMin: 0.26, aMax: 0.56, depth: 0.30 },
+      { key: 'mid',  n: 14, yMin: 0.16, yMax: 0.50, sMin: 0.90, sMax: 1.80,
+        spd:  6.5, aMin: 0.38, aMax: 0.70, depth: 0.55 },
+      { key: 'low',  n: 10, yMin: 0.54, yMax: 0.86, sMin: 1.30, sMax: 2.60,
+        spd: 12.0, aMin: 0.44, aMax: 0.84, depth: 0.95 },
+      { key: 'veil', n:  6, yMin: 0.17, yMax: 0.48, sMin: 1.70, sMax: 3.10,
+        spd: 17.0, aMin: 0.14, aMax: 0.34, depth: 1.35 }
+    ];
+
+    for (var bi = 0; bi < bands.length; bi++) {
+      var bd = bands[bi];
+      for (var ci = 0; ci < bd.n; ci++) {
+        var sc = bd.sMin + rand() * (bd.sMax - bd.sMin);
+        clouds.push({
+          key: bd.key,
+          x: rand() * (W + 900) - 450,
+          y: (bd.yMin + rand() * (bd.yMax - bd.yMin)) * H,
+          s: sc,
+          a: bd.aMin + rand() * (bd.aMax - bd.aMin),
+          spd: bd.spd * (0.75 + rand() * 0.6),
+          depth: bd.depth,
+          flip: rand() < 0.5 ? -1 : 1,
+          wob: rand() * TAU
+        });
+      }
+    }
+
+    // ---- 空气中的浮尘 ----
+    motes = [];
+    var nM = Math.round(clamp(W * H / 16000, 40, 180));
+    for (var mi = 0; mi < nM; mi++) {
+      motes.push({
+        x: rand() * W, y: rand() * H,
+        r: 0.6 + rand() * 1.9,
+        a: 0.06 + rand() * 0.26,
+        vx: -(4 + rand() * 14),
+        vy: -(1 + rand() * 6),
+        ph: rand() * TAU
+      });
+    }
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* 视差 / 运镜                                                         */
+  /* ------------------------------------------------------------------ */
+  function camAt(T) {
+    return {
+      x: Math.sin(T * 0.0370) * W * 0.014 + Math.sin(T * 0.0113 + 2.0) * W * 0.006,
+      y: Math.sin(T * 0.0210 + 1.2) * H * 0.010
+    };
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* 天空 / 星 / 月                                                      */
+  /* ------------------------------------------------------------------ */
+  function drawSky() {
+    var g = ctx.createLinearGradient(0, 0, 0, H);
+    g.addColorStop(0.00, '#03050c');
+    g.addColorStop(0.20, '#070c1c');
+    g.addColorStop(0.40, '#101a34');
+    g.addColorStop(0.58, '#1e2848');
+    g.addColorStop(0.70, '#2e3459');
+    g.addColorStop(0.78, '#3c3459');
+    g.addColorStop(0.87, '#241c36');
+    g.addColorStop(1.00, '#0b0916');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, W, H);
+  }
+
+  function drawHorizonGlow() {
+    var hy = horizonY + H * 0.012;
+    var g = ctx.createRadialGradient(W * 0.52, hy, 0, W * 0.52, hy, W * 0.62);
+    g.addColorStop(0.00, 'rgba(255,163,86,0.34)');
+    g.addColorStop(0.22, 'rgba(240,126,74,0.20)');
+    g.addColorStop(0.52, 'rgba(150,72,86,0.09)');
+    g.addColorStop(1.00, 'rgba(80,50,90,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, W, H);
+
+    var g2 = ctx.createRadialGradient(W * 0.52, hy, 0, W * 0.52, hy, W * 0.20);
+    g2.addColorStop(0.00, 'rgba(255,214,150,0.34)');
+    g2.addColorStop(0.45, 'rgba(255,168,96,0.12)');
+    g2.addColorStop(1.00, 'rgba(255,150,80,0)');
+    ctx.fillStyle = g2;
+    ctx.fillRect(0, 0, W, H);
+  }
+
+  function drawStars(T, cam) {
+    for (var i = 0; i < stars.length; i++) {
+      var s = stars[i];
+      var tw = 0.62 + 0.38 * Math.sin(T * s.sp + s.ph);
+      var a = s.a * tw;
+      if (a <= 0.01) continue;
+      var x = s.x + cam.x * 0.06;
+      var y = s.y + cam.y * 0.06;
+      ctx.globalAlpha = a;
+      ctx.fillStyle = '#eaf1ff';
+      ctx.beginPath();
+      ctx.arc(x, y, s.r, 0, TAU);
+      ctx.fill();
+      if (s.r > 1.15) {
+        ctx.globalAlpha = a * 0.28;
+        ctx.beginPath();
+        ctx.arc(x, y, s.r * 3.4, 0, TAU);
+        ctx.fill();
+      }
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  function drawMoon(T, cam) {
+    var mx = W * 0.775 + cam.x * 0.05;
+    var my = H * 0.135 + cam.y * 0.05;
+    var mr = Math.min(W, H) * 0.033;
+
+    var halo = ctx.createRadialGradient(mx, my, mr * 0.6, mx, my, mr * 9.5);
+    halo.addColorStop(0.00, 'rgba(238,232,214,0.30)');
+    halo.addColorStop(0.16, 'rgba(206,208,206,0.13)');
+    halo.addColorStop(0.46, 'rgba(150,164,196,0.05)');
+    halo.addColorStop(1.00, 'rgba(120,140,190,0)');
+    ctx.fillStyle = halo;
+    ctx.beginPath(); ctx.arc(mx, my, mr * 9.5, 0, TAU); ctx.fill();
+
+    ctx.globalAlpha = 0.94;
+    var disc = ctx.createRadialGradient(mx - mr * 0.28, my - mr * 0.28, mr * 0.1, mx, my, mr);
+    disc.addColorStop(0.00, '#fffaf0');
+    disc.addColorStop(0.72, '#f2ecdd');
+    disc.addColorStop(1.00, '#d8d6cc');
+    ctx.fillStyle = disc;
+    ctx.beginPath(); ctx.arc(mx, my, mr, 0, TAU); ctx.fill();
+    ctx.globalAlpha = 1;
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* 云                                                                  */
+  /* ------------------------------------------------------------------ */
+  function drawClouds(T, cam, which) {
+    for (var i = 0; i < clouds.length; i++) {
+      var c = clouds[i];
+      if (which === 'back' && c.key === 'veil') continue;
+      if (which === 'front' && c.key !== 'veil') continue;
+
+      var spr = sprites[c.key];
+      var w = spr.width * c.s;
+      var h = spr.height * c.s;
+
+      // 漂移 + 环绕
+      var span = W + w * 2 + 400;
+      var x = ((c.x - T * c.spd) % span + span) % span - w - 200;
+      x += cam.x * c.depth;
+      var y = c.y + cam.y * c.depth + Math.sin(T * 0.11 + c.wob) * 8 * c.s;
+
+      ctx.globalAlpha = c.a;
+      ctx.save();
+      ctx.translate(x + w * 0.5, y + h * 0.5);
+      ctx.scale(c.flip, 1);
+      ctx.drawImage(spr, -w * 0.5, -h * 0.5, w, h);
+      ctx.restore();
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* 城市                                                                */
+  /* ------------------------------------------------------------------ */
+  // from/to 用来把城市拆成"远景段"和"近景段"，中间插入鲸鱼投影
+  function drawCity(T, cam, from, to) {
+    for (var i = from; i < to; i++) {
+      var L = cityLayers[i];
+      var ox = -PAD + cam.x * L.depth;
+      var oy = cam.y * L.depth;
+      ctx.globalAlpha = 1;
+      ctx.drawImage(L.canvas, ox, oy, W + PAD * 2, H);
+
+      // 远景层覆一层大气雾
+      if (L.cfg.key === 'far' || L.cfg.key === 'mid') {
+        var fogA = L.cfg.key === 'far' ? 0.42 : 0.20;
+        var fg = ctx.createLinearGradient(0, horizonY - H * 0.16, 0, horizonY + H * 0.10);
+        fg.addColorStop(0.00, 'rgba(58,64,104,0)');
+        fg.addColorStop(0.55, 'rgba(96,88,120,' + (fogA * 0.55) + ')');
+        fg.addColorStop(1.00, 'rgba(190,140,110,' + (fogA * 0.70) + ')');
+        ctx.fillStyle = fg;
+        ctx.fillRect(0, horizonY - H * 0.16, W, H * 0.26);
+      }
+    }
+
+    // 闪烁的窗与航空灯属于中/近景，只在近景段绘制
+    if (to < cityLayers.length) return;
+
+    for (var k = 0; k < flickerWins.length; k++) {
+      var fw = flickerWins[k];
+      var a = fw.a * (0.35 + 0.65 * (0.5 + 0.5 * Math.sin(T * fw.sp + fw.ph)));
+      ctx.globalAlpha = a;
+      ctx.fillStyle = fw.c;
+      ctx.fillRect(fw.x, fw.y, 3, 4);
+    }
+
+    // 楼顶红色航空灯
+    for (var m = 0; m < beacons.length; m++) {
+      var bc = beacons[m];
+      var pulse = Math.pow(0.5 + 0.5 * Math.sin(T * 1.6 + bc.ph), 5);
+      if (pulse < 0.02) continue;
+      ctx.globalAlpha = pulse * 0.95;
+      ctx.fillStyle = '#ff5b4a';
+      ctx.beginPath(); ctx.arc(bc.x, bc.y, 1.9, 0, TAU); ctx.fill();
+      ctx.globalAlpha = pulse * 0.28;
+      ctx.beginPath(); ctx.arc(bc.x, bc.y, 7, 0, TAU); ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* 鲸鱼行程                                                            */
+  /* ------------------------------------------------------------------ */
+  var LOOP = 36;                       // 一个完整来回的秒数
+  function whaleLen()  { return W * 0.54; }
+  // 只留很短的两段出画距离，保证绝大部分时间鲸鱼都在画面里
+  function whaleX(p)   { return (W + whaleLen() * 0.62) - p * (W + whaleLen() * 1.24); }
+  function whaleY(p)   {
+    return H * 0.292
+         + Math.sin(p * TAU * 1.00 + 0.55) * H * 0.062
+         + Math.sin(p * TAU * 2.30 + 2.10) * H * 0.016;
+  }
+  function whaleScale(p) { return 0.90 + 0.24 * p; }   // 缓缓逼近，越游越近
+
+  /* ------------------------------------------------------------------ */
+  /* 鲸鱼本体绘制                                                        */
+  /* ------------------------------------------------------------------ */
+  function drawWhale(g, L, phase) {
+    var R    = L * 0.105;   // 最大半高
+    var AMP  = L * 0.062;   // 摆尾振幅
+    var WAVE = 0.95;        // 体长内含的波数
+    var N    = 118;
+
+    // 振幅包络：吻端几乎不动，尾柄最大（真实鲸类推进方式）
+    function env(u) { return 0.10 + 0.90 * Math.pow(1 - u, 1.8); }
+    function spineY(u) { return AMP * env(u) * Math.sin(TAU * (WAVE * u + phase)); }
+    function slope(u) {
+      var e = 0.004, a = Math.max(u - e, 0), b = Math.min(u + e, 1);
+      return (spineY(b) - spineY(a)) / (b - a);
+    }
+    function halfR(u) { return R * girth(u); }
+
+    var upper = [], lower = [], i, u, x, yc, rv;
+
+    for (i = 0; i <= N; i++) {
+      u  = i / N;
+      x  = (u - 0.5) * L;
+      yc = spineY(u);
+      rv = halfR(u);
+      upper.push([x, yc - rv]);
+      lower.push([x, yc + rv]);
+    }
+
+    // ---- 身体轮廓路径（含吻端圆帽 + 尾柄圆帽） ----
+    function bodyPath() {
+      g.beginPath();
+      g.moveTo(upper[0][0], upper[0][1]);
+      for (var a = 1; a <= N; a++) g.lineTo(upper[a][0], upper[a][1]);
+
+      var hx = upper[N][0];
+      var hy = (upper[N][1] + lower[N][1]) * 0.5;
+      var hry = Math.max(0.5, (lower[N][1] - upper[N][1]) * 0.5);
+      g.ellipse(hx, hy, L * 0.048, hry, 0, -Math.PI * 0.5, Math.PI * 0.5, false);
+
+      for (var b = N; b >= 0; b--) g.lineTo(lower[b][0], lower[b][1]);
+
+      var tx = lower[0][0];
+      var ty = (lower[0][1] + upper[0][1]) * 0.5;
+      var try_ = Math.max(0.5, (lower[0][1] - upper[0][1]) * 0.5);
+      g.ellipse(tx, ty, L * 0.018, try_, 0, Math.PI * 0.5, Math.PI * 1.5, false);
+      g.closePath();
+    }
+
+    // ---- 尾鳍 ----
+    function drawFlukes() {
+      var ua = 0.030;                 // 略微前移，让鳍根埋进尾柄里，接缝更自然
+      var px = (ua - 0.5) * L;
+      var py = spineY(ua);
+      var ang = Math.atan2(slope(ua) / L, 1);
+
+      g.save();
+      g.translate(px, py);
+      g.rotate(ang);
+
+      // 尾鳍：宽而钝、后掠、缺刻很浅的一片新月形。
+      // 注意鲸尾横鳍是"宽大于长"的，若画成鱼尾那样细长的深缺刻双叶
+      // 就会一眼看穿是鱼尾——这里刻意压短展向、放钝叶尖。
+      // 局部坐标 -x 向后、-y 向上；上叶略大，暗示轻微俯视
+      var pts = [
+        [ 0.010, -0.018],
+        [-0.030, -0.034],
+        [-0.068, -0.044],
+        [-0.102, -0.046],
+        [-0.126, -0.040],   // 上叶尖端（钝）
+        [-0.132, -0.030],
+        [-0.120, -0.022],
+        [-0.100, -0.014],
+        [-0.082, -0.006],
+        [-0.072,  0.000],   // 浅缺刻
+        [-0.082,  0.006],
+        [-0.100,  0.016],
+        [-0.118,  0.028],
+        [-0.126,  0.038],   // 下叶尖端
+        [-0.118,  0.048],
+        [-0.096,  0.048],
+        [-0.062,  0.040],
+        [-0.030,  0.028],
+        [ 0.006,  0.016]
+      ];
+
+      var gr = g.createLinearGradient(0, -0.050 * L, 0, 0.052 * L);
+      gr.addColorStop(0.00, '#0c1728');
+      gr.addColorStop(0.40, '#1e3049');
+      gr.addColorStop(0.72, '#3a5a7c');
+      gr.addColorStop(1.00, '#6b88a6');
+
+      g.beginPath();
+      g.moveTo(pts[0][0] * L, pts[0][1] * L);
+      for (var i2 = 1; i2 < pts.length; i2++) g.lineTo(pts[i2][0] * L, pts[i2][1] * L);
+      g.closePath();
+      g.fillStyle = gr;
+      g.fill();
+
+      // 远端（下）叶片压暗，制造前后层次
+      g.globalAlpha = 0.55;
+      g.beginPath();
+      g.moveTo(0.006 * L, 0.016 * L);
+      g.lineTo(-0.030 * L, 0.028 * L);
+      g.lineTo(-0.062 * L, 0.040 * L);
+      g.lineTo(-0.096 * L, 0.048 * L);
+      g.lineTo(-0.118 * L, 0.048 * L);
+      g.lineTo(-0.126 * L, 0.038 * L);
+      g.lineTo(-0.118 * L, 0.028 * L);
+      g.lineTo(-0.100 * L, 0.016 * L);
+      g.lineTo(-0.082 * L, 0.006 * L);
+      g.lineTo(-0.072 * L, 0.000 * L);
+      g.closePath();
+      g.fillStyle = 'rgba(6,11,20,0.85)';
+      g.fill();
+      g.globalAlpha = 1;
+
+      // 近侧叶片前缘高光
+      g.globalAlpha = 0.34;
+      g.strokeStyle = 'rgba(176,204,238,0.9)';
+      g.lineWidth = Math.max(0.8, L * 0.0018);
+      g.beginPath();
+      g.moveTo(0.010 * L, -0.018 * L);
+      g.lineTo(-0.030 * L, -0.034 * L);
+      g.lineTo(-0.068 * L, -0.044 * L);
+      g.lineTo(-0.102 * L, -0.046 * L);
+      g.lineTo(-0.126 * L, -0.040 * L);
+      g.lineTo(-0.132 * L, -0.030 * L);
+      g.stroke();
+      g.globalAlpha = 1;
+      g.restore();
+    }
+
+    // ---- 背鳍 ----
+    function drawDorsal() {
+      var ua = 0.285;
+      var px = (ua - 0.5) * L;
+      var py = spineY(ua) - halfR(ua);
+      var ang = Math.atan2(slope(ua) / L, 1);
+
+      g.save();
+      g.translate(px, py);
+      g.rotate(ang);
+      var pts = [
+        [ 0.024,  0.010],
+        [ 0.006, -0.020],
+        [-0.012, -0.048],
+        [-0.034, -0.070],
+        [-0.058, -0.074],
+        [-0.056, -0.058],
+        [-0.042, -0.038],
+        [-0.030, -0.018],
+        [-0.024, -0.004]
+      ];
+      var gr = g.createLinearGradient(0, -0.078 * L, 0, 0.012 * L);
+      gr.addColorStop(0, '#0a1424');
+      gr.addColorStop(0.55, '#16283e');
+      gr.addColorStop(1, '#2a4260');
+      g.beginPath();
+      g.moveTo(pts[0][0] * L, pts[0][1] * L);
+      for (var i3 = 1; i3 < pts.length; i3++) g.lineTo(pts[i3][0] * L, pts[i3][1] * L);
+      g.closePath();
+      g.fillStyle = gr;
+      g.fill();
+      g.globalAlpha = 0.34;
+      g.strokeStyle = 'rgba(170,200,236,0.9)';
+      g.lineWidth = Math.max(0.7, L * 0.0016);
+      g.beginPath();
+      g.moveTo(0.024 * L, 0.010 * L);
+      g.lineTo(0.006 * L, -0.020 * L);
+      g.lineTo(-0.012 * L, -0.048 * L);
+      g.lineTo(-0.034 * L, -0.070 * L);
+      g.lineTo(-0.058 * L, -0.074 * L);
+      g.stroke();
+      g.globalAlpha = 1;
+      g.restore();
+    }
+
+    // ---- 胸鳍（长而狭，向后方下垂） ----
+    function drawPectoral() {
+      var ua = 0.720;
+      var px = (ua - 0.5) * L;
+      var py = spineY(ua) + halfR(ua) * 0.86;
+      var ang = Math.atan2(slope(ua) / L, 1) + 0.52;   // 额外下垂，务必从腹线下方探出
+
+      g.save();
+      g.translate(px, py);
+      g.rotate(ang);
+      var pts = [
+        [ 0.000,  0.000],
+        [-0.032,  0.014],
+        [-0.080,  0.034],
+        [-0.136,  0.060],
+        [-0.186,  0.090],
+        [-0.216,  0.114],
+        [-0.196,  0.096],
+        [-0.148,  0.062],
+        [-0.092,  0.030],
+        [-0.040,  0.008]
+      ];
+      var gr = g.createLinearGradient(0, 0, 0, 0.09 * L);
+      gr.addColorStop(0.00, '#16263c');
+      gr.addColorStop(0.60, '#2d4763');
+      gr.addColorStop(1.00, '#5d7b98');
+      g.beginPath();
+      g.moveTo(pts[0][0] * L, pts[0][1] * L);
+      for (var i4 = 1; i4 < pts.length; i4++) g.lineTo(pts[i4][0] * L, pts[i4][1] * L);
+      g.closePath();
+      g.fillStyle = gr;
+      g.fill();
+      g.globalAlpha = 0.26;
+      g.strokeStyle = 'rgba(180,206,238,0.9)';
+      g.lineWidth = Math.max(0.7, L * 0.0013);
+      g.stroke();
+      g.globalAlpha = 1;
+      g.restore();
+    }
+
+    // ================= 开始绘制 =================
+    g.save();
+
+    // 极淡的背光光晕，把鲸鱼从云层里"托"出来
+    var halo = g.createRadialGradient(0, 0, L * 0.08, 0, 0, L * 0.62);
+    halo.addColorStop(0.00, 'rgba(196,216,246,0.10)');
+    halo.addColorStop(0.55, 'rgba(150,178,222,0.045)');
+    halo.addColorStop(1.00, 'rgba(120,150,200,0)');
+    g.fillStyle = halo;
+    g.beginPath(); g.arc(0, 0, L * 0.62, 0, TAU); g.fill();
+
+    // 先画尾鳍与胸鳍（在身体之后）
+    drawFlukes();
+    drawPectoral();
+
+    // ---- 身体 ----
+    bodyPath();
+    var bg = g.createLinearGradient(0, -R * 1.62, 0, R * 1.62);
+    bg.addColorStop(0.00, '#0a1322');
+    bg.addColorStop(0.20, '#142539');
+    bg.addColorStop(0.42, '#22405c');
+    bg.addColorStop(0.62, '#39607f');
+    bg.addColorStop(0.80, '#62809c');
+    bg.addColorStop(0.91, '#8e9ea9');
+    bg.addColorStop(1.00, '#b0a493');   // 腹部承接城市暖光
+    g.fillStyle = bg;
+    g.fill();
+
+    // 以下都在身体内部作画
+    g.save();
+    g.clip();
+
+    // 上侧背光高光
+    var hi = g.createRadialGradient(L * 0.10, -R * 0.72, R * 0.05, L * 0.10, -R * 0.60, L * 0.55);
+    hi.addColorStop(0.00, 'rgba(220,236,255,0.26)');
+    hi.addColorStop(0.42, 'rgba(164,198,240,0.10)');
+    hi.addColorStop(1.00, 'rgba(120,160,220,0)');
+    g.fillStyle = hi;
+    g.fillRect(-L * 0.6, -R * 1.7, L * 1.2, R * 3.4);
+
+    // 腹部暖光（城市灯火自下而上打光）
+    var warm = g.createLinearGradient(0, R * 0.05, 0, R * 1.75);
+    warm.addColorStop(0.00, 'rgba(255,178,104,0)');
+    warm.addColorStop(0.60, 'rgba(255,168,96,0.18)');
+    warm.addColorStop(1.00, 'rgba(255,196,128,0.32)');
+    g.fillStyle = warm;
+    g.fillRect(-L * 0.6, -R * 1.7, L * 1.2, R * 3.4);
+
+    // 下缘环境遮蔽：沿腹部轮廓叠三层由粗到细的暗线，体量立刻变浑圆
+    g.save();
+    g.lineJoin = 'round';
+    var aoA = [0.30, 0.24, 0.16], aoW = [0.0130, 0.0080, 0.0040];
+    for (var ao = 0; ao < 3; ao++) {
+      g.globalAlpha = aoA[ao];
+      g.strokeStyle = '#04080f';
+      g.lineWidth = Math.max(2, L * aoW[ao]);
+      g.beginPath();
+      g.moveTo(lower[0][0], lower[0][1]);
+      for (var q2 = 1; q2 <= N; q2++) g.lineTo(lower[q2][0], lower[q2][1]);
+      g.stroke();
+    }
+    g.restore();
+    g.globalAlpha = 1;
+
+    // 喉腹褶沟
+    g.lineWidth = Math.max(0.6, L * 0.0013);
+    for (var pl = 0; pl < 9; pl++) {
+      var inset = 0.10 + pl * 0.085;
+      g.globalAlpha = 0.16 - pl * 0.012;
+      g.strokeStyle = '#c8d6e4';
+      g.beginPath();
+      for (var s = 0; s <= 40; s++) {
+        var uu = 0.665 + (0.975 - 0.665) * (s / 40);
+        var xx = (uu - 0.5) * L;
+        var yy = spineY(uu) + halfR(uu) * (1 - inset * (0.35 + 0.65 * Math.sin(Math.PI * (s / 40))));
+        if (s === 0) g.moveTo(xx, yy); else g.lineTo(xx, yy);
+      }
+      g.stroke();
+    }
+    g.globalAlpha = 1;
+
+    // 下颌 / 口裂线
+    g.globalAlpha = 0.55;
+    g.strokeStyle = '#0a1424';
+    g.lineWidth = Math.max(1, L * 0.0022);
+    g.beginPath();
+    for (var m = 0; m <= 30; m++) {
+      var um = 0.795 + (0.988 - 0.795) * (m / 30);
+      var xm = (um - 0.5) * L;
+      var t0 = m / 30;
+      var ym = spineY(um) + halfR(um) * (0.44 + 0.16 * Math.sin(t0 * Math.PI * 0.9));
+      if (m === 0) g.moveTo(xm, ym); else g.lineTo(xm, ym);
+    }
+    g.stroke();
+    g.globalAlpha = 1;
+
+    // 眼睛
+    var ue = 0.905;
+    var xe = (ue - 0.5) * L;
+    var ye = spineY(ue) + halfR(ue) * 0.30;
+    g.fillStyle = '#060c16';
+    g.beginPath(); g.ellipse(xe, ye, L * 0.0085, L * 0.0072, -0.2, 0, TAU); g.fill();
+    g.globalAlpha = 0.75;
+    g.fillStyle = '#dce8f6';
+    g.beginPath(); g.arc(xe + L * 0.0026, ye - L * 0.0022, L * 0.0020, 0, TAU); g.fill();
+    g.globalAlpha = 1;
+
+    // 喷气孔
+    var ub = 0.958;
+    g.globalAlpha = 0.42;
+    g.fillStyle = '#08111f';
+    g.beginPath();
+    g.ellipse((ub - 0.5) * L, spineY(ub) - halfR(ub) * 0.90, L * 0.010, L * 0.0045, 0, 0, TAU);
+    g.fill();
+    g.globalAlpha = 1;
+
+    g.restore();   // 结束身体内部裁剪
+
+    // ---- 脊背轮廓的月光边 ----
+    g.globalAlpha = 0.30;
+    g.strokeStyle = 'rgba(190,214,246,0.95)';
+    g.lineWidth = Math.max(0.8, L * 0.0018);
+    g.beginPath();
+    g.moveTo(upper[0][0], upper[0][1]);
+    for (var q = 1; q <= N; q++) g.lineTo(upper[q][0], upper[q][1]);
+    g.stroke();
+    g.globalAlpha = 1;
+
+    drawDorsal();
+    g.restore();
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* 鲸鱼投在城市上的巨大阴影                                            */
+  /* ------------------------------------------------------------------ */
+  function drawWhaleShadow(p) {
+    var wx = whaleX(p);
+    var sc = whaleScale(p);
+    var L  = whaleLen() * sc;
+
+    // 月亮在右上 → 影子落向左下；投在远处较亮的楼群上才看得出来
+    var sx = wx - W * 0.060;
+    var sy = horizonY + H * 0.030;
+
+    var g = ctx.createRadialGradient(0, 0, 0, 0, 0, 1);
+    g.addColorStop(0.00, 'rgba(4,7,16,0.66)');
+    g.addColorStop(0.42, 'rgba(5,8,18,0.40)');
+    g.addColorStop(0.74, 'rgba(6,9,20,0.16)');
+    g.addColorStop(1.00, 'rgba(6,9,20,0)');
+
+    ctx.save();
+    ctx.translate(sx, sy);
+    ctx.scale(L * 0.55, H * 0.085);
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(0, 0, 1, 0, TAU); ctx.fill();
+    ctx.restore();
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* 鲸鱼整体（含运镜、姿态）                                            */
+  /* ------------------------------------------------------------------ */
+  function drawWhaleScene(T) {
+    var p  = (T % LOOP) / LOOP;
+    var sc = whaleScale(p);
+    var L  = whaleLen() * sc;
+
+    // 由轨迹斜率得到俯仰角（鲸头朝屏幕左侧）
+    var dp = 0.0015;
+    var dx = whaleX(p + dp) - whaleX(p);
+    var dy = whaleY(p + dp) - whaleY(p);
+    var pitch = Math.atan2(-dy, -dx) * 0.55
+              + Math.sin(p * TAU * 1.35 + 1.1) * 0.055;
+
+    // 轻微横滚，避免姿态僵硬
+    var roll = Math.sin(p * TAU * 0.85 + 0.4) * 0.030;
+
+    ctx.save();
+    ctx.translate(whaleX(p), whaleY(p));
+    ctx.rotate(pitch);
+    ctx.scale(-sc, sc);          // 水平镜像 → 头朝左，背鳍仍在上方
+    ctx.transform(1, 0, Math.tan(roll), 1, 0, 0);   // 轻微斜切当作横滚
+    drawWhale(ctx, whaleLen(), T * 0.255);
+    ctx.restore();
+
+    return p;
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* 浮尘 / 暗角                                                         */
+  /* ------------------------------------------------------------------ */
+  function drawMotes(T, cam) {
+    for (var i = 0; i < motes.length; i++) {
+      var m = motes[i];
+      var span = W + 80;
+      var x = ((m.x + T * m.vx) % span + span) % span - 40;
+      var y = ((m.y + T * m.vy) % (H + 80) + (H + 80)) % (H + 80) - 40;
+      x += cam.x * 0.85;
+      y += cam.y * 0.85;
+      var a = m.a * (0.55 + 0.45 * Math.sin(T * 0.8 + m.ph));
+      if (a <= 0.01) continue;
+      ctx.globalAlpha = a;
+      ctx.fillStyle = '#ffe6c2';
+      ctx.beginPath(); ctx.arc(x, y, m.r, 0, TAU); ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  function drawGrade() {
+    // 暗角
+    var g = ctx.createRadialGradient(W * 0.5, H * 0.46, Math.min(W, H) * 0.28,
+                                     W * 0.5, H * 0.50, Math.max(W, H) * 0.78);
+    g.addColorStop(0.00, 'rgba(0,0,0,0)');
+    g.addColorStop(0.62, 'rgba(2,4,10,0.20)');
+    g.addColorStop(1.00, 'rgba(1,2,7,0.62)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, W, H);
+
+    // 顶部压暗，突出月与鲸
+    var tg = ctx.createLinearGradient(0, 0, 0, H * 0.22);
+    tg.addColorStop(0, 'rgba(2,4,10,0.42)');
+    tg.addColorStop(1, 'rgba(2,4,10,0)');
+    ctx.fillStyle = tg;
+    ctx.fillRect(0, 0, W, H * 0.22);
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* 主循环                                                              */
+  /* ------------------------------------------------------------------ */
+  function render(T) {
+    var cam = camAt(T);
+
+    drawSky();
+    drawStars(T, cam);
+    drawMoon(T, cam);
+
+    drawClouds(T, cam, 'back');
+    drawHorizonGlow();
+
+    // 城市分两段绘制，把鲸鱼投下的巨大阴影夹在远景与近景之间
+    drawCity(T, cam, 0, 2);                          // 远景 + 中景
+    drawWhaleShadow((T % LOOP) / LOOP);
+    drawCity(T, cam, 2, cityLayers.length);          // 近景 + 前景
+
+    drawWhaleScene(T);
+
+    drawClouds(T, cam, 'front');
+    drawMotes(T, cam);
+    drawGrade();
+  }
+
+  var t0 = 0, elapsed = 0;
+  function frame(now) {
+    if (!t0) t0 = now;
+    var dt = Math.min(0.05, (now - t0) / 1000);
+    t0 = now;
+    elapsed += dt;
+    render(elapsed);
+    requestAnimationFrame(frame);
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* 尺寸与启动                                                          */
+  /* ------------------------------------------------------------------ */
+  function resize() {
+    DPR = Math.min(window.devicePixelRatio || 1, 2);
+    W = Math.max(320, window.innerWidth);
+    H = Math.max(240, window.innerHeight);
+    cv.width  = Math.round(W * DPR);
+    cv.height = Math.round(H * DPR);
+    cv.style.width  = W + 'px';
+    cv.style.height = H + 'px';
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    buildScene();
+    render(elapsed);
+  }
+
+  var rt = null;
+  window.addEventListener('resize', function () {
+    clearTimeout(rt);
+    rt = setTimeout(resize, 180);
+  });
+
+  resize();
+  requestAnimationFrame(frame);
+})();
+</script>
+<!--
+  RECORD
+  ------------------------------------------------------------------
+  模型     : DeepSeek-V4.1-Flash (provider: new-provider-7)
+  完成时间 : 2026-10-11 20:04 (+08:00)
+  消耗 token: 输入 5,162,276（缓存命中 4,957,568）+ 输出 84,821
+              （其中推理 48,735）= 合计 5,247,097
+              峰值上下文 129,380 tokens / 54 次请求
+  ------------------------------------------------------------------
+-->
+<!--zc-home:start--><style>.zc-home-btn{position:fixed;top:16px;left:16px;z-index:2147483647;display:inline-flex;align-items:center;gap:6px;padding:8px 14px;font:500 13px/1.1 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Noto Sans SC",sans-serif;color:#111;background:rgba(255,255,255,.86);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);border:1px solid rgba(0,0,0,.08);border-radius:999px;text-decoration:none;box-shadow:0 2px 12px rgba(0,0,0,.2);transition:background .2s ease,transform .2s ease,box-shadow .2s ease}.zc-home-btn:hover{background:#fff;transform:translateY(-1px);box-shadow:0 4px 18px rgba(0,0,0,.26)}</style><a class="zc-home-btn" href="../">← 返回首页</a><!--zc-home:end-->
+</body>
+</html>

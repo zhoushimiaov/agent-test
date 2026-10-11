@@ -18,17 +18,58 @@
   <section class="hero sub">
     <div class="crumb"><a href="../">首页</a> &nbsp;/&nbsp; 鲸鱼在城市上空游泳</div>
     <h1>鲸鱼在城市上空游泳</h1>
-    <p class="lede">新加入的测试命题 —— 巨鲸漂浮于城市上空,超现实尺度加上云层穿插的前后遮挡关系。即将收录不同模型与 Agent 的实现版本,按版本归档对比。</p>
+    <p class="lede">一头巨鲸漂浮在城市上空缓缓游动,画面要有超现实的尺度反差 —— 鲸相对楼宇要足够夸张,还要处理好鲸身与云层的前后遮挡:有的云在鲸前、有的在鲸后,z 轴层叠正确才有真正的「穿行」感,一刀切全前或全后就露馅。下面按模型版本归档,缩略图为真实渲染效果,点击卡片查看可交互的在线页面。</p>
   </section>
 
-  <section class="empty">
-    <div class="box">
-      <div class="mk">🐋</div>
-      <h2>版本征集中</h2>
-      <p>这个命题还没有收录任何模型版本。它考察的是:超现实的尺度对比,以及鲸身与云层之间正确的前后遮挡(z 轴层叠)关系。</p>
-      <a href="../">← 返回首页看看其他命题</a>
-    </div>
-  </section>
+  <div class="label"><span>Jev 排行</span><b>Leaderboard</b><i></i></div>
+  <div class="note">
+    <span class="tag">TypeSafe Jev 评分</span>
+    <span class="k">由 System One 判定模型 <b>jev-1.13.0</b> 根据每个版本的真实渲染结果打分(满分 100)</span>
+    <span class="k"><b>尺度反差</b> 30 · <b>穿云遮挡</b> 30 · <b>鲸鱼造型</b> 20 · <b>城市氛围</b> 20</span>
+  </div>
+
+  <div class="grid">
+    <a class="ver" href="deepseek-4.1-flash.html">
+      <div class="shot"><span class="rk g1">#1</span><span class="score hi"><b>86</b><span class="j">Jev</span></span><img src="thumbs/deepseek-4.1-flash.webp" alt="DeepSeek 4.1 Flash Canvas 2D 预览" loading="lazy" decoding="async" onload="this.classList.add('loaded')"></div>
+      <div class="meta">
+        <div class="txt"><h3>DeepSeek 4.1 Flash</h3><p>Canvas 2D</p></div>
+        <span class="arr2">↗</span>
+      </div>
+      <div class="dims"><div class="d"><div class="dh"><span>尺度反差</span><em class="hi">99</em></div><div class="tr"><div class="fl hi" style="width:99%"></div></div></div><div class="d"><div class="dh"><span>穿云遮挡</span><em class="mid">63</em></div><div class="tr"><div class="fl mid" style="width:63%"></div></div></div><div class="d"><div class="dh"><span>鲸鱼造型</span><em class="hi">92</em></div><div class="tr"><div class="fl hi" style="width:92%"></div></div></div><div class="d"><div class="dh"><span>城市氛围</span><em class="hi">94</em></div><div class="tr"><div class="fl hi" style="width:94%"></div></div></div></div>
+    </a>
+    <a class="ver" href="muse-spark.html">
+      <div class="shot"><span class="rk">#2</span><span class="score"><b>64</b><span class="j">Jev</span></span><img src="thumbs/muse-spark.webp" alt="Muse Spark Three.js 3D 预览" loading="lazy" decoding="async" onload="this.classList.add('loaded')"></div>
+      <div class="meta">
+        <div class="txt"><h3>Muse Spark</h3><p>Three.js 3D</p></div>
+        <span class="arr2">↗</span>
+      </div>
+      <div class="dims"><div class="d"><div class="dh"><span>尺度反差</span><em class="lo">34</em></div><div class="tr"><div class="fl lo" style="width:34%"></div></div></div><div class="d"><div class="dh"><span>穿云遮挡</span><em class="hi">98</em></div><div class="tr"><div class="fl hi" style="width:98%"></div></div></div><div class="d"><div class="dh"><span>鲸鱼造型</span><em class="mid">59</em></div><div class="tr"><div class="fl mid" style="width:59%"></div></div></div><div class="d"><div class="dh"><span>城市氛围</span><em class="mid">62</em></div><div class="tr"><div class="fl mid" style="width:62%"></div></div></div></div>
+    </a>
+    <a class="ver" href="opus-4.8.html">
+      <div class="shot"><span class="rk">#3</span><span class="score"><b>52</b><span class="j">Jev</span></span><img src="thumbs/opus-4.8.webp" alt="Claude Opus 4.8 Three.js 3D 预览" loading="lazy" decoding="async" onload="this.classList.add('loaded')"></div>
+      <div class="meta">
+        <div class="txt"><h3>Claude Opus 4.8</h3><p>Three.js 3D</p></div>
+        <span class="arr2">↗</span>
+      </div>
+      <div class="dims"><div class="d"><div class="dh"><span>尺度反差</span><em class="lo">39</em></div><div class="tr"><div class="fl lo" style="width:39%"></div></div></div><div class="d"><div class="dh"><span>穿云遮挡</span><em class="lo">46</em></div><div class="tr"><div class="fl lo" style="width:46%"></div></div></div><div class="d"><div class="dh"><span>鲸鱼造型</span><em class="lo">34</em></div><div class="tr"><div class="fl lo" style="width:34%"></div></div></div><div class="d"><div class="dh"><span>城市氛围</span><em class="hi">98</em></div><div class="tr"><div class="fl hi" style="width:98%"></div></div></div></div>
+    </a>
+    <a class="ver" href="gemini-3.8-flash.html">
+      <div class="shot"><span class="rk">#4</span><span class="score lo"><b>33</b><span class="j">Jev</span></span><img src="thumbs/gemini-3.8-flash.webp" alt="Gemini 3.8 Flash Three.js 3D 预览" loading="lazy" decoding="async" onload="this.classList.add('loaded')"></div>
+      <div class="meta">
+        <div class="txt"><h3>Gemini 3.8 Flash</h3><p>Three.js 3D</p></div>
+        <span class="arr2">↗</span>
+      </div>
+      <div class="dims"><div class="d"><div class="dh"><span>尺度反差</span><em class="lo">33</em></div><div class="tr"><div class="fl lo" style="width:33%"></div></div></div><div class="d"><div class="dh"><span>穿云遮挡</span><em class="lo">0</em></div><div class="tr"><div class="fl lo" style="width:0%"></div></div></div><div class="d"><div class="dh"><span>鲸鱼造型</span><em class="mid">52</em></div><div class="tr"><div class="fl mid" style="width:52%"></div></div></div><div class="d"><div class="dh"><span>城市氛围</span><em class="mid">63</em></div><div class="tr"><div class="fl mid" style="width:63%"></div></div></div></div>
+    </a>
+    <a class="ver" href="glm-5.3-flash.html">
+      <div class="shot"><span class="rk">#5</span><span class="score lo"><b>15</b><span class="j">Jev</span></span><img src="thumbs/glm-5.3-flash.webp" alt="GLM 5.3 Flash Canvas 2D 预览" loading="lazy" decoding="async" onload="this.classList.add('loaded')"></div>
+      <div class="meta">
+        <div class="txt"><h3>GLM 5.3 Flash</h3><p>Canvas 2D</p></div>
+        <span class="arr2">↗</span>
+      </div>
+      <div class="dims"><div class="d"><div class="dh"><span>尺度反差</span><em class="lo">11</em></div><div class="tr"><div class="fl lo" style="width:11%"></div></div></div><div class="d"><div class="dh"><span>穿云遮挡</span><em class="lo">0</em></div><div class="tr"><div class="fl lo" style="width:0%"></div></div></div><div class="d"><div class="dh"><span>鲸鱼造型</span><em class="lo">25</em></div><div class="tr"><div class="fl lo" style="width:25%"></div></div></div><div class="d"><div class="dh"><span>城市氛围</span><em class="lo">32</em></div><div class="tr"><div class="fl lo" style="width:32%"></div></div></div></div>
+    </a>
+  </div>
 
   <footer>
     <div class="wrap">
