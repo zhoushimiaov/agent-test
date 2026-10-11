@@ -1,0 +1,1074 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Lion Leaping Through Ring of Fire</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    body, html {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background-color: #030206;
+    }
+    #canvas-container {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 1;
+    }
+    /* 戏剧感暗角与色彩滤镜覆盖层，无需交互 */
+    .cinematic-vignette {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      z-index: 2;
+      background: radial-gradient(circle at 50% 50%, rgba(255, 140, 20, 0.04) 0%, rgba(20, 5, 2, 0.3) 55%, rgba(4, 2, 8, 0.88) 100%);
+      box-shadow: inset 0 0 120px rgba(0, 0, 0, 0.9);
+      mix-blend-mode: multiply;
+    }
+    .cinematic-flare {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      z-index: 3;
+      background: radial-gradient(circle at 50% 48%, rgba(255, 180, 50, 0.12) 0%, rgba(255, 80, 0, 0.05) 30%, transparent 65%);
+      mix-blend-mode: screen;
+    }
+  </style>
+  <!-- Three.js (r128) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+<body>
+  <div id="canvas-container"></div>
+  <div class="cinematic-vignette"></div>
+  <div class="cinematic-flare"></div>
+
+  <script>
+    // --- 场景、相机、渲染器初始化 ---
+    const container = document.getElementById('canvas-container');
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x060309);
+    scene.fog = new THREE.FogExp2(0x08040a, 0.015);
+
+    const camera = new THREE.PerspectiveCamera(46, window.innerWidth / window.innerHeight, 0.1, 1000);
+    camera.position.set(24, 7.5, 20);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.35;
+    container.appendChild(renderer.domElement);
+
+    // --- 材质调色板 ---
+    const lionGold = new THREE.MeshStandardMaterial({
+      color: 0xd98d36,
+      roughness: 0.62,
+      metalness: 0.08,
+      flatShading: true
+    });
+    const lionDarkGold = new THREE.MeshStandardMaterial({
+      color: 0x9b5417,
+      roughness: 0.75,
+      metalness: 0.05,
+      flatShading: true
+    });
+    const lionManeMaterial = new THREE.MeshStandardMaterial({
+      color: 0x6e3108,
+      roughness: 0.88,
+      metalness: 0.02,
+      flatShading: true
+    });
+    const lionManeHighlight = new THREE.MeshStandardMaterial({
+      color: 0xb55a14,
+      roughness: 0.8,
+      metalness: 0.04,
+      flatShading: true
+    });
+    const lionUnderbelly = new THREE.MeshStandardMaterial({
+      color: 0xecd1a4,
+      roughness: 0.65,
+      metalness: 0.05,
+      flatShading: true
+    });
+    const lionNose = new THREE.MeshStandardMaterial({
+      color: 0x221312,
+      roughness: 0.4
+    });
+    const lionEye = new THREE.MeshBasicMaterial({
+      color: 0xffd23d
+    });
+    const lionPupil = new THREE.MeshBasicMaterial({
+      color: 0x050505
+    });
+    const lionWhite = new THREE.MeshBasicMaterial({
+      color: 0xffffff
+    });
+
+    // --- 马戏团复古圆拱大厅与舞台地面 ---
+    // 1. 地面：中心红色与深黄条纹圆形擂台 + 外围木质/砂石地面
+    const arenaRadius = 38;
+    const arenaGeo = new THREE.CylinderGeometry(arenaRadius, arenaRadius + 1, 0.6, 64);
+    const arenaMat = new THREE.MeshStandardMaterial({
+      color: 0x241416,
+      roughness: 0.85,
+      metalness: 0.1
+    });
+    const arenaFloor = new THREE.Mesh(arenaGeo, arenaMat);
+    arenaFloor.position.y = -0.3;
+    arenaFloor.receiveShadow = true;
+    scene.add(arenaFloor);
+
+    // 放射状彩色马戏图案
+    const stripeCanvas = document.createElement('canvas');
+    stripeCanvas.width = 1024;
+    stripeCanvas.height = 1024;
+    const sctx = stripeCanvas.getContext('2d');
+    const cx = 512, cy = 512;
+    for (let i = 0; i < 32; i++) {
+      const angle1 = (i / 32) * Math.PI * 2;
+      const angle2 = ((i + 1) / 32) * Math.PI * 2;
+      sctx.beginPath();
+      sctx.moveTo(cx, cy);
+      sctx.arc(cx, cy, 510, angle1, angle2);
+      sctx.closePath();
+      sctx.fillStyle = (i % 2 === 0) ? '#451717' : '#2b1b11';
+      sctx.fill();
+    }
+    // 绘制中心同心金边
+    sctx.beginPath();
+    sctx.arc(cx, cy, 490, 0, Math.PI * 2);
+    sctx.lineWidth = 14;
+    sctx.strokeStyle = '#996328';
+    sctx.stroke();
+
+    const ringDecoTex = new THREE.CanvasTexture(stripeCanvas);
+    const carpetGeo = new THREE.CircleGeometry(arenaRadius - 1.5, 64);
+    const carpetMat = new THREE.MeshStandardMaterial({
+      map: ringDecoTex,
+      roughness: 0.9,
+      metalness: 0.05
+    });
+    const carpet = new THREE.Mesh(carpetGeo, carpetMat);
+    carpet.rotation.x = -Math.PI / 2;
+    carpet.position.y = 0.02;
+    carpet.receiveShadow = true;
+    scene.add(carpet);
+
+    // 外围地面网格地砖
+    const gridGroundGeo = new THREE.PlaneGeometry(160, 160);
+    const gridGroundMat = new THREE.MeshStandardMaterial({
+      color: 0x09060b,
+      roughness: 0.95
+    });
+    const outerGround = new THREE.Mesh(gridGroundGeo, gridGroundMat);
+    outerGround.rotation.x = -Math.PI / 2;
+    outerGround.position.y = -0.35;
+    outerGround.receiveShadow = true;
+    scene.add(outerGround);
+
+    // 马戏团四周护栏桩柱与金顶装饰
+    const fenceGroup = new THREE.Group();
+    const postCount = 36;
+    for (let i = 0; i < postCount; i++) {
+      const angle = (i / postCount) * Math.PI * 2;
+      const px = Math.cos(angle) * (arenaRadius - 0.5);
+      const pz = Math.sin(angle) * (arenaRadius - 0.5);
+      const post = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.18, 0.22, 1.6, 8),
+        new THREE.MeshStandardMaterial({ color: 0x732020, roughness: 0.6 })
+      );
+      post.position.set(px, 0.8, pz);
+      post.castShadow = true;
+      fenceGroup.add(post);
+
+      const postCap = new THREE.Mesh(
+        new THREE.SphereGeometry(0.28, 8, 8),
+        new THREE.MeshStandardMaterial({ color: 0xcca03d, metalness: 0.7, roughness: 0.3 })
+      );
+      postCap.position.set(px, 1.7, pz);
+      fenceGroup.add(postCap);
+    }
+    scene.add(fenceGroup);
+
+    // 环形马戏帐幕柱廊与远景穹顶结构（暗部背景氛围）
+    const tentGroup = new THREE.Group();
+    for (let i = 0; i < 18; i++) {
+      const angle = (i / 18) * Math.PI * 2;
+      const tx = Math.cos(angle) * 52;
+      const tz = Math.sin(angle) * 52;
+      const pillar = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.7, 0.9, 28, 12),
+        new THREE.MeshStandardMaterial({ color: 0x1a0e14, roughness: 0.8 })
+      );
+      pillar.position.set(tx, 14, tz);
+      tentGroup.add(pillar);
+    }
+    scene.add(tentGroup);
+
+    // 两个起跳台与落脚台 (驯兽师台 Pedestals)
+    const createPedestal = (x, z) => {
+      const ped = new THREE.Group();
+      const base = new THREE.Mesh(
+        new THREE.CylinderGeometry(2.2, 2.7, 1.8, 16),
+        new THREE.MeshStandardMaterial({ color: 0x6e1b1b, roughness: 0.6, metalness: 0.2, flatShading: true })
+      );
+      base.castShadow = true;
+      base.receiveShadow = true;
+      ped.add(base);
+
+      const rim = new THREE.Mesh(
+        new THREE.TorusGeometry(2.25, 0.15, 8, 24),
+        new THREE.MeshStandardMaterial({ color: 0xcca03d, metalness: 0.8, roughness: 0.3 })
+      );
+      rim.rotation.x = Math.PI / 2;
+      rim.position.y = 0.9;
+      ped.add(rim);
+
+      const topMat = new THREE.MeshStandardMaterial({ color: 0x1f1411, roughness: 0.9 });
+      const topDisk = new THREE.Mesh(new THREE.CylinderGeometry(2.18, 2.18, 0.1, 16), topMat);
+      topDisk.position.y = 0.92;
+      ped.add(topDisk);
+
+      ped.position.set(x, 0.9, z);
+      return ped;
+    };
+    const leftPedestal = createPedestal(-16.5, 0);
+    const rightPedestal = createPedestal(16.5, 0);
+    scene.add(leftPedestal);
+    scene.add(rightPedestal);
+
+    // --- 火圈 (The Ring of Fire) 搭建 ---
+    const ringGroup = new THREE.Group();
+    ringGroup.position.set(0, 5.2, 0); // 中心火圈高度位于空中
+
+    // 双层金属铁环与锻铁支架
+    const ringRadius = 4.2;
+    const ringTube = 0.18;
+    const ironMaterial = new THREE.MeshStandardMaterial({
+      color: 0x2a2826,
+      metalness: 0.85,
+      roughness: 0.35
+    });
+    const metalRing = new THREE.Mesh(
+      new THREE.TorusGeometry(ringRadius, ringTube, 16, 48),
+      ironMaterial
+    );
+    metalRing.castShadow = true;
+    ringGroup.add(metalRing);
+
+    // 内层炽热金属导管
+    const innerGlowRing = new THREE.Mesh(
+      new THREE.TorusGeometry(ringRadius, ringTube * 0.7, 12, 48),
+      new THREE.MeshBasicMaterial({ color: 0xff6600 })
+    );
+    ringGroup.add(innerGlowRing);
+
+    // 火圈两侧垂直钢柱支架 + 华丽底座
+    const standMat = new THREE.MeshStandardMaterial({
+      color: 0x3a2517,
+      metalness: 0.6,
+      roughness: 0.4
+    });
+    const pole1 = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.22, 5.8, 12), standMat);
+    pole1.position.set(0, -2.8, -ringRadius);
+    pole1.castShadow = true;
+    ringGroup.add(pole1);
+
+    const pole2 = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.22, 5.8, 12), standMat);
+    pole2.position.set(0, -2.8, ringRadius);
+    pole2.castShadow = true;
+    ringGroup.add(pole2);
+
+    // 火圈底部与地面连接支架固定座
+    const ringBaseMat = new THREE.MeshStandardMaterial({ color: 0x8a2424, roughness: 0.5, metalness: 0.4 });
+    const foot1 = new THREE.Mesh(new THREE.CylinderGeometry(0.65, 0.95, 0.8, 12), ringBaseMat);
+    foot1.position.set(0, -5.2 + 0.4, -ringRadius);
+    foot1.castShadow = true;
+    ringGroup.add(foot1);
+
+    const foot2 = new THREE.Mesh(new THREE.CylinderGeometry(0.65, 0.95, 0.8, 12), ringBaseMat);
+    foot2.position.set(0, -5.2 + 0.4, ringRadius);
+    foot2.castShadow = true;
+    ringGroup.add(foot2);
+
+    scene.add(ringGroup);
+
+    // --- 高动态火焰粒子系统 (Fire Jet System) ---
+    // 生成火焰柔和辉光纹理
+    function createFireTexture() {
+      const c = document.createElement('canvas');
+      c.width = 128;
+      c.height = 128;
+      const ctx = c.getContext('2d');
+      const grad = ctx.createRadialGradient(64, 64, 4, 64, 64, 60);
+      grad.addColorStop(0, 'rgba(255, 255, 240, 1.0)');
+      grad.addColorStop(0.2, 'rgba(255, 200, 40, 0.95)');
+      grad.addColorStop(0.5, 'rgba(255, 75, 5, 0.6)');
+      grad.addColorStop(0.8, 'rgba(180, 20, 0, 0.2)');
+      grad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, 128, 128);
+      return new THREE.CanvasTexture(c);
+    }
+    const fireTexture = createFireTexture();
+
+    // 火焰粒子与飞溅火星系统
+    const fireParticleCount = 1400;
+    const fireGeo = new THREE.BufferGeometry();
+    const firePositions = new Float32Array(fireParticleCount * 3);
+    const fireColors = new Float32Array(fireParticleCount * 3);
+    const fireSizes = new Float32Array(fireParticleCount);
+    const fireAngles = new Float32Array(fireParticleCount);
+    const fireSpeeds = new Float32Array(fireParticleCount);
+    const fireLifes = new Float32Array(fireParticleCount);
+    const fireMaxLifes = new Float32Array(fireParticleCount);
+    const fireDrifts = new Float32Array(fireParticleCount * 3);
+
+    const colorCore = new THREE.Color(0xfff2a0);
+    const colorMid = new THREE.Color(0xff6008);
+    const colorEdge = new THREE.Color(0xb51200);
+
+    for (let i = 0; i < fireParticleCount; i++) {
+      fireAngles[i] = Math.random() * Math.PI * 2;
+      fireLifes[i] = Math.random();
+      fireMaxLifes[i] = 0.5 + Math.random() * 0.7;
+      fireSpeeds[i] = 1.8 + Math.random() * 3.5;
+      fireSizes[i] = 1.0 + Math.random() * 1.8;
+
+      fireDrifts[i * 3 + 0] = (Math.random() - 0.5) * 1.5; // X方向吹动
+      fireDrifts[i * 3 + 1] = 1.0 + Math.random() * 3.0;   // Y向上浮力
+      fireDrifts[i * 3 + 2] = (Math.random() - 0.5) * 1.5; // Z径向扰动
+
+      const ang = fireAngles[i];
+      firePositions[i * 3 + 0] = 0;
+      firePositions[i * 3 + 1] = Math.cos(ang) * ringRadius;
+      firePositions[i * 3 + 2] = Math.sin(ang) * ringRadius;
+
+      fireColors[i * 3 + 0] = colorMid.r;
+      fireColors[i * 3 + 1] = colorMid.g;
+      fireColors[i * 3 + 2] = colorMid.b;
+    }
+
+    fireGeo.setAttribute('position', new THREE.BufferAttribute(firePositions, 3));
+    fireGeo.setAttribute('color', new THREE.BufferAttribute(fireColors, 3));
+    fireGeo.setAttribute('size', new THREE.BufferAttribute(fireSizes, 1));
+
+    const fireMat = new THREE.PointsMaterial({
+      size: 1.8,
+      vertexColors: true,
+      map: fireTexture,
+      transparent: true,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false
+    });
+
+    const firePoints = new THREE.Points(fireGeo, fireMat);
+    ringGroup.add(firePoints);
+
+    // 火星火花飞溅系统 (Sparks / Embers)
+    const emberCount = 380;
+    const emberGeo = new THREE.BufferGeometry();
+    const emberPositions = new Float32Array(emberCount * 3);
+    const emberVels = new Float32Array(emberCount * 3);
+    const emberLife = new Float32Array(emberCount);
+
+    for (let i = 0; i < emberCount; i++) {
+      const ang = Math.random() * Math.PI * 2;
+      emberPositions[i * 3 + 0] = (Math.random() - 0.5) * 0.8;
+      emberPositions[i * 3 + 1] = Math.cos(ang) * ringRadius;
+      emberPositions[i * 3 + 2] = Math.sin(ang) * ringRadius;
+
+      emberVels[i * 3 + 0] = (Math.random() - 0.5) * 3.5;
+      emberVels[i * 3 + 1] = 2.0 + Math.random() * 4.0;
+      emberVels[i * 3 + 2] = (Math.random() - 0.5) * 3.5;
+      emberLife[i] = Math.random();
+    }
+    emberGeo.setAttribute('position', new THREE.BufferAttribute(emberPositions, 3));
+    const emberMat = new THREE.PointsMaterial({
+      size: 0.6,
+      color: 0xffb733,
+      transparent: true,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false
+    });
+    const emberPoints = new THREE.Points(emberGeo, emberMat);
+    ringGroup.add(emberPoints);
+
+    // --- 灯光系统 (戏剧化马戏团灯光 + 动感火圈投光) ---
+    // 1. 全局低沉冷调暗光
+    const ambientLight = new THREE.AmbientLight(0x28182b, 0.7);
+    scene.add(ambientLight);
+
+    // 2. 主聚光灯（追光灯从斜上方照亮跃迁轨迹）
+    const spotlight = new THREE.SpotLight(0xffeed6, 3.2, 70, Math.PI / 4.5, 0.4, 1.2);
+    spotlight.position.set(0, 32, 14);
+    spotlight.castShadow = true;
+    spotlight.shadow.mapSize.width = 2048;
+    spotlight.shadow.mapSize.height = 2048;
+    spotlight.shadow.bias = -0.0005;
+    scene.add(spotlight);
+
+    // 3. 火圈核心脉动点光源 (赋予金毛高动态反光与炽热投影)
+    const fireLightCenter = new THREE.PointLight(0xff5500, 8.0, 26, 1.3);
+    fireLightCenter.position.set(0, 0, 0);
+    fireLightCenter.castShadow = true;
+    fireLightCenter.shadow.mapSize.width = 1024;
+    fireLightCenter.shadow.mapSize.height = 1024;
+    ringGroup.add(fireLightCenter);
+
+    const fireLightTop = new THREE.PointLight(0xffaa22, 4.5, 18, 1.4);
+    fireLightTop.position.set(0, ringRadius, 0);
+    ringGroup.add(fireLightTop);
+
+    const fireLightBottom = new THREE.PointLight(0xff3300, 4.5, 18, 1.4);
+    fireLightBottom.position.set(0, -ringRadius, 0);
+    ringGroup.add(fireLightBottom);
+
+    // 4. 舞台背光边缘光 (Rim Light，勾勒狮子肌肉剪影)
+    const rimLight = new THREE.DirectionalLight(0x5566aa, 1.2);
+    rimLight.position.set(-15, 18, -25);
+    scene.add(rimLight);
+
+    // --- 雄狮 (Lion) 3D 模型精细构建 ---
+    const lionRoot = new THREE.Group();
+    scene.add(lionRoot);
+
+    // 狮身主干节点层级 (便于关节做符合骨骼生理的曲伸)
+    const lionPelvis = new THREE.Group(); // 骨盆根节点
+    lionRoot.add(lionPelvis);
+
+    // 臀部/后躯干
+    const hindquarterGeo = new THREE.BoxGeometry(1.5, 1.6, 1.35);
+    const hindquarter = new THREE.Mesh(hindquarterGeo, lionGold);
+    hindquarter.position.set(-0.6, 0.1, 0);
+    hindquarter.castShadow = true;
+    lionPelvis.add(hindquarter);
+
+    // 腹部连接块
+    const bellyGeo = new THREE.BoxGeometry(1.4, 1.45, 1.25);
+    const belly = new THREE.Mesh(bellyGeo, lionUnderbelly);
+    belly.position.set(0.6, 0.0, 0);
+    belly.castShadow = true;
+    lionPelvis.add(belly);
+
+    // 胸腔脊柱骨节 (Spine / Chest)
+    const chestJoint = new THREE.Group();
+    chestJoint.position.set(1.1, 0.15, 0);
+    lionPelvis.add(chestJoint);
+
+    const chestGeo = new THREE.BoxGeometry(1.65, 1.85, 1.55);
+    const chest = new THREE.Mesh(chestGeo, lionGold);
+    chest.position.set(0.7, 0.15, 0);
+    chest.castShadow = true;
+    chestJoint.add(chest);
+
+    // 颈部节点
+    const neckJoint = new THREE.Group();
+    neckJoint.position.set(1.4, 0.65, 0);
+    chestJoint.add(neckJoint);
+
+    const neckGeo = new THREE.BoxGeometry(1.0, 1.25, 1.1);
+    const neck = new THREE.Mesh(neckGeo, lionDarkGold);
+    neck.position.set(0.35, 0.25, 0);
+    neck.rotation.z = -0.35;
+    neck.castShadow = true;
+    neckJoint.add(neck);
+
+    // 头部节点
+    const headJoint = new THREE.Group();
+    headJoint.position.set(0.75, 0.5, 0);
+    neckJoint.add(headJoint);
+
+    // 狮头颅骨
+    const craniumGeo = new THREE.BoxGeometry(1.05, 1.0, 0.95);
+    const headMesh = new THREE.Mesh(craniumGeo, lionGold);
+    headMesh.castShadow = true;
+    headJoint.add(headMesh);
+
+    // 威严口鼻部 (Muzzle)
+    const muzzle = new THREE.Mesh(new THREE.BoxGeometry(0.85, 0.6, 0.75), lionUnderbelly);
+    muzzle.position.set(0.75, -0.15, 0);
+    muzzle.castShadow = true;
+    headJoint.add(muzzle);
+
+    // 黑鼻头
+    const nose = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.2, 0.35), lionNose);
+    nose.position.set(1.18, 0.05, 0);
+    headJoint.add(nose);
+
+    // 下颌 (Jaw - 伴随张口咆哮动画)
+    const jawJoint = new THREE.Group();
+    jawJoint.position.set(0.4, -0.32, 0);
+    headJoint.add(jawJoint);
+
+    const jaw = new THREE.Mesh(new THREE.BoxGeometry(0.75, 0.28, 0.65), lionDarkGold);
+    jaw.position.set(0.35, -0.05, 0);
+    jawJoint.add(jaw);
+
+    // 獠牙 (Canines)
+    const toothMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+    const tooth1 = new THREE.Mesh(new THREE.ConeGeometry(0.06, 0.24, 4), toothMat);
+    tooth1.position.set(0.65, -0.05, 0.22);
+    headJoint.add(tooth1);
+    const tooth2 = tooth1.clone();
+    tooth2.position.z = -0.22;
+    headJoint.add(tooth2);
+
+    // 眼睛 (两侧锐利凝视前方)
+    const eyeR = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.16, 0.08), lionEye);
+    eyeR.position.set(0.42, 0.22, 0.48);
+    headJoint.add(eyeR);
+    const pupilR = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.14, 0.04), lionPupil);
+    pupilR.position.set(0.48, 0.22, 0.52);
+    headJoint.add(pupilR);
+
+    const eyeL = eyeR.clone();
+    eyeL.position.z = -0.48;
+    headJoint.add(eyeL);
+    const pupilL = pupilR.clone();
+    pupilL.position.z = -0.52;
+    headJoint.add(pupilL);
+
+    // 耳朵
+    const earGeo = new THREE.BoxGeometry(0.22, 0.35, 0.32);
+    const earR = new THREE.Mesh(earGeo, lionDarkGold);
+    earR.position.set(-0.25, 0.55, 0.45);
+    earR.rotation.z = -0.3;
+    headJoint.add(earR);
+
+    const earL = earR.clone();
+    earL.position.z = -0.45;
+    headJoint.add(earL);
+
+    // 霸气鬃毛簇 (Thick Volumetric Lion Mane)
+    const maneGroup = new THREE.Group();
+    headJoint.add(maneGroup);
+
+    const maneBoxes = [
+      { s: [1.35, 1.55, 1.6], p: [-0.3, 0.05, 0], r: [0, 0, 0.15], m: lionManeMaterial },
+      { s: [1.2, 1.45, 1.75], p: [-0.45, -0.15, 0], r: [0, 0, 0.25], m: lionManeMaterial },
+      { s: [0.95, 1.1, 1.4], p: [0.05, 0.6, 0], r: [0, 0, -0.2], m: lionManeHighlight },
+      { s: [1.1, 0.95, 1.4], p: [-0.05, -0.55, 0], r: [0, 0, 0.3], m: lionManeMaterial },
+      { s: [0.7, 0.7, 0.7], p: [0.2, 0.4, 0.65], r: [0.2, 0.2, -0.1], m: lionManeHighlight },
+      { s: [0.7, 0.7, 0.7], p: [0.2, 0.4, -0.65], r: [-0.2, -0.2, -0.1], m: lionManeHighlight },
+      { s: [0.65, 0.75, 0.6], p: [0.1, -0.4, 0.65], r: [-0.2, 0.2, 0.2], m: lionManeMaterial },
+      { s: [0.65, 0.75, 0.6], p: [0.1, -0.4, -0.65], r: [0.2, -0.2, 0.2], m: lionManeMaterial }
+    ];
+    maneBoxes.forEach(b => {
+      const mb = new THREE.Mesh(new THREE.BoxGeometry(b.s[0], b.s[1], b.s[2]), b.m);
+      mb.position.set(b.p[0], b.p[1], b.p[2]);
+      mb.rotation.set(b.r[0], b.r[1], b.r[2]);
+      mb.castShadow = true;
+      maneGroup.add(mb);
+    });
+
+    // --- 四肢与爪子层级结构 (Legs & Paws) ---
+    // 构建前肢生成器
+    function createFrontLeg(isRight) {
+      const zSide = isRight ? 0.78 : -0.78;
+      const legRoot = new THREE.Group();
+      legRoot.position.set(1.2, 0.1, zSide);
+
+      // 肩胛/大臂
+      const shoulder = new THREE.Mesh(new THREE.BoxGeometry(0.7, 1.25, 0.55), lionDarkGold);
+      shoulder.position.set(0, -0.45, 0);
+      shoulder.castShadow = true;
+      legRoot.add(shoulder);
+
+      // 肘关节/小臂 (Elbow & Forearm)
+      const elbowJoint = new THREE.Group();
+      elbowJoint.position.set(0, -0.95, 0);
+      legRoot.add(elbowJoint);
+
+      const forearm = new THREE.Mesh(new THREE.BoxGeometry(0.5, 1.15, 0.48), lionGold);
+      forearm.position.set(0.05, -0.45, 0);
+      forearm.castShadow = true;
+      elbowJoint.add(forearm);
+
+      // 腕关节与爪子 (Wrist & Paw)
+      const wristJoint = new THREE.Group();
+      wristJoint.position.set(0.05, -0.95, 0);
+      elbowJoint.add(wristJoint);
+
+      const paw = new THREE.Mesh(new THREE.BoxGeometry(0.75, 0.35, 0.52), lionUnderbelly);
+      paw.position.set(0.2, -0.12, 0);
+      paw.castShadow = true;
+      wristJoint.add(paw);
+
+      return { root: legRoot, elbow: elbowJoint, wrist: wristJoint };
+    }
+
+    // 构建后肢生成器 (后腿肌肉发达，反曲膝关节)
+    function createBackLeg(isRight) {
+      const zSide = isRight ? 0.72 : -0.72;
+      const legRoot = new THREE.Group();
+      legRoot.position.set(-0.85, 0.1, zSide);
+
+      // 大腿 (Thigh - 浑厚肌肉感)
+      const thigh = new THREE.Mesh(new THREE.BoxGeometry(0.9, 1.3, 0.6), lionDarkGold);
+      thigh.position.set(0, -0.48, 0);
+      thigh.castShadow = true;
+      legRoot.add(thigh);
+
+      // 膝关节与小腿 (Knee & Shank)
+      const kneeJoint = new THREE.Group();
+      kneeJoint.position.set(0.1, -1.0, 0);
+      legRoot.add(kneeJoint);
+
+      const shank = new THREE.Mesh(new THREE.BoxGeometry(0.55, 1.15, 0.48), lionGold);
+      shank.position.set(-0.1, -0.45, 0);
+      shank.castShadow = true;
+      kneeJoint.add(shank);
+
+      // 踝关节与后爪 (Ankle & Paw)
+      const ankleJoint = new THREE.Group();
+      ankleJoint.position.set(-0.1, -0.92, 0);
+      kneeJoint.add(ankleJoint);
+
+      const paw = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.35, 0.5), lionUnderbelly);
+      paw.position.set(0.15, -0.12, 0);
+      paw.castShadow = true;
+      ankleJoint.add(paw);
+
+      return { root: legRoot, knee: kneeJoint, ankle: ankleJoint };
+    }
+
+    const frontLegR = createFrontLeg(true);
+    const frontLegL = createFrontLeg(false);
+    chestJoint.add(frontLegR.root);
+    chestJoint.add(frontLegL.root);
+
+    const backLegR = createBackLeg(true);
+    const backLegL = createBackLeg(false);
+    lionPelvis.add(backLegR.root);
+    lionPelvis.add(backLegL.root);
+
+    // --- 灵动狮尾 (Multi-segment Tail with Tuft) ---
+    const tailRoot = new THREE.Group();
+    tailRoot.position.set(-1.3, 0.4, 0);
+    lionPelvis.add(tailRoot);
+
+    const tailSeg1 = new THREE.Group();
+    tailRoot.add(tailSeg1);
+    const tMesh1 = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.14, 0.85, 8), lionGold);
+    tMesh1.position.set(-0.35, -0.2, 0);
+    tMesh1.rotation.z = 1.1;
+    tailSeg1.add(tMesh1);
+
+    const tailSeg2 = new THREE.Group();
+    tailSeg2.position.set(-0.65, -0.4, 0);
+    tailSeg1.add(tailSeg2);
+    const tMesh2 = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.12, 0.85, 8), lionGold);
+    tMesh2.position.set(-0.35, -0.1, 0);
+    tMesh2.rotation.z = 0.9;
+    tailSeg2.add(tMesh2);
+
+    const tailSeg3 = new THREE.Group();
+    tailSeg3.position.set(-0.65, -0.2, 0);
+    tailSeg2.add(tailSeg3);
+    const tMesh3 = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.1, 0.85, 8), lionGold);
+    tMesh3.position.set(-0.35, 0.15, 0);
+    tMesh3.rotation.z = 0.5;
+    tailSeg3.add(tMesh3);
+
+    // 尾尖黑毛球 (Tuft)
+    const tailTuft = new THREE.Mesh(new THREE.ConeGeometry(0.24, 0.65, 8), lionManeMaterial);
+    tailTuft.position.set(-0.75, 0.35, 0);
+    tailTuft.rotation.z = -1.2;
+    tailSeg3.add(tailTuft);
+
+    // --- 物理关键帧曲线设计 (运动学驱动) ---
+    // 循环总时长为 6.2 秒
+    // 0.00 ~ 0.40 (0.00 - 2.48s): 助跑前蓄力发力与大步流星奔袭 (Run-up Sprint: X: -16.0 -> -7.5)
+    // 0.40 ~ 0.52 (2.48 - 3.22s): 极限压缩下压后蹬地起跳 (Coil & Takeoff: X: -7.5 -> -2.5, Y: 1.8 -> 4.5)
+    // 0.52 ~ 0.68 (3.22 - 4.21s): 穿越火圈核心与滞空大跨度滑翔 (Apex & Fire Passage: X: -2.5 -> +3.5, Y: 4.5 -> 5.5 -> 4.8)
+    // 0.68 ~ 0.80 (4.21 - 4.96s): 俯冲向下、前爪触地前伸缓冲 (Touchdown & Impact Absorption: X: +3.5 -> +9.0, Y: 4.8 -> 1.8)
+    // 0.80 ~ 0.92 (4.96 - 5.70s): 减速滑步缓冲、威严站定收尾 (Skid & Decelerate: X: +9.0 -> +14.5)
+    // 0.92 ~ 1.00 (5.70 - 6.20s): 昂首昂首咆哮庆祝，平滑转入下一轮冲刺
+
+    const LOOP_DURATION = 6.4; // 完整循环周期秒数
+    const clock = new THREE.Clock();
+
+    // 辅助平滑插值函数
+    function lerp(a, b, t) {
+      return a + (b - a) * t;
+    }
+    function smoothstep(min, max, value) {
+      const x = Math.max(0, Math.min(1, (value - min) / (max - min)));
+      return x * x * (3 - 2 * x);
+    }
+
+    // 轨迹计算器
+    function getLionTrajectory(u) {
+      let x, y, rotZ, spineBend, stretch;
+
+      if (u < 0.38) {
+        // 1. 强力助跑冲刺阶段
+        const t = u / 0.38;
+        x = lerp(-17.0, -7.5, t);
+        // 跑动时身体小幅波浪起伏
+        y = 2.05 + Math.sin(t * Math.PI * 8) * 0.28;
+        rotZ = 0.08 + Math.sin(t * Math.PI * 8) * 0.06;
+        spineBend = Math.sin(t * Math.PI * 8) * 0.22;
+        stretch = 1.0;
+      } else if (u < 0.48) {
+        // 2. 蓄力下压与起跳蹬地爆发 (Coil -> Launch)
+        const t = (u - 0.38) / 0.10;
+        x = lerp(-7.5, -3.2, t);
+        if (t < 0.4) {
+          // 下蹲蓄力
+          const subT = t / 0.4;
+          y = lerp(2.05, 1.45, subT);
+          rotZ = lerp(0.08, -0.25, subT);
+          spineBend = -0.35;
+        } else {
+          // 腾空弹射冲出
+          const subT = (t - 0.4) / 0.6;
+          y = lerp(1.45, 4.3, smoothstep(0, 1, subT));
+          rotZ = lerp(-0.25, 0.52, subT);
+          spineBend = 0.45;
+        }
+        stretch = 1.0 + t * 0.15;
+      } else if (u < 0.64) {
+        // 3. 破火穿越与抛物线顶峰 (Flight through Fire Ring Apex)
+        const t = (u - 0.48) / 0.16;
+        x = lerp(-3.2, 3.8, t);
+        // 抛物线方程
+        y = 4.3 + Math.sin(t * Math.PI) * 1.55;
+        rotZ = lerp(0.52, -0.32, t);
+        spineBend = lerp(0.45, -0.15, t);
+        stretch = 1.15;
+      } else if (u < 0.76) {
+        // 4. 俯冲冲向地面、前肢着地缓冲 (Dive & Front Landing)
+        const t = (u - 0.64) / 0.12;
+        x = lerp(3.8, 8.8, t);
+        y = lerp(4.7, 1.85, smoothstep(0, 1, t));
+        rotZ = lerp(-0.32, 0.05, t);
+        spineBend = lerp(-0.15, -0.3, t);
+        stretch = 1.0;
+      } else if (u < 0.88) {
+        // 5. 强力刹车缓冲与滑步 (Skid & Shock Absorbing)
+        const t = (u - 0.76) / 0.12;
+        x = lerp(8.8, 14.5, smoothstep(0, 1, t));
+        y = 1.95 + Math.sin(t * Math.PI * 3) * 0.12;
+        rotZ = lerp(0.05, 0.0, t);
+        spineBend = lerp(-0.3, 0.0, t);
+        stretch = 1.0;
+      } else {
+        // 6. 登台站定、雄视咆哮并切入下一轮准备 (Pose & Reset)
+        const t = (u - 0.88) / 0.12;
+        x = lerp(14.5, 15.5, t);
+        y = 2.05;
+        rotZ = Math.sin(t * Math.PI * 2) * 0.04;
+        spineBend = 0.05;
+        stretch = 1.0;
+      }
+
+      return { x, y, rotZ, spineBend, stretch };
+    }
+
+    // --- 动态相机关节运镜系统 (Cinematic Camera Orbit) ---
+    // 镜头伴随狮子奔跑、在穿过火圈时拉近进行极具张力的低角度侧特写，展现烈焰与雄狮飞跃
+    function updateCinematicCamera(u, lionPos) {
+      let targetCamPos = new THREE.Vector3();
+      let targetLookAt = new THREE.Vector3(lionPos.x, lionPos.y + 0.6, 0);
+
+      if (u < 0.38) {
+        // 助跑段：从前侧方伴随平移推进，烘托速度感
+        const t = u / 0.38;
+        targetCamPos.set(
+          lionPos.x + 10.5,
+          4.8 + Math.sin(t * 4) * 0.3,
+          13.5 - t * 2.5
+        );
+      } else if (u < 0.68) {
+        // 腾空穿火高潮阶段：电影级慢动作特写视角，置身火圈侧下方抬头仰视飞跃
+        const t = (u - 0.38) / 0.30;
+        targetCamPos.set(
+          lerp(0.5, 4.0, t),
+          lerp(3.2, 4.0, t),
+          lerp(10.0, 8.5, Math.sin(t * Math.PI))
+        );
+        targetLookAt.y = lionPos.y + 0.8;
+      } else {
+        // 落地减速段：从后侧转向前方，目睹稳健着地
+        const t = (u - 0.68) / 0.32;
+        targetCamPos.set(
+          lerp(6.0, 19.5, t),
+          lerp(4.0, 5.5, t),
+          lerp(9.0, 14.0, t)
+        );
+      }
+
+      // 相机平滑跟踪
+      camera.position.lerp(targetCamPos, 0.07);
+      const currentLook = new THREE.Vector3();
+      camera.getWorldDirection(currentLook);
+      const desiredLook = targetLookAt.clone().sub(camera.position).normalize();
+      camera.lookAt(targetLookAt);
+    }
+
+    // --- 动画主循环 ---
+    let prevTime = 0;
+
+    function animate() {
+      requestAnimationFrame(animate);
+
+      const elapsedTime = clock.getElapsedTime();
+      const delta = elapsedTime - prevTime;
+      prevTime = elapsedTime;
+
+      // 归一化周期相位 [0, 1)
+      const u = (elapsedTime % LOOP_DURATION) / LOOP_DURATION;
+
+      // 1. 计算位移与主要姿态
+      const pose = getLionTrajectory(u);
+      lionRoot.position.set(pose.x, pose.y, 0);
+      lionRoot.rotation.z = pose.rotZ;
+
+      // 狮身脊椎弯曲与呼吸/张弛
+      chestJoint.rotation.z = pose.spineBend * 0.8;
+      lionPelvis.rotation.z = -pose.spineBend * 0.4;
+      lionPelvis.scale.set(pose.stretch, 1.0, 1.0);
+
+      // 2. 四肢步态动画与动态抓取
+      if (u < 0.38) {
+        // 疾跑循环 (Quadruped Gallop Gait)
+        const runPhase = (u / 0.38) * Math.PI * 8;
+        // 前肢前后交替
+        frontLegR.root.rotation.z = Math.sin(runPhase) * 0.95;
+        frontLegR.elbow.rotation.z = Math.max(0, -Math.sin(runPhase) * 1.3);
+        frontLegR.wrist.rotation.z = Math.sin(runPhase + 0.4) * 0.6;
+
+        frontLegL.root.rotation.z = Math.sin(runPhase + Math.PI) * 0.95;
+        frontLegL.elbow.rotation.z = Math.max(0, -Math.sin(runPhase + Math.PI) * 1.3);
+        frontLegL.wrist.rotation.z = Math.sin(runPhase + Math.PI + 0.4) * 0.6;
+
+        // 后肢强力驱动
+        backLegR.root.rotation.z = Math.sin(runPhase + 0.6) * 1.1;
+        backLegR.knee.rotation.z = Math.min(0, -Math.sin(runPhase + 0.6) * 1.2);
+        backLegR.ankle.rotation.z = Math.sin(runPhase + 1.0) * 0.5;
+
+        backLegL.root.rotation.z = Math.sin(runPhase + Math.PI + 0.6) * 1.1;
+        backLegL.knee.rotation.z = Math.min(0, -Math.sin(runPhase + Math.PI + 0.6) * 1.2);
+        backLegL.ankle.rotation.z = Math.sin(runPhase + Math.PI + 1.0) * 0.5;
+
+        // 狮头伴随奔跑起伏
+        headJoint.rotation.z = 0.15 + Math.sin(runPhase) * 0.18;
+        jawJoint.rotation.z = 0.2 + Math.abs(Math.sin(runPhase * 0.5)) * 0.3;
+
+        // 狮尾甩动抗衡惯性
+        tailSeg1.rotation.z = -0.3 + Math.sin(runPhase) * 0.35;
+        tailSeg2.rotation.z = -0.2 + Math.sin(runPhase - 0.5) * 0.4;
+        tailSeg3.rotation.z = 0.2 + Math.sin(runPhase - 1.0) * 0.5;
+      } else if (u < 0.48) {
+        // 蓄力起跳阶段 (Coil -> Spring forward)
+        const t = (u - 0.38) / 0.10;
+        if (t < 0.4) {
+          // 下压蓄力：四肢深度蜷曲紧缩
+          frontLegR.root.rotation.z = 0.6;
+          frontLegR.elbow.rotation.z = -1.4;
+          frontLegL.root.rotation.z = 0.5;
+          frontLegL.elbow.rotation.z = -1.3;
+
+          backLegR.root.rotation.z = -0.9;
+          backLegR.knee.rotation.z = 1.5;
+          backLegL.root.rotation.z = -0.8;
+          backLegL.knee.rotation.z = 1.4;
+
+          headJoint.rotation.z = -0.2;
+          jawJoint.rotation.z = 0.1;
+        } else {
+          // 蹬地发力：后腿极致蹬直伸展，前爪向前凌空探出
+          const subT = (t - 0.4) / 0.6;
+          frontLegR.root.rotation.z = lerp(0.6, -0.9, subT);
+          frontLegR.elbow.rotation.z = lerp(-1.4, -0.2, subT);
+          frontLegL.root.rotation.z = lerp(0.5, -0.75, subT);
+          frontLegL.elbow.rotation.z = lerp(-1.3, -0.15, subT);
+
+          backLegR.root.rotation.z = lerp(-0.9, 0.95, subT);
+          backLegR.knee.rotation.z = lerp(1.5, 0.1, subT);
+          backLegL.root.rotation.z = lerp(-0.8, 0.85, subT);
+          backLegL.knee.rotation.z = lerp(1.4, 0.15, subT);
+
+          headJoint.rotation.z = lerp(-0.2, 0.35, subT);
+          jawJoint.rotation.z = lerp(0.1, 0.75, subT); // 腾空怒吼
+        }
+      } else if (u < 0.64) {
+        // 飞跃火圈巅峰阶段 (Leaping Apex in mid-air)
+        const t = (u - 0.48) / 0.16;
+        // 身体修长展翅姿势：前爪微屈迎风，后腿自然向后飘扬
+        frontLegR.root.rotation.z = -0.85 + Math.sin(t * Math.PI) * 0.25;
+        frontLegR.elbow.rotation.z = -0.35;
+        frontLegL.root.rotation.z = -0.7 + Math.sin(t * Math.PI) * 0.2;
+        frontLegL.elbow.rotation.z = -0.4;
+
+        backLegR.root.rotation.z = 0.85 - t * 0.4;
+        backLegR.knee.rotation.z = 0.25 + t * 0.3;
+        backLegL.root.rotation.z = 0.75 - t * 0.35;
+        backLegL.knee.rotation.z = 0.3 + t * 0.3;
+
+        // 雄狮怒视前方，咆哮张口
+        headJoint.rotation.z = 0.35 - t * 0.3;
+        jawJoint.rotation.z = 0.75 - Math.sin(t * Math.PI) * 0.2;
+
+        // 尾巴因高速飞跃向后笔直飘曳
+        tailSeg1.rotation.z = 0.4 + Math.sin(elapsedTime * 14) * 0.15;
+        tailSeg2.rotation.z = 0.3 + Math.sin(elapsedTime * 14 - 0.4) * 0.2;
+        tailSeg3.rotation.z = 0.1 + Math.sin(elapsedTime * 14 - 0.8) * 0.25;
+      } else if (u < 0.76) {
+        // 俯冲触地准备与前爪着地缓冲 (Dive & Touchdown)
+        const t = (u - 0.64) / 0.12;
+        // 前肢向下向前触地缓冲
+        frontLegR.root.rotation.z = lerp(-0.6, 0.4, t);
+        frontLegR.elbow.rotation.z = lerp(-0.35, -0.9, t);
+        frontLegL.root.rotation.z = lerp(-0.5, 0.3, t);
+        frontLegL.elbow.rotation.z = lerp(-0.4, -0.8, t);
+
+        // 后肢向前收回准备着地
+        backLegR.root.rotation.z = lerp(0.45, -0.5, t);
+        backLegR.knee.rotation.z = lerp(0.55, 1.1, t);
+        backLegL.root.rotation.z = lerp(0.4, -0.4, t);
+        backLegL.knee.rotation.z = lerp(0.6, 1.0, t);
+
+        headJoint.rotation.z = lerp(0.05, -0.15, t);
+        jawJoint.rotation.z = lerp(0.55, 0.2, t);
+      } else if (u < 0.88) {
+        // 着地滑步刹车缓冲 (Landing & Deceleration)
+        const t = (u - 0.76) / 0.12;
+        const skidPhase = t * Math.PI * 3;
+        frontLegR.root.rotation.z = 0.2 + Math.sin(skidPhase) * 0.3;
+        frontLegR.elbow.rotation.z = -0.6;
+        frontLegL.root.rotation.z = 0.1 - Math.sin(skidPhase) * 0.3;
+        frontLegL.elbow.rotation.z = -0.5;
+
+        backLegR.root.rotation.z = -0.3 + Math.sin(skidPhase) * 0.4;
+        backLegR.knee.rotation.z = 0.6;
+        backLegL.root.rotation.z = -0.2 - Math.sin(skidPhase) * 0.4;
+        backLegL.knee.rotation.z = 0.5;
+
+        headJoint.rotation.z = 0.1;
+        jawJoint.rotation.z = 0.2;
+      } else {
+        // 凯旋站定，威风凛凛昂首 (Victory Stance & Reset transition)
+        const t = (u - 0.88) / 0.12;
+        frontLegR.root.rotation.z = 0.05;
+        frontLegR.elbow.rotation.z = -0.1;
+        frontLegL.root.rotation.z = -0.05;
+        frontLegL.elbow.rotation.z = -0.1;
+
+        backLegR.root.rotation.z = 0.1;
+        backLegR.knee.rotation.z = 0.15;
+        backLegL.root.rotation.z = -0.1;
+        backLegL.knee.rotation.z = 0.15;
+
+        // 高昂头颅
+        headJoint.rotation.z = 0.35 + Math.sin(t * Math.PI * 2) * 0.08;
+        jawJoint.rotation.z = 0.4 + Math.sin(t * Math.PI * 4) * 0.25;
+
+        tailSeg1.rotation.z = -0.6 + Math.sin(elapsedTime * 4) * 0.2;
+        tailSeg2.rotation.z = -0.3 + Math.sin(elapsedTime * 4 - 0.5) * 0.25;
+        tailSeg3.rotation.z = 0.4 + Math.sin(elapsedTime * 4 - 1.0) * 0.3;
+      }
+
+      // 3. 火焰粒子更新 (围绕火圈狂烈喷涌与跳动)
+      const fPos = fireGeo.attributes.position.array;
+      const fCol = fireGeo.attributes.color.array;
+      const fSize = fireGeo.attributes.size.array;
+
+      for (let i = 0; i < fireParticleCount; i++) {
+        fireLifes[i] += delta * fireSpeeds[i];
+        if (fireLifes[i] >= fireMaxLifes[i]) {
+          fireLifes[i] = 0;
+          fireAngles[i] = Math.random() * Math.PI * 2;
+        }
+
+        const progress = fireLifes[i] / fireMaxLifes[i];
+        const ang = fireAngles[i];
+        const baseRad = ringRadius + (Math.sin(elapsedTime * 8 + i) * 0.15);
+
+        // 沿火圈切向和向上对流
+        const turbulence = Math.sin(elapsedTime * 12 + i * 0.5) * 0.35;
+        fPos[i * 3 + 0] = fireDrifts[i * 3 + 0] * progress * 1.8 + Math.cos(ang) * 0.2;
+        fPos[i * 3 + 1] = Math.cos(ang) * baseRad + fireDrifts[i * 3 + 1] * progress + turbulence;
+        fPos[i * 3 + 2] = Math.sin(ang) * baseRad + fireDrifts[i * 3 + 2] * progress;
+
+        // 颜色渐变: 白热核心 -> 金黄橙色 -> 深红消散
+        let c;
+        if (progress < 0.25) {
+          c = colorCore.clone().lerp(colorMid, progress / 0.25);
+        } else {
+          c = colorMid.clone().lerp(colorEdge, (progress - 0.25) / 0.75);
+        }
+        fCol[i * 3 + 0] = c.r;
+        fCol[i * 3 + 1] = c.g;
+        fCol[i * 3 + 2] = c.b;
+
+        fSize[i] = (1.0 - progress * 0.6) * (1.8 + Math.sin(i) * 0.5);
+      }
+      fireGeo.attributes.position.needsUpdate = true;
+      fireGeo.attributes.color.needsUpdate = true;
+      fireGeo.attributes.size.needsUpdate = true;
+
+      // 4. 火星飞舞更新
+      const ePos = emberGeo.attributes.position.array;
+      for (let i = 0; i < emberCount; i++) {
+        ePos[i * 3 + 0] += emberVels[i * 3 + 0] * delta;
+        ePos[i * 3 + 1] += emberVels[i * 3 + 1] * delta;
+        ePos[i * 3 + 2] += emberVels[i * 3 + 2] * delta;
+
+        emberLife[i] += delta * 0.8;
+        if (emberLife[i] > 1.0) {
+          emberLife[i] = 0;
+          const ang = Math.random() * Math.PI * 2;
+          ePos[i * 3 + 0] = (Math.random() - 0.5) * 0.6;
+          ePos[i * 3 + 1] = Math.cos(ang) * ringRadius;
+          ePos[i * 3 + 2] = Math.sin(ang) * ringRadius;
+        }
+      }
+      emberGeo.attributes.position.needsUpdate = true;
+
+      // 5. 动态光照脉冲 (火光跳跃与强度随机抖动)
+      const fireFlicker = 1.0 + (Math.sin(elapsedTime * 22) + Math.cos(elapsedTime * 17)) * 0.12;
+      fireLightCenter.intensity = 8.5 * fireFlicker;
+      fireLightTop.intensity = 4.8 * fireFlicker;
+      fireLightBottom.intensity = 4.8 * fireFlicker;
+
+      // 6. 运镜更新
+      updateCinematicCamera(u, lionRoot.position);
+
+      renderer.render(scene, camera);
+    }
+
+    // 窗口尺寸自适应
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    // 启动动画
+    animate();
+  </script>
+<!--zc-home:start--><style>.zc-home-btn{position:fixed;top:16px;left:16px;z-index:2147483647;display:inline-flex;align-items:center;gap:6px;padding:8px 14px;font:500 13px/1.1 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Noto Sans SC",sans-serif;color:#111;background:rgba(255,255,255,.86);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);border:1px solid rgba(0,0,0,.08);border-radius:999px;text-decoration:none;box-shadow:0 2px 12px rgba(0,0,0,.2);transition:background .2s ease,transform .2s ease,box-shadow .2s ease}.zc-home-btn:hover{background:#fff;transform:translateY(-1px);box-shadow:0 4px 18px rgba(0,0,0,.26)}</style><a class="zc-home-btn" href="../">← 返回首页</a><!--zc-home:end-->
+</body>
+</html>

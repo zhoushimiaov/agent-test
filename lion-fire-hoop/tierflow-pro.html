@@ -1,0 +1,1189 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>狮跃火圈 · Lion Leaps the Ring of Fire</title>
+<style>
+  html,body{margin:0;padding:0;height:100%;background:#04040a;overflow:hidden}
+  canvas{display:block;width:100vw;height:100vh}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+"use strict";
+/* ══════════════════════════════════════════════════════════════════════════
+   狮跃火圈 — a single-file procedural animation.
+   A lion walks out of the dark savanna, gathers, springs, and threads a
+   flaming hoop. No images, no libraries, no interaction: just open it.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+const TAU = Math.PI * 2;
+const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+const lerp = (a, b, t) => a + (b - a) * t;
+const smooth = t => { t = clamp(t, 0, 1); return t * t * (3 - 2 * t); };
+
+/* deterministic noise — identical scene on every load and every loop */
+function mulberry32(a) {
+  return function () {
+    a |= 0; a = a + 0x6D2B79F5 | 0;
+    let t = Math.imul(a ^ a >>> 15, 1 | a);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+const RND = mulberry32(0xC0FFEE);
+const hash1 = i => { const x = Math.sin(i * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); };
+function noise1(x) {
+  const i = Math.floor(x), f = x - i;
+  const a = hash1(i), b = hash1(i + 1);
+  return lerp(a, b, f * f * (3 - 2 * f));
+}
+
+/* ── canvas / projection ──────────────────────────────────────────────── */
+const cvs = document.getElementById('c');
+const ctx = cvs.getContext('2d');
+let W = 0, H = 0, DPR = 1;
+let starCv = null, grainCv = null, moonCv = null, treeLayers = [];
+
+const LOOP = 6.6;
+let clock = 0;          // story time (slows down as he crosses the fire)
+let realTime = 0;       // wall time (flicker, grain, sway)
+let dtGlobal = 1 / 60;
+
+const RING = { x: 0, y: 3.08, rx: 1.80, ry: 2.00, tube: 0.15 };
+const STANCE = 1.20;                     // body-centre height, standing
+const CAM = { x: -5.0, lift: 0, zoom: 1, shake: 0 };
+
+let s = 60, camx = 0, camy = 0, shx = 0, shy = 0;
+function updateProjection() {
+  s = (H / 13.0) * CAM.zoom;
+  camx = CAM.x;
+  camy = 0.30 * H / s + CAM.lift;
+  const sh = CAM.shake;
+  shx = sh > 0 ? (noise1(realTime * 90) - 0.5) * sh * s * 0.55 : 0;
+  shy = sh > 0 ? (noise1(realTime * 90 + 55) - 0.5) * sh * s * 0.55 : 0;
+}
+const sx = wx => W / 2 + (wx - camx) * s + shx;
+const sy = wy => H / 2 - (wy - camy) * s + shy;
+const px = len => len * s;
+
+/* ══════════════════════════════════════════════════════════════════════
+   geometry helpers
+   ══════════════════════════════════════════════════════════════════════ */
+function sampleCurve(ctrl, closed, seg = 8) {
+  const n = ctrl.length, out = [];
+  const g = i => closed ? ctrl[((i % n) + n) % n] : ctrl[clamp(i, 0, n - 1)];
+  const lim = closed ? n : n - 1;
+  for (let i = 0; i < lim; i++) {
+    const p0 = g(i - 1), p1 = g(i), p2 = g(i + 1), p3 = g(i + 2);
+    for (let j = 0; j < seg; j++) {
+      const t = j / seg, t2 = t * t, t3 = t2 * t;
+      out.push([
+        0.5 * (2 * p1[0] + (-p0[0] + p2[0]) * t + (2 * p0[0] - 5 * p1[0] + 4 * p2[0] - p3[0]) * t2 + (-p0[0] + 3 * p1[0] - 3 * p2[0] + p3[0]) * t3),
+        0.5 * (2 * p1[1] + (-p0[1] + p2[1]) * t + (2 * p0[1] - 5 * p1[1] + 4 * p2[1] - p3[1]) * t2 + (-p0[1] + 3 * p1[1] - 3 * p2[1] + p3[1]) * t3)
+      ]);
+    }
+  }
+  if (!closed) out.push([ctrl[n - 1][0], ctrl[n - 1][1]]);
+  return out;
+}
+function pathPolyline(pts, close) {
+  ctx.beginPath();
+  ctx.moveTo(pts[0][0], pts[0][1]);
+  for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+  if (close) ctx.closePath();
+}
+function centroid(pts) {
+  let x = 0, y = 0;
+  for (const p of pts) { x += p[0]; y += p[1]; }
+  return [x / pts.length, y / pts.length];
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   the lion rig — local space, origin at body centre, +x forward, +y up
+   ══════════════════════════════════════════════════════════════════════ */
+const R = {
+  torso: sampleCurve([
+    [-1.36, 0.30], [-1.06, 0.49], [-0.56, 0.57], [0.00, 0.56], [0.50, 0.50],
+    [0.92, 0.42], [1.14, 0.28], [1.31, 0.02], [1.27, -0.30], [0.94, -0.47],
+    [0.34, -0.51], [-0.32, -0.41], [-0.86, -0.31], [-1.24, -0.06], [-1.44, 0.15]
+  ], true, 9),
+  skull: sampleCurve([
+    [1.50, 0.68], [1.58, 0.88], [1.78, 0.92], [1.98, 0.82], [2.13, 0.66],
+    [2.24, 0.52], [2.18, 0.42], [2.00, 0.38], [1.82, 0.44], [1.60, 0.52]
+  ], true, 8),
+  ears: [
+    [[1.58, 0.82], [1.50, 1.03], [1.70, 0.94]],
+    [[1.86, 0.83], [1.98, 1.00], [2.04, 0.80]]
+  ],
+  shoulder: [0.99, -0.20], hip: [-1.04, -0.06],
+  neckBase: [1.04, 0.24], maneCentre: [1.74, 0.60], nose: [2.24, 0.52],
+  frontLen: [0.46, 0.42, 0.13], hindLen: [0.52, 0.48, 0.24]
+};
+const FRONT_W = [0.175, 0.125, 0.115, 0.092, 0.078, 0.062, 0.055];
+const HIND_W = [0.245, 0.150, 0.140, 0.095, 0.085, 0.068, 0.058];
+const RIM_COL = '255,168,74';
+
+/* mane: a spiky ruff that leans back with speed */
+function manePoly(flare, lean, seed) {
+  const pts = [], N = 36, c = R.maneCentre;
+  for (let i = 0; i < N; i++) {
+    const a = i / N * TAU;
+    const rear = (a > Math.PI * 0.42 && a < Math.PI * 1.62) ? 1 : 0;
+    let r = 0.48 + 0.22 * rear;
+    r *= 1 + 0.20 * flare * noise1(i * 0.7 + seed) + 0.08 * noise1(i * 1.9 + seed * 2);
+    r *= 1 + 0.13 * Math.pow(Math.abs(Math.sin(a * 4 + seed * 0.5)), 3);
+    let x = c[0] + Math.cos(a) * r * 0.94;
+    let y = c[1] + Math.sin(a) * r * 1.04;
+    const back = Math.max(0, -Math.cos(a));
+    x -= lean * (0.16 + 0.62 * back) * r;
+    y += lean * 0.16 * Math.sin(a * 2 + seed);
+    pts.push([x, y]);
+  }
+  return pts;
+}
+
+/* tail: rigid chain whose direction lags the body rotation */
+const TAIL = { pts: [], lag: 0 };
+function tailReset() {
+  TAIL.lag = 0; TAIL.pts = [];
+  for (let i = 0; i <= 10; i++) TAIL.pts.push([-1.38 - i * 0.15, 0.26]);
+}
+function tailStep(dt, pitch, speed, t) {
+  TAIL.lag += (pitch - TAIL.lag) * clamp(dt * 4.5, 0, 1);
+  const seg = 0.15, n = 10;
+  const droop = 0.55 - 0.85 * clamp(Math.abs(speed) / 6, 0, 1);
+  const pts = [[-1.38, 0.26]];
+  for (let i = 1; i <= n; i++) {
+    const o = i / n;
+    const dir = Math.PI + TAIL.lag * 0.85 + droop * o * o + Math.sin(t * 3.4 + i * 0.6) * 0.05 * o;
+    const p = pts[i - 1];
+    pts.push([p[0] + Math.cos(dir) * seg, p[1] + Math.sin(dir) * seg]);
+  }
+  TAIL.pts = pts;
+}
+const TAIL_W = [0.115, 0.10, 0.088, 0.075, 0.065, 0.055, 0.048, 0.042, 0.038, 0.034, 0.032];
+
+/* ── legs: bone angles are ABSOLUTE, measured from straight-down, + = forward
+      front leg  : shoulder → elbow → wrist           (single bend)
+      hind  leg  : hip → knee → hock → foot            (double bend / zigzag)
+   ─────────────────────────────────────────────────────────────────────── */
+function frontLeg(sw, tuck) {           // tuck: 0..1 recovery fold
+  return [sw, sw * 0.5 + 0.24 + 0.80 * tuck, 0.14 + 0.60 * tuck];
+}
+function hindLeg(sw, tuck) {
+  return [0.42 + sw * 0.55, -0.40 + sw * 0.34 + 0.85 * tuck, 0.05 + sw * 0.14 + 0.50 * tuck];
+}
+function legJoints(base, ang, len) {
+  const p = [base];
+  let x = base[0], y = base[1];
+  for (let i = 0; i < ang.length; i++) {
+    x += Math.sin(ang[i]) * len[i];
+    y -= Math.cos(ang[i]) * len[i];
+    p.push([x, y]);
+  }
+  return p;
+}
+
+/* ── poses ─────────────────────────────────────────────────────────────── */
+/* gallop: a rotary gallop — hind pair leads, front pair follows */
+function gallop(p, speed) {
+  const w = clamp(speed / 3.6, 0, 1.15);
+  const S = (off, amp) => amp * Math.sin(p * TAU + off);
+  const T = off => Math.max(0, -Math.sin(p * TAU + off));
+  const hlA = -0.30, hrA = -0.44, flA = -0.90, frA = -1.04;
+  return {
+    hl: hindLeg(S(hlA, 0.62) + 0.10, T(hlA)),
+    hr: hindLeg(S(hrA, 0.62) + 0.10, T(hrA)),
+    fl: frontLeg(S(flA, 0.66), T(flA)),
+    fr: frontLeg(S(frA, 0.66), T(frA)),
+    bob: 0.085 * Math.sin(p * TAU * 2 + 0.9) * w,
+    pitch: 0.05 * Math.sin(p * TAU + 0.3) * w,
+    spine: 0.10 * Math.sin(p * TAU - 0.2) * w,
+    neck: -0.05 * Math.sin(p * TAU + 1.2),
+    w
+  };
+}
+/* flight keyframes (absolute bone angles) */
+const AIR = [
+  { u: 0.00, pitch: 0.30, spine: 0.20, neck: -0.14, tailUp: 1,
+    fl: [0.78, 1.08, 0.82], fr: [0.92, 1.16, 0.92],
+    hl: [0.02, -0.62, -0.05], hr: [-0.06, -0.66, -0.10] },
+  { u: 0.48, pitch: 0.02, spine: -0.08, neck: 0.00, tailUp: 1,
+    fl: [1.06, 0.96, 0.54], fr: [1.16, 1.02, 0.60],
+    hl: [-0.16, -0.76, -0.34], hr: [-0.06, -0.70, -0.28] },
+  { u: 0.84, pitch: -0.20, spine: 0.12, neck: 0.06, tailUp: 0.5,
+    fl: [0.52, 0.30, 0.12], fr: [0.44, 0.25, 0.10],
+    hl: [0.86, 0.16, 0.10], hr: [0.74, 0.06, 0.02] }
+];
+const LAND0 = { fl: [0.52, 0.30, 0.12], fr: [0.44, 0.25, 0.10], hl: [0.86, 0.16, 0.10], hr: [0.74, 0.06, 0.02] };
+function airPose(u) {
+  const k = u < 0.48 ? 0 : u < 0.84 ? 1 : 2;
+  const a = AIR[k], b = AIR[Math.min(k + 1, 2)];
+  const f = smooth((u - a.u) / Math.max(1e-4, b.u - a.u));
+  const m = (p, q) => [lerp(p[0], q[0], f), lerp(p[1], q[1], f), lerp(p[2], q[2], f)];
+  return {
+    pitch: lerp(a.pitch, b.pitch, f), spine: lerp(a.spine, b.spine, f), neck: lerp(a.neck, b.neck, f),
+    tailUp: lerp(a.tailUp, b.tailUp, f),
+    fl: m(a.fl, b.fl), fr: m(a.fr, b.fr), hl: m(a.hl, b.hl), hr: m(a.hr, b.hr)
+  };
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   particles
+   ══════════════════════════════════════════════════════════════════════ */
+const flames = [], embers = [], smokes = [], dusts = [], pebbles = [];
+let heat = 0.35, whoosh = 0, flash = 0;
+
+function spawnFlame(x, y, vx, vy, size, life, front) {
+  if (flames.length > 420) flames.shift();
+  flames.push({ x, y, vx, vy, s: size, l: life, a: 0, seed: RND() * 100, fr: front, bu: front ? 0.4 : 1 });
+}
+function spawnEmber(x, y, vx, vy, life) {
+  if (embers.length > 360) embers.shift();
+  embers.push({ x, y, vx, vy, l: life, a: 0, seed: RND() * 100 });
+}
+function spawnSmoke(x, y, vx, vy, size, life, front) {
+  if (smokes.length > 110) smokes.shift();
+  smokes.push({ x, y, vx, vy, s: size, l: life, a: 0, seed: RND() * 100, fr: front });
+}
+function spawnDust(x, y, vx, vy, size, life) {
+  if (dusts.length > 300) dusts.shift();
+  dusts.push({ x, y, vx, vy, s: size, l: life, a: 0, seed: RND() * 100 });
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   pre-rendered soft sprites
+   ══════════════════════════════════════════════════════════════════════ */
+function blob(rgb, soft) {
+  const n = 64, cv = document.createElement('canvas');
+  cv.width = cv.height = n;
+  const g = cv.getContext('2d');
+  const grd = g.createRadialGradient(n / 2, n / 2, 0, n / 2, n / 2, n / 2);
+  grd.addColorStop(0, `rgba(${rgb},1)`);
+  grd.addColorStop(soft, `rgba(${rgb},0.34)`);
+  grd.addColorStop(1, `rgba(${rgb},0)`);
+  g.fillStyle = grd; g.fillRect(0, 0, n, n);
+  return cv;
+}
+let SP = {};
+function buildSprites() {
+  SP = {
+    hot: blob('255,248,216', 0.24), yel: blob('255,206,96', 0.30), org: blob('255,126,30', 0.32),
+    red: blob('196,46,16', 0.36), deep: blob('104,20,12', 0.42),
+    smoke: blob('44,34,38', 0.30), dust: blob('98,78,62', 0.36)
+  };
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   static scene: stars, ridges, acacias, grass
+   ══════════════════════════════════════════════════════════════════════ */
+let stars = [], hills = [], tufts = [], blades = [];
+function buildScene() {
+  stars = [];
+  for (let i = 0; i < 280; i++)
+    stars.push({ x: RND(), y: RND() * 0.74, r: RND() < 0.85 ? 1 : 2, tw: RND() * 10, m: 0.25 + RND() * 0.75 });
+  const ridge = (seed, amp, base, step) => {
+    const pts = [];
+    for (let x = -70; x <= 70; x += step)
+      pts.push([x, base + amp * (noise1(x * 0.05 + seed) * 0.68 + noise1(x * 0.17 + seed * 3) * 0.32)]);
+    return pts;
+  };
+  hills = [
+    { pts: ridge(11.3, 3.1, 2.30, 1.1), col: '#0a0913', par: 0.09 },
+    { pts: ridge(31.7, 2.2, 1.25, 0.8), col: '#0c0911', par: 0.20 },
+    { pts: ridge(57.1, 1.40, 0.50, 0.6), col: '#0f090f', par: 0.38 }
+  ];
+  treeLayers = [
+    { x: -24.0, k: 1.75, par: 0.26, col: '#0b0913' },
+    { x: 21.5, k: 2.00, par: 0.26, col: '#0b0913' },
+    { x: -13.0, k: 1.20, par: 0.40, col: '#080611' },
+    { x: 12.5, k: 0.95, par: 0.40, col: '#080611' },
+    { x: 5.6, k: 0.62, par: 0.60, col: '#0a0710' }
+  ];
+  tufts = [];
+  for (let i = 0; i < 340; i++)
+    tufts.push({ x: -46 + RND() * 92, d: RND(), n: 3 + (RND() * 4 | 0), h: 0.07 + RND() * 0.2, sp: (RND() - 0.5) * 0.9 });
+  blades = [];
+  for (let i = 0; i < 170; i++)
+    blades.push({ x: -46 + RND() * 92, h: 0.4 + RND() * 0.95, k: (RND() - 0.5) * 1.1, n: 2 + (RND() * 3 | 0) });
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   lighting model for the lion: the hoop is the key light
+   ══════════════════════════════════════════════════════════════════════ */
+let LIGHT = { fx: -1, fy: 0.3, wrap: 0, inten: 1 };
+let lionVel = [0, 0];
+
+function paintShape(pts, grad, rimW, rimBoost, coolRim) {
+  pathPolyline(pts, true);
+  ctx.fillStyle = grad;
+  ctx.fill();
+  const n = pts.length, c = centroid(pts);
+  let lx = LIGHT.fx, ly = -LIGHT.fy;
+  const dl = Math.hypot(lx, ly) || 1; lx /= dl; ly /= dl;
+  const vxs = lionVel[0], vys = -lionVel[1];
+  const dv = Math.hypot(vxs, vys) || 1;
+  const mvx = vxs / dv, mvy = vys / dv;
+  ctx.lineCap = 'round';
+  for (let i = 0; i < n; i++) {
+    const p = pts[i], q = pts[(i + 1) % n], r = pts[(i - 1 + n) % n];
+    let nx = q[1] - r[1], ny = -(q[0] - r[0]);
+    const d = Math.hypot(nx, ny) || 1; nx /= d; ny /= d;
+    if (nx * (p[0] - c[0]) + ny * (p[1] - c[1]) < 0) { nx = -nx; ny = -ny; }
+    const dirLit = Math.max(0, nx * lx + ny * ly);
+    const edge = Math.abs(nx * mvy + ny * mvx);       // back-lit silhouette edge
+    let lit = lerp(dirLit, 0.40 + 0.60 * edge, LIGHT.wrap);
+    if (coolRim) lit = Math.max(lit, 0.34 * Math.max(0, nx * -0.5 + ny * -0.78));
+    if (lit < 0.10) continue;
+    const a = clamp(lit * rimBoost, 0, 1);
+    ctx.strokeStyle = coolRim && lit < 0.24 ? `rgba(150,178,220,${(a * 1.6).toFixed(3)})`
+                                            : `rgba(${RIM_COL},${a.toFixed(3)})`;
+    ctx.lineWidth = Math.max(0.7, rimW * (0.35 + lit));
+    ctx.beginPath();
+    ctx.moveTo(p[0] - nx * rimW * 0.42, p[1] - ny * rimW * 0.42);
+    ctx.lineTo(q[0] - nx * rimW * 0.42, q[1] - ny * rimW * 0.42);
+    ctx.stroke();
+  }
+}
+/* bones as tapered capsules, with a lit edge on whichever side faces the fire */
+function paintChain(joints, widths, grad, rimW, rimBoost) {
+  ctx.fillStyle = grad;
+  for (let i = 0; i < joints.length - 1; i++) {
+    const a = joints[i], b = joints[i + 1];
+    const wa = px(widths[i]), wb = px(widths[i + 1]);
+    let dx = b[0] - a[0], dy = b[1] - a[1];
+    const d = Math.hypot(dx, dy) || 1, nx = -dy / d, ny = dx / d;
+    ctx.beginPath();
+    ctx.moveTo(a[0] + nx * wa, a[1] + ny * wa);
+    ctx.lineTo(b[0] + nx * wb, b[1] + ny * wb);
+    ctx.lineTo(b[0] - nx * wb, b[1] - ny * wb);
+    ctx.lineTo(a[0] - nx * wa, a[1] - ny * wa);
+    ctx.closePath(); ctx.fill();
+    ctx.beginPath(); ctx.arc(a[0], a[1], wa, 0, TAU); ctx.fill();
+    ctx.beginPath(); ctx.arc(b[0], b[1], wb, 0, TAU); ctx.fill();
+  }
+  let lx = LIGHT.fx, ly = -LIGHT.fy;
+  const dl = Math.hypot(lx, ly) || 1; lx /= dl; ly /= dl;
+  ctx.lineCap = 'round';
+  for (let i = 0; i < joints.length - 1; i++) {
+    const a = joints[i], b = joints[i + 1];
+    let dx = b[0] - a[0], dy = b[1] - a[1];
+    const d = Math.hypot(dx, dy) || 1;
+    for (const sgn of [1, -1]) {
+      const nx = -dy / d * sgn, ny = dx / d * sgn;
+      const lit = Math.max(0, nx * lx + ny * ly) * (0.5 + 0.5 * LIGHT.wrap) + 0.10;
+      if (lit < 0.2) continue;
+      const wa = px(widths[i]), wb = px(widths[i + 1]);
+      ctx.strokeStyle = `rgba(${RIM_COL},${clamp(lit * rimBoost, 0, 1).toFixed(3)})`;
+      ctx.lineWidth = Math.max(0.8, rimW * (0.3 + lit));
+      ctx.beginPath();
+      ctx.moveTo(a[0] + nx * (wa - rimW * 0.3), a[1] + ny * (wa - rimW * 0.3));
+      ctx.lineTo(b[0] + nx * (wb - rimW * 0.3), b[1] + ny * (wb - rimW * 0.3));
+      ctx.stroke();
+    }
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   timeline → lion state
+   ══════════════════════════════════════════════════════════════════════ */
+const RUN_X0 = -9.7, RUN_X1 = -3.15, X_LAND = 3.21;
+const T_CROUCH = 1.88, T_LAUNCH = 2.14, T_TOUCH = 3.28, T_OUT = 5.10;
+const LAUNCH_Y = STANCE;
+const PAR_K = (RING.y - LAUNCH_Y) / (RUN_X1 * RUN_X1);
+
+const LION = {
+  x: RUN_X0, y: STANCE, prevY: STANCE, pitch: 0, vis: true, gait: 0, mode: 'run',
+  legs: { fl: frontLeg(0, 0), fr: frontLeg(0, 0), hl: hindLeg(0, 0), hr: hindLeg(0, 0) },
+  neck: 0, spine: 0, flare: 0.2, speed: 0
+};
+
+function lionTrack(T) {
+  let legs, y, pitch = 0, spine = 0, neck = 0, flare = 0.22, mode, speed;
+  if (T < T_CROUCH) {                                   /* ── gallop in ── */
+    const u = T / T_CROUCH;
+    LION.x = lerp(RUN_X0, RUN_X1, u);
+    speed = (RUN_X1 - RUN_X0) / T_CROUCH;
+    LION.gait += dtGlobal * speed / 1.9;
+    const g = gallop(LION.gait, speed);
+    y = STANCE + g.bob; pitch = g.pitch; spine = g.spine; neck = g.neck;
+    legs = g; mode = 'run';
+  } else if (T < T_LAUNCH) {                            /* ── gather ── */
+    const u = smooth((T - T_CROUCH) / (T_LAUNCH - T_CROUCH));
+    LION.x = RUN_X1;
+    LION.gait += dtGlobal * 0.5;
+    const g = gallop(LION.gait, 1.0);
+    y = STANCE - 0.17 * u;
+    legs = {
+      fl: [lerp(g.fl[0], 0.60, u), lerp(g.fl[1], 0.92, u), lerp(g.fl[2], 0.42, u)],
+      fr: [lerp(g.fr[0], 0.50, u), lerp(g.fr[1], 0.86, u), lerp(g.fr[2], 0.38, u)],
+      hl: [lerp(g.hl[0], 0.92, u), lerp(g.hl[1], 0.34, u), lerp(g.hl[2], 0.28, u)],
+      hr: [lerp(g.hr[0], 0.82, u), lerp(g.hr[1], 0.24, u), lerp(g.hr[2], 0.22, u)]
+    };
+    pitch = 0.10 * u; spine = lerp(g.spine, 0.34, u); neck = lerp(g.neck, -0.20, u);
+    mode = 'crouch'; speed = 0.7; flare = 0.2 + 0.35 * u;
+  } else if (T < T_TOUCH) {                             /* ── flight ── */
+    const u = (T - T_LAUNCH) / (T_TOUCH - T_LAUNCH);
+    LION.x = lerp(RUN_X1, X_LAND, u);
+    y = RING.y - PAR_K * LION.x * LION.x;
+    const a = airPose(u);
+    const rise = smooth((T - T_LAUNCH) / 0.18);
+    pitch = lerp(0.10, a.pitch, rise);
+    legs = { fl: a.fl, fr: a.fr, hl: a.hl, hr: a.hr };
+    spine = a.spine; neck = a.neck; mode = 'air';
+    speed = 5.6; flare = 0.35 + 0.5 * a.tailUp;
+  } else if (T < T_OUT) {                               /* ── land & drive ── */
+    const u = (T - T_TOUCH) / (T_OUT - T_TOUCH);
+    speed = lerp(3.0, 4.4, u);
+    LION.x = X_LAND + (T - T_TOUCH) * speed;
+    const dip = Math.exp(-Math.pow((T - (T_TOUCH + 0.15)) / 0.15, 2));
+    LION.gait += dtGlobal * speed / 1.9;
+    const g = gallop(LION.gait, speed);
+    const c = clamp((T - T_TOUCH) / 0.34, 0, 1);
+    y = lerp(RING.y - PAR_K * X_LAND * X_LAND, STANCE, smooth(c)) - 0.30 * dip + g.bob * smooth((T - T_TOUCH) / 0.5);
+    legs = {
+      fl: [lerp(LAND0.fl[0], g.fl[0], c), lerp(LAND0.fl[1], g.fl[1], c), lerp(LAND0.fl[2], g.fl[2], c)],
+      fr: [lerp(LAND0.fr[0], g.fr[0], c), lerp(LAND0.fr[1], g.fr[1], c), lerp(LAND0.fr[2], g.fr[2], c)],
+      hl: [lerp(LAND0.hl[0], g.hl[0], c), lerp(LAND0.hl[1], g.hl[1], c), lerp(LAND0.hl[2], g.hl[2], c)],
+      hr: [lerp(LAND0.hr[0], g.hr[0], c), lerp(LAND0.hr[1], g.hr[1], c), lerp(LAND0.hr[2], g.hr[2], c)]
+    };
+    pitch = lerp(-0.16, g.pitch, smooth(c)) + 0.14 * dip;
+    spine = lerp(0.20, g.spine, c) - 0.30 * dip;
+    neck = lerp(0.10, g.neck, c);
+    mode = 'land'; flare = 0.3 + 0.6 * dip;
+  } else {                                              /* ── out of frame ── */
+    LION.x = X_LAND + (T_OUT - T_TOUCH) * 4.4 + (T - T_OUT) * 6.2;
+    LION.gait += dtGlobal * 2.8;
+    const g = gallop(LION.gait, 5.0);
+    y = STANCE + g.bob; legs = g; pitch = g.pitch; spine = g.spine; neck = g.neck;
+    mode = 'gone'; speed = 6.2; flare = 0.5;
+  }
+  LION.y = y; LION.pitch = pitch; LION.spine = spine; LION.neck = neck;
+  LION.flare = flare; LION.speed = speed; LION.mode = mode;
+  for (const k of ['fl', 'fr', 'hl', 'hr']) LION.legs[k] = legs[k];
+  LION.vis = LION.x > -12.5 && LION.x < 12.5 && T < T_OUT + 1.0;
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   the hoop
+   ══════════════════════════════════════════════════════════════════════ */
+const NOZZLES = [];
+for (let i = 0; i < 24; i++) NOZZLES.push(i / 24 * TAU);
+const ringPoint = a => [RING.x + Math.cos(a) * RING.rx, RING.y + Math.sin(a) * RING.ry];
+const isFront = a => Math.sin(a) < -0.08;      // lower arc of the hoop faces us
+
+function drawPosts() {
+  const cx = sx(RING.x);
+  ctx.strokeStyle = '#090609'; ctx.lineCap = 'round';
+  for (const side of [-1, 1]) {
+    const a = side < 0 ? Math.PI * 1.16 : -Math.PI * 0.16;
+    const p = ringPoint(a);
+    const tx = sx(p[0]), ty = sy(p[1]), gy = sy(0);
+    ctx.lineWidth = px(0.13);
+    ctx.beginPath(); ctx.moveTo(tx, ty); ctx.lineTo(cx + side * px(1.6), gy); ctx.stroke();
+    ctx.lineWidth = px(0.095);
+    ctx.beginPath(); ctx.moveTo(tx, ty); ctx.lineTo(cx + side * px(0.5), gy); ctx.stroke();
+    ctx.lineWidth = px(0.085);
+    ctx.beginPath(); ctx.moveTo(cx + side * px(1.85), gy); ctx.lineTo(cx + side * px(0.35), gy); ctx.stroke();
+  }
+}
+function arcStroke(a0, a1, width, style, blur, blurCol) {
+  ctx.beginPath();
+  ctx.ellipse(sx(RING.x), sy(RING.y), px(RING.rx), px(RING.ry), 0, a0, a1);
+  ctx.lineWidth = px(width); ctx.strokeStyle = style; ctx.lineCap = 'round';
+  if (blur) { ctx.shadowBlur = px(blur); ctx.shadowColor = blurCol; }
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+}
+function drawRingHalf(front) {
+  const a0 = front ? 0 : Math.PI, a1 = front ? Math.PI : TAU;
+  arcStroke(a0, a1, RING.tube, '#221410');
+  arcStroke(a0, a1, RING.tube * 0.60, 'rgba(88,44,20,0.95)');
+  arcStroke(a0, a1, RING.tube * 0.24, 'rgba(255,168,72,0.92)', 0.55, 'rgba(255,130,40,0.9)');
+  for (const a of NOZZLES) {
+    if (isFront(a) !== front) continue;
+    const p = ringPoint(a);
+    ctx.save();
+    ctx.translate(sx(p[0]), sy(p[1]));
+    ctx.rotate(Math.atan2(-Math.sin(a) / RING.ry, Math.cos(a) / RING.rx));
+    ctx.fillStyle = '#3a1d10';
+    ctx.fillRect(-px(0.065), -px(0.105), px(0.15), px(0.21));
+    ctx.fillStyle = 'rgba(255,196,96,0.9)';
+    ctx.fillRect(px(0.045), -px(0.055), px(0.05), px(0.11));
+    ctx.restore();
+  }
+  /* every nozzle keeps a small torch so the hoop always reads as burning */
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  for (const a of NOZZLES) {
+    if (isFront(a) !== front) continue;
+    const p = ringPoint(a);
+    const fl = 0.62 + 0.38 * noise1(a * 5 + realTime * 9);
+    const r = px(0.17 + 0.13 * fl) * (0.85 + 0.35 * heat);
+    const X = sx(p[0] + Math.cos(a) * 0.16), Y = sy(p[1] + Math.sin(a) * 0.16);
+    ctx.globalAlpha = 0.30 + 0.22 * fl;
+    ctx.drawImage(SP.org, X - r, Y - r, r * 2, r * 2);
+    ctx.globalAlpha = 0.40 * fl;
+    ctx.drawImage(SP.hot, X - r * 0.45, Y - r * 0.45, r * 0.9, r * 0.9);
+  }
+  ctx.restore();
+  ctx.globalAlpha = 1;
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   simulation
+   ══════════════════════════════════════════════════════════════════════ */
+let dustArmed = { take: false, land: false };
+
+/* flow induced by the lion's body: pushes the fire aside as he goes through.
+   takes plain world coordinates so it can be called with a nozzle point or
+   with a live particle. */
+function lionFlow(wx, wy) {
+  if (!LION.vis) return [0, 0];
+  const dx = wx - LION.x, dy = wy - LION.y;
+  const d = Math.hypot(dx, dy);
+  if (d > 1.9) return [0, 0];
+  const f = 1 - d / 1.9;
+  const nx = dx / (d || 1), ny = dy / (d || 1);
+  return [nx * f * 1.5 + LION.speed * 0.16 * f, ny * f * 1.4 + Math.abs(LION.speed) * 0.07 * f];
+}
+
+function emitHoopFire(dt, heat) {
+  for (const a of NOZZLES) {
+    const p = ringPoint(a);
+    const front = RND() < 0.06 ? !isFront(a) : isFront(a);
+    const nx = Math.cos(a) / RING.rx, ny = Math.sin(a) / RING.ry;
+    const nl = Math.hypot(nx, ny) || 1;
+    const push = lionFlow(p[0], p[1]);
+    const rate = (9 + 6 * heat) * dt;
+    let k = Math.floor(rate) + (RND() < rate % 1 ? 1 : 0);
+    for (let i = 0; i < k; i++) {
+      /* the near (lower) arc burns low and short so it never hides the lion */
+      const spd = (0.45 + RND() * 0.75) * (front ? 1.0 : 1.2) + heat * 0.4;
+      const jit = (RND() - 0.5) * 0.6;
+      const life = front ? 0.24 + RND() * 0.26 : 0.38 + RND() * 0.42;
+      spawnFlame(
+        p[0] + (RND() - 0.5) * 0.14, p[1] + (RND() - 0.5) * 0.14,
+        nx / nl * spd + jit * 0.5 + push[0] * 0.6,
+        ny / nl * spd * 0.9 + (front ? 0.18 : 0.5) + RND() * 0.35 + push[1] * 0.5,
+        0.15 + RND() * 0.17, life, front
+      );
+      if (RND() < 0.10 + heat * 0.18)
+        spawnEmber(p[0], p[1], nx * 1.4 + (RND() - 0.5) * 1.2, 1.0 + RND() * 2.6, 0.9 + RND() * 1.5);
+      /* smoke only ever drifts off the top of the hoop, and always stays
+         behind the lion — it must never paint light over the silhouette */
+      if (Math.sin(a) > 0.55 && RND() < 0.10)
+        spawnSmoke(p[0] + nx * 0.2, p[1] + ny * 0.2 + 0.9, (RND() - 0.5) * 0.2 + 0.18, 1.0 + RND() * 0.6,
+                   0.22 + RND() * 0.20, 2.0 + RND() * 1.8, false);
+    }
+  }
+}
+
+function simulate(dt) {
+  const T = clock;
+  const bx = LION.x, by = LION.y;
+  lionTrack(T);
+  if (dt > 1e-5) { lionVel = [(LION.x - bx) / dt, (LION.y - by) / dt]; }
+  else { lionVel = [0, 0]; }
+
+  /* key light: the burning hoop; wraps all round when he is inside it */
+  const dx = LION.x - RING.x, dy = LION.y - RING.y;
+  const dist = Math.hypot(dx, dy * 0.8);
+  let ldx = -dx, ldy = -dy * 0.35 + 0.25;
+  if (Math.abs(ldx) < 1e-3) ldx = lionVel[0] >= 0 ? 1 : -1;
+  const dl = Math.hypot(ldx, ldy) || 1;
+  LIGHT.fx = ldx / dl; LIGHT.fy = ldy / dl;
+  LIGHT.wrap = smooth(1 - (dist - 0.5) / 2.5) * (0.45 + 0.55 * clamp(Math.abs(lionVel[0]) / 4, 0.72, 1));
+
+  /* camera */
+  let tx, ty, tz;
+  if (T < T_CROUCH) { tx = LION.x * 0.52; ty = 0; tz = 1.00; }
+  else if (T < T_LAUNCH + 0.12) { tx = LION.x * 0.40; ty = 0.3; tz = 1.10; }
+  else if (T < T_TOUCH) { tx = 0.28 + LION.x * 0.26; ty = LION.y; tz = 1.28; }
+  else if (T < T_OUT) { tx = LION.x * 0.44; ty = LION.y * 0.35; tz = 1.06; }
+  else { tx = 0.30; ty = 0.10; tz = 0.95; }
+  const kc = clamp(dt * 4.0, 0, 1);
+  CAM.x = lerp(CAM.x, tx, kc);
+  CAM.lift = lerp(CAM.lift, ty * 0.40, kc);
+  CAM.zoom = lerp(CAM.zoom, tz, clamp(dt * 2.8, 0, 1));
+  CAM.shake = Math.max(0, CAM.shake - dt * 3.0);
+
+  /* heat & drama around the crossing */
+  const near = clamp(1 - Math.abs(LION.x - RING.x) / 2.6, 0, 1) * clamp(1 - Math.abs(LION.y - RING.y) / 3.4, 0, 1);
+  whoosh = lerp(whoosh, LION.vis ? near : 0, clamp(dt * 8, 0, 1));
+  heat = 0.32 + 0.85 * whoosh + 0.10 * Math.sin(realTime * 7.3);
+  emitHoopFire(dt, heat);
+
+  /* ── events ── */
+  if (T > T_LAUNCH - 0.03 && T < T_LAUNCH + 0.35 && !dustArmed.take) {
+    dustArmed.take = true;
+    for (let i = 0; i < 36; i++) {
+      const a = Math.PI + (RND() - 0.5) * 1.9, sp = 0.7 + RND() * 2.1;
+      spawnDust(RUN_X1 - 0.5 + (RND() - 0.5) * 1.0, 0.04 + RND() * 0.22,
+                Math.cos(a) * sp, 0.35 + RND() * 1.1, 0.22 + RND() * 0.42, 0.7 + RND() * 0.8);
+    }
+    for (let i = 0; i < 16; i++)
+      spawnEmber(RUN_X1 - 0.6, 0.1, -0.5 - RND() * 1.7, 0.8 + RND() * 2.3, 0.7 + RND() * 0.9);
+  }
+  if (T > T_TOUCH - 0.02 && !dustArmed.land) {
+    dustArmed.land = true;
+    CAM.shake = 0.5; flash = 1;
+    for (let i = 0; i < 78; i++) {
+      const a = (RND() - 0.5) * Math.PI * 0.95, sp = 0.9 + RND() * 3.5;
+      spawnDust(X_LAND + (RND() - 0.5) * 1.0, 0.04 + RND() * 0.26,
+                Math.cos(a) * sp, 0.4 + Math.abs(Math.sin(a)) * sp * 0.5, 0.20 + RND() * 0.5, 0.8 + RND() * 1.15);
+    }
+    for (let i = 0; i < 24; i++)
+      pebbles.push({ x: X_LAND + (RND() - 0.5) * 0.8, y: 0.14, vx: (RND() - 0.2) * 4.6, vy: 1 + RND() * 3.5,
+                     r: 0.025 + RND() * 0.045, l: 0, tl: 0.9 + RND() * 0.7 });
+    for (let i = 0; i < 28; i++)
+      spawnEmber(X_LAND + (RND() - 0.5) * 1.3, 0.1, (RND() - 0.5) * 3.2, 1 + RND() * 3.6, 0.6 + RND() * 0.9);
+  }
+  if (T > T_TOUCH && T < T_TOUCH + 0.55) {
+    for (let i = 0; i < 3; i++)
+      spawnDust(X_LAND + 0.3 + RND() * 1.8, 0.05 + RND() * 0.22, -1.2 - RND() * 2.1, 0.5 + RND() * 0.9,
+                0.25 + RND() * 0.5, 0.7 + RND() * 0.6);
+  }
+  if (Math.abs(LION.x - RING.x) < 0.55 && whoosh > 0.55 && LION.mode === 'air') {
+    for (let i = 0; i < 5; i++)
+      spawnEmber(RING.x + (RND() - 0.5) * 1.3, RING.y + (RND() - 0.5) * 1.9,
+                 (RND() - 0.5) * 4.6, 1 + RND() * 4.6, 0.5 + RND() * 1.1);
+    flash = Math.max(flash, 0.8);
+    CAM.shake = Math.max(CAM.shake, 0.16);
+  }
+  flash = Math.max(0, flash - dt * 4.6);
+
+  /* ── particles ── */
+  for (let i = flames.length - 1; i >= 0; i--) {
+    const f = flames[i];
+    f.a += dt;
+    if (f.a > f.l) { flames.splice(i, 1); continue; }
+    const t = f.a / f.l;
+    const flow = lionFlow(f.x, f.y);
+    f.vy += (1.6 - t * 0.9) * dt * f.bu;
+    f.vx += Math.sin(f.a * 7 + f.seed) * 2.0 * dt + flow[0] * dt * 2.2;
+    f.vy += flow[1] * dt * 1.6;
+    f.vx *= 1 - dt * 2.1; f.vy *= 1 - dt * 0.7;
+    f.x += f.vx * dt; f.y += f.vy * dt;
+    f.s += dt * (0.30 - t * 0.70);
+  }
+  for (let i = embers.length - 1; i >= 0; i--) {
+    const e = embers[i];
+    e.a += dt;
+    if (e.a > e.l) { embers.splice(i, 1); continue; }
+    e.vy -= 3.6 * dt * (e.a / e.l);
+    e.vx += Math.sin(e.a * 5 + e.seed) * 1.1 * dt;
+    e.x += e.vx * dt; e.y += e.vy * dt;
+  }
+  for (let i = smokes.length - 1; i >= 0; i--) {
+    const m = smokes[i];
+    m.a += dt;
+    if (m.a > m.l) { smokes.splice(i, 1); continue; }
+    m.vy += 0.35 * dt;
+    m.vx += (0.14 - m.vx) * dt * 0.8 + Math.sin(m.a * 2 + m.seed) * 0.2 * dt;
+    m.x += m.vx * dt; m.y += m.vy * dt; m.s += dt * 0.45;
+  }
+  for (let i = dusts.length - 1; i >= 0; i--) {
+    const d = dusts[i];
+    d.a += dt;
+    if (d.a > d.l) { dusts.splice(i, 1); continue; }
+    d.vy += (0.35 - d.vy) * dt * 1.2;
+    d.vx *= 1 - dt * 1.6;
+    d.x += d.vx * dt; d.y += d.vy * dt;
+    if (d.y < 0.02) { d.y = 0.02; d.vy = Math.abs(d.vy) * 0.2; }
+    d.s += dt * 0.85;
+  }
+  for (let i = pebbles.length - 1; i >= 0; i--) {
+    const p = pebbles[i];
+    p.l += dt;
+    if (p.l > p.tl) { pebbles.splice(i, 1); continue; }
+    p.vy -= 9.2 * dt;
+    p.x += p.vx * dt; p.y += p.vy * dt;
+    if (p.y < p.r) { p.y = p.r; p.vy = -p.vy * 0.35; p.vx *= 0.6; }
+  }
+  tailStep(dt, LION.pitch, LION.speed, realTime);
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   rendering: sky, land
+   ══════════════════════════════════════════════════════════════════════ */
+function drawSky(flick) {
+  const g = ctx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0.00, '#04050e');
+  g.addColorStop(0.42, '#0a0817');
+  g.addColorStop(0.68, '#1a0f1c');
+  g.addColorStop(0.84, `rgba(${Math.round(56 + 24 * flick)},${Math.round(26 + 13 * flick)},25,1)`);
+  g.addColorStop(1.00, '#150a10');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+
+  const par = 0.05, span = W * 1.8;
+  for (const st of stars) {
+    const raw = st.x * span - camx * par * s;
+    const X = ((raw % span) + span) % span - (span - W) * 0.5;
+    const Y = st.y * H * 0.80 + CAM.lift * s * 0.22;
+    if (X < -4 || X > W + 4 || Y < -4 || Y > H * 0.82) continue;
+    const tw = 0.55 + 0.45 * Math.sin(realTime * 1.7 + st.tw);
+    ctx.fillStyle = `rgba(220,228,255,${(0.18 + 0.55 * st.m * tw).toFixed(3)})`;
+    ctx.fillRect(X, Y, st.r, st.r);
+  }
+  /* moon — drawn once into a layer so the crescent can be carved out safely */
+  if (!moonCv) {
+    moonCv = document.createElement('canvas');
+    moonCv.width = moonCv.height = 320;
+    const m = moonCv.getContext('2d');
+    const c = 160, r = 44;
+    const mg = m.createRadialGradient(c, c, 0, c, c, 150);
+    mg.addColorStop(0, 'rgba(198,212,255,0.30)');
+    mg.addColorStop(0.20, 'rgba(150,170,220,0.10)');
+    mg.addColorStop(1, 'rgba(120,140,200,0)');
+    m.fillStyle = mg; m.fillRect(0, 0, 320, 320);
+    m.fillStyle = 'rgba(228,236,255,0.90)';
+    m.beginPath(); m.arc(c, c, r, 0, TAU); m.fill();
+    m.globalCompositeOperation = 'destination-out';
+    m.beginPath(); m.arc(c + r * 0.48, c - r * 0.30, r * 0.94, 0, TAU); m.fill();
+  }
+  const msz = px(2.6);
+  ctx.drawImage(moonCv, W * 0.18 - msz / 2, H * 0.175 - msz / 2, msz, msz);
+}
+function drawHills() {
+  for (const hl of hills) {
+    ctx.beginPath();
+    let started = false;
+    for (const p of hl.pts) {
+      const X = W / 2 + (p[0] - camx * hl.par) * s;
+      const Y = sy(p[1]) + CAM.lift * s * 0.07 * (1 - hl.par);
+      if (!started) { ctx.moveTo(X, Y); started = true; } else ctx.lineTo(X, Y);
+    }
+    ctx.lineTo(W + 90, H + 90); ctx.lineTo(-90, H + 90); ctx.closePath();
+    ctx.fillStyle = hl.col; ctx.fill();
+  }
+}
+function drawTree(t) {
+  const X = W / 2 + (t.x - camx * t.par) * s;
+  const groundY = sy(0) + CAM.lift * s * 0.08 * (1 - t.par);
+  const S = px(t.k);
+  ctx.fillStyle = t.col; ctx.strokeStyle = t.col; ctx.lineCap = 'round';
+  ctx.lineWidth = S * 0.070;
+  ctx.beginPath();
+  ctx.moveTo(X, groundY);
+  ctx.quadraticCurveTo(X - S * 0.05, groundY - S * 0.55, X + S * 0.02, groundY - S * 0.95);
+  ctx.stroke();
+  for (let i = 0; i < 5; i++) {
+    const a = -Math.PI / 2 + (i - 2) * 0.44 + (hash1(t.x + i) - 0.5) * 0.2;
+    const L1 = S * (0.34 + hash1(t.x + i * 3) * 0.18);
+    ctx.lineWidth = S * 0.032;
+    ctx.beginPath();
+    ctx.moveTo(X + S * 0.01, groundY - S * 0.86);
+    ctx.lineTo(X + Math.cos(a) * L1, groundY - S * 0.92 + Math.sin(a) * L1);
+    ctx.stroke();
+  }
+  ctx.beginPath();
+  const cy0 = groundY - S * 1.16;
+  for (let i = 0; i < 6; i++) {
+    const a = -Math.PI / 2 + (i - 2.5) * 0.46;
+    const rx = S * 0.56, ry = S * 0.095;
+    ctx.ellipse(X + Math.cos(a) * rx * 0.5, cy0 + Math.sin(a) * ry * 1.4,
+                rx * (0.5 + hash1(t.x + i) * 0.5), ry * (0.8 + hash1(t.x + i * 7) * 0.8), 0, 0, TAU);
+  }
+  ctx.fill();
+}
+function drawGround(flick) {
+  const gy = sy(0);
+  /* firelight pooling on the dirt */
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  const gx = sx(RING.x), gr = px(6.2), a = 0.20 + 0.12 * flick;
+  ctx.save();
+  ctx.translate(gx, gy + gr * 0.05); ctx.scale(1, 0.20);
+  const g = ctx.createRadialGradient(0, 0, 0, 0, 0, gr);
+  g.addColorStop(0, `rgba(255,124,44,${a.toFixed(3)})`);
+  g.addColorStop(0.35, `rgba(190,72,26,${(a * 0.42).toFixed(3)})`);
+  g.addColorStop(1, 'rgba(120,40,20,0)');
+  ctx.fillStyle = g; ctx.beginPath(); ctx.arc(0, 0, gr, 0, TAU); ctx.fill();
+  ctx.restore();
+  ctx.restore();
+
+  const g2 = ctx.createLinearGradient(0, gy, 0, H);
+  g2.addColorStop(0, '#1b1218'); g2.addColorStop(0.3, '#120c12'); g2.addColorStop(1, '#08060b');
+  ctx.fillStyle = g2; ctx.fillRect(-30, gy, W + 60, H - gy + 40);
+
+  ctx.strokeStyle = 'rgba(28,19,22,0.85)'; ctx.lineCap = 'round';
+  ctx.lineWidth = Math.max(0.6, px(0.018));
+  for (const t of tufts) {
+    const X = sx(t.x);
+    if (X < -20 || X > W + 20) continue;
+    const yb = gy + px(t.d * t.d * 5.5) + px(0.05);
+    for (let i = 0; i < t.n; i++) {
+      const k = t.sp + (i / t.n - 0.5) * 0.7;
+      ctx.beginPath();
+      ctx.moveTo(X, yb);
+      ctx.quadraticCurveTo(X + k * px(0.08), yb - px(t.h * 0.6), X + k * px(0.16), yb - px(t.h));
+      ctx.stroke();
+    }
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   rendering: particles
+   ══════════════════════════════════════════════════════════════════════ */
+function drawFlames(front) {
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  for (const f of flames) {
+    if (!!f.fr !== front) continue;
+    const X = sx(f.x), Y = sy(f.y);
+    if (X < -120 || X > W + 120 || Y < -160 || Y > H + 60) continue;
+    const t = f.a / f.l;
+    const r = px(Math.max(0.02, f.s * (0.55 + 0.75 * Math.sin(t * Math.PI))));
+    let a = clamp((1 - t) * (t < 0.12 ? t / 0.12 : 1), 0, 1);
+    const al = Math.atan2(-f.vy, f.vx);
+    const st = clamp(1 + Math.hypot(f.vx, f.vy) * 0.15, 1, 2.2);
+    ctx.save();
+    ctx.translate(X, Y); ctx.rotate(al); ctx.scale(st, 1.15 / st);
+    const spr = t < 0.16 ? SP.hot : t < 0.34 ? SP.yel : t < 0.58 ? SP.org : t < 0.8 ? SP.red : SP.deep;
+    ctx.globalAlpha = a * (t < 0.16 ? 0.95 : 0.75) * (front ? 0.78 : 1);
+    ctx.drawImage(spr, -r, -r, r * 2, r * 2);
+    if (t < 0.45) {
+      const r2 = r * 0.5;
+      ctx.globalAlpha = a * 0.85;
+      ctx.drawImage(SP.hot, -r2, -r2, r2 * 2, r2 * 2);
+    }
+    ctx.restore();
+  }
+  ctx.restore();
+}
+function drawEmbers() {
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  for (const e of embers) {
+    const t = e.a / e.l;
+    const X = sx(e.x), Y = sy(e.y);
+    if (X < -50 || X > W + 50 || Y < -50 || Y > H + 50) continue;
+    const tw = 0.5 + 0.5 * Math.sin(e.a * 22 + e.seed * 9);
+    const r = px(0.026 + 0.016 * tw) * (1 - t * 0.4);
+    ctx.globalAlpha = clamp((1 - t) * (0.45 + 0.55 * tw), 0, 1);
+    ctx.fillStyle = t < 0.5 ? 'rgba(255,240,190,1)' : 'rgba(255,150,50,1)';
+    ctx.beginPath(); ctx.arc(X, Y, Math.max(0.6, r), 0, TAU); ctx.fill();
+    ctx.globalAlpha *= 0.35;
+    ctx.drawImage(SP.yel, X - r * 4, Y - r * 4, r * 8, r * 8);
+  }
+  ctx.restore();
+}
+function drawSmoke(front) {
+  for (const m of smokes) {
+    if (!!m.fr !== front) continue;
+    const t = m.a / m.l;
+    const X = sx(m.x), Y = sy(m.y);
+    if (X < -200 || X > W + 200 || Y < -260 || Y > H + 60) continue;
+    const r = px(Math.max(0.05, m.s));
+    ctx.globalAlpha = clamp(Math.sin(t * Math.PI) * 0.13, 0, 1);
+    ctx.drawImage(SP.smoke, X - r, Y - r, r * 2, r * 2);
+  }
+  ctx.globalAlpha = 1;
+}
+function drawDust() {
+  for (const d of dusts) {
+    const t = d.a / d.l;
+    const X = sx(d.x), Y = sy(d.y);
+    if (X < -200 || X > W + 200) continue;
+    const r = px(Math.max(0.04, d.s));
+    ctx.globalAlpha = clamp(Math.sin(Math.min(1, t * 1.15) * Math.PI) * 0.30, 0, 1);
+    ctx.drawImage(d.x > RING.x - 7 ? SP.dust : SP.smoke, X - r, Y - r, r * 2, r * 2);
+  }
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = '#0b0808';
+  for (const p of pebbles) {
+    ctx.globalAlpha = 1 - p.l / p.tl;
+    ctx.beginPath(); ctx.arc(sx(p.x), sy(p.y), Math.max(0.8, px(p.r)), 0, TAU); ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   rendering: the lion
+   ══════════════════════════════════════════════════════════════════════ */
+let COS = 1, SIN = 0;
+function lc(lx, ly, extra) {
+  let x = lx, y = ly;
+  if (extra) {
+    const c = Math.cos(extra.a), sn = Math.sin(extra.a);
+    const dx = x - extra.x, dy = y - extra.y;
+    x = extra.x + dx * c - dy * sn;
+    y = extra.y + dx * sn + dy * c;
+  }
+  const wx = LION.x + x * COS - y * SIN;
+  const wy = LION.y + x * SIN + y * COS;
+  return [sx(wx), sy(wy)];
+}
+function lcSpine(lx, ly) {
+  const yy = ly + LION.spine * 0.10 * (1 - clamp(Math.pow(Math.abs(lx) / 1.5, 2), 0, 1)) * (lx > -0.2 ? 1 : 0.5);
+  return lc(lx, yy);
+}
+function lionGrad(anchor) {
+  const gx = anchor[0] + LIGHT.fx * px(1.2), gy = anchor[1] - LIGHT.fy * px(1.2);
+  const g = ctx.createLinearGradient(anchor[0], anchor[1], gx, gy);
+  const w = 0.06 + 0.10 * LIGHT.wrap + 0.06 * heat;
+  g.addColorStop(0, '#070506');
+  g.addColorStop(1, `rgb(${Math.round(22 + 60 * w)},${Math.round(11 + 24 * w)},${Math.round(8 + 10 * w)})`);
+  return g;
+}
+function drawLeg(ang, len, w, base, grad, rimW, boost) {
+  const scr = legJoints(base, ang, len).map(p => lc(p[0], p[1]));
+  paintChain(scr, w, grad, rimW, boost);
+  const toe = scr[scr.length - 1], ank = scr[scr.length - 2];
+  const a = Math.atan2(toe[1] - ank[1], toe[0] - ank[0]);
+  ctx.save();
+  ctx.translate(toe[0] + Math.cos(a) * px(0.05), toe[1] + Math.sin(a) * px(0.05));
+  ctx.rotate(a * 0.6);
+  ctx.fillStyle = grad;
+  ctx.beginPath(); ctx.ellipse(0, 0, px(0.115), px(0.068), 0, 0, TAU); ctx.fill();
+  ctx.restore();
+}
+function drawLion() {
+  if (!LION.vis) return;
+  COS = Math.cos(LION.pitch); SIN = Math.sin(LION.pitch);
+  const rimW = Math.max(1.4, px(0.046));
+  const boost = 1.25 + 0.5 * heat + 0.95 * LIGHT.wrap;
+  const bodyGrad = lionGrad(lc(0, 0));
+
+  if (LION.mode === 'run' || LION.mode === 'land' || LION.mode === 'crouch' || LION.mode === 'gone') {
+    ctx.save();
+    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+    ctx.beginPath();
+    ctx.ellipse(sx(LION.x), sy(0) + px(0.05), px(1.45), px(0.16), 0, 0, TAU);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  const shoulder = lc(R.shoulder[0], R.shoulder[1]);
+  const hip = lc(R.hip[0], R.hip[1]);
+  const farG = 'rgba(6,4,5,1)';
+  drawLeg(LION.legs.fr, R.frontLen, FRONT_W, shoulder, farG, rimW * 0.7, boost * 0.45);
+  drawLeg(LION.legs.hr, R.hindLen, HIND_W, hip, farG, rimW * 0.7, boost * 0.45);
+
+  /* tail */
+  const tailScr = TAIL.pts.map(p => lc(p[0], p[1]));
+  paintChain(tailScr, TAIL_W, lionGrad(lc(-1.5, 0.3)), rimW * 0.75, boost * 0.85);
+  const tip = tailScr[tailScr.length - 1], prev = tailScr[tailScr.length - 2];
+  const ta = Math.atan2(tip[1] - prev[1], tip[0] - prev[0]);
+  ctx.save();
+  ctx.translate(tip[0] + Math.cos(ta) * px(0.09), tip[1] + Math.sin(ta) * px(0.09));
+  ctx.rotate(ta);
+  ctx.fillStyle = '#080506';
+  ctx.beginPath(); ctx.ellipse(0, 0, px(0.19), px(0.125), 0, 0, TAU); ctx.fill();
+  ctx.restore();
+
+  /* mane behind the head */
+  const lean = clamp(Math.abs(LION.speed) / 6.5, 0, 1) * (LION.mode === 'air' ? 1.5 : 1);
+  const mane = manePoly(LION.flare, lean * 0.45, realTime * 1.4).map(p => lc(p[0], p[1]));
+  paintShape(mane, lionGrad(lc(R.maneCentre[0], R.maneCentre[1])), rimW * 1.2, boost * 1.15, true);
+  ctx.save();
+  pathPolyline(mane, true); ctx.clip();
+  const mc = lc(R.maneCentre[0], R.maneCentre[1]);
+  const mg = ctx.createRadialGradient(mc[0], mc[1], px(0.12), mc[0], mc[1], px(0.8));
+  mg.addColorStop(0, 'rgba(0,0,0,0.7)'); mg.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = mg; ctx.fillRect(mc[0] - px(1.2), mc[1] - px(1.2), px(2.4), px(2.4));
+  ctx.restore();
+
+  /* torso */
+  const torso = R.torso.map(p => lcSpine(p[0], p[1]));
+  paintShape(torso, bodyGrad, rimW * 1.1, boost, true);
+
+  /* neck, head, ears */
+  const pivot = { x: R.neckBase[0], y: R.neckBase[1], a: LION.neck + LION.pitch * 0.30 };
+  const neck = sampleCurve([[0.98, 0.22], [1.24, 0.32], [1.46, 0.50]], false, 6).map(p => lc(p[0], p[1], pivot));
+  paintChain(neck, [0.30, 0.285, 0.27, 0.245, 0.225, 0.21, 0.20, 0.195], bodyGrad, rimW, boost);
+  const skull = R.skull.map(p => lc(p[0], p[1], pivot));
+  paintShape(skull, lionGrad(lc(1.85, 0.6, pivot)), rimW, boost * 1.05, false);
+  for (const ear of R.ears) {
+    const ep = sampleCurve(ear, true, 5).map(p => lc(p[0], p[1], pivot));
+    paintShape(ep, 'rgba(7,5,6,1)', rimW * 0.75, boost * 0.7, false);
+  }
+  /* nose + eye */
+  const nose = lc(R.nose[0], R.nose[1], pivot);
+  ctx.fillStyle = 'rgba(255,176,96,0.5)';
+  ctx.beginPath(); ctx.arc(nose[0] - px(0.02), nose[1], Math.max(1, px(0.026)), 0, TAU); ctx.fill();
+  const eye = lc(1.92, 0.74, pivot);
+  ctx.fillStyle = 'rgba(255,216,152,0.92)';
+  ctx.beginPath(); ctx.ellipse(eye[0], eye[1], Math.max(1, px(0.034)), Math.max(0.8, px(0.021)), -0.4, 0, TAU); ctx.fill();
+
+  /* near legs */
+  drawLeg(LION.legs.fl, R.frontLen, FRONT_W, shoulder, bodyGrad, rimW, boost);
+  drawLeg(LION.legs.hl, R.hindLen, HIND_W, hip, bodyGrad, rimW, boost);
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   rendering: foreground, grade
+   ══════════════════════════════════════════════════════════════════════ */
+function drawForegroundGrass() {
+  ctx.strokeStyle = '#04030a'; ctx.lineCap = 'round';
+  for (const b of blades) {
+    const X = W / 2 + (b.x - camx * 1.45) * s;
+    if (X < -50 || X > W + 50) continue;
+    const yb = sy(0) + H * 0.11;
+    ctx.lineWidth = Math.max(1, px(0.042));
+    for (let i = 0; i < b.n; i++) {
+      const k = b.k + (i - b.n / 2) * 0.4;
+      const sway = Math.sin(realTime * 0.85 + b.x) * 0.07;
+      ctx.beginPath();
+      ctx.moveTo(X, yb);
+      ctx.quadraticCurveTo(X + px(k * 0.25 + sway * 0.3), yb - px(b.h * 0.62),
+                           X + px(k * 0.6 + sway), yb - px(b.h));
+      ctx.stroke();
+    }
+  }
+}
+/* the column of light inside the hoop — drawn BEHIND the lion so he reads as
+   a backlit silhouette rather than a black blob on a black sky */
+function drawInnerGlow() {
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  const cx = sx(RING.x), cy = sy(RING.y), r = px(RING.ry * 1.18);
+  const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+  const a = 0.14 + 0.30 * heat;
+  g.addColorStop(0, `rgba(255,168,74,${(a).toFixed(3)})`);
+  g.addColorStop(0.55, `rgba(240,110,34,${(a * 0.7).toFixed(3)})`);
+  g.addColorStop(1, 'rgba(180,60,20,0)');
+  ctx.fillStyle = g;
+  ctx.beginPath(); ctx.arc(cx, cy, r, 0, TAU); ctx.fill();
+  ctx.restore();
+}
+function drawHalo() {
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  const cx = sx(RING.x), cy = sy(RING.y), r = px(RING.rx * 2.4);
+  const hg = ctx.createRadialGradient(cx, cy, px(0.6), cx, cy, r);
+  const a = 0.05 + 0.05 * heat;
+  hg.addColorStop(0, `rgba(255,152,62,${(a).toFixed(3)})`);
+  hg.addColorStop(0.4, `rgba(220,92,30,${(a * 0.45).toFixed(3)})`);
+  hg.addColorStop(1, 'rgba(160,50,20,0)');
+  ctx.fillStyle = hg; ctx.beginPath(); ctx.arc(cx, cy, r, 0, TAU); ctx.fill();
+  ctx.restore();
+}
+function drawGrade() {
+  const g = ctx.createRadialGradient(W * 0.5, H * 0.52, Math.min(W, H) * 0.24, W * 0.5, H * 0.52, Math.max(W, H) * 0.78);
+  g.addColorStop(0, 'rgba(0,0,0,0)');
+  g.addColorStop(0.62, 'rgba(0,0,0,0.20)');
+  g.addColorStop(1, 'rgba(0,0,0,0.82)');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  if (flash > 0.01) {
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.fillStyle = `rgba(255,124,44,${(flash * 0.075).toFixed(3)})`;
+    ctx.fillRect(0, 0, W, H);
+    ctx.restore();
+  }
+  if (grainCv) {
+    ctx.save();
+    ctx.globalAlpha = 0.045;
+    ctx.globalCompositeOperation = 'overlay';
+    const ox = (realTime * 137) % 128, oy = (realTime * 233) % 128;
+    for (let x = -ox; x < W; x += 128) for (let y = -oy; y < H; y += 128) ctx.drawImage(grainCv, x, y);
+    ctx.restore();
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   frame
+   ══════════════════════════════════════════════════════════════════════ */
+function render() {
+  const flick = 0.5 + 0.28 * Math.sin(realTime * 8.3) * Math.sin(realTime * 3.1) + 0.22 * noise1(realTime * 6);
+  ctx.clearRect(0, 0, W, H);
+  updateProjection();
+  drawSky(flick);
+  drawHills();
+  for (const t of treeLayers) if (t.par <= 0.26) drawTree(t);
+  drawGround(flick);
+  for (const t of treeLayers) if (t.par > 0.26) drawTree(t);
+
+  drawSmoke(false);
+  drawFlames(false);
+  drawPosts();
+  drawRingHalf(false);
+  drawInnerGlow();
+  drawEmbers();
+
+  drawLion();
+
+  drawRingHalf(true);
+  drawFlames(true);
+  drawSmoke(true);
+  drawDust();
+  drawForegroundGrass();
+  drawHalo();
+  drawGrade();
+
+  const f = Math.max(smooth((clock - (LOOP - 0.5)) / 0.5), 1 - smooth(clock / 0.32));
+  if (f > 0.002) { ctx.fillStyle = `rgba(3,3,8,${f.toFixed(3)})`; ctx.fillRect(0, 0, W, H); }
+}
+
+function resize() {
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  W = Math.floor(window.innerWidth * DPR);
+  H = Math.floor(window.innerHeight * DPR);
+  cvs.width = W; cvs.height = H;
+  cvs.style.width = window.innerWidth + 'px';
+  cvs.style.height = window.innerHeight + 'px';
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+}
+function buildGrain() {
+  grainCv = document.createElement('canvas');
+  grainCv.width = grainCv.height = 128;
+  const g = grainCv.getContext('2d');
+  const im = g.createImageData(128, 128);
+  for (let i = 0; i < im.data.length; i += 4) {
+    const v = 110 + (RND() - 0.5) * 92;
+    im.data[i] = im.data[i + 1] = im.data[i + 2] = v;
+    im.data[i + 3] = 255;
+  }
+  g.putImageData(im, 0, 0);
+}
+
+const q = new URLSearchParams(location.search);
+const startT = q.has('t') ? clamp(parseFloat(q.get('t')) || 0, 0, LOOP) : 0;
+const STILL = q.has('still');
+
+let last = 0;
+function frame(now) {
+  if (!last) last = now;
+  const raw = Math.min(0.05, (now - last) / 1000);
+  last = now;
+  realTime += raw;
+  /* the crossing plays in slow motion */
+  const prox = Math.exp(-Math.pow(LION.x - RING.x, 2) / 1.3) * (LION.mode === 'air' ? 1 : 0.5);
+  dtGlobal = raw * lerp(1, 0.42, clamp(prox, 0, 1) * 0.85);
+  clock += dtGlobal;
+  if (clock >= LOOP) {
+    clock -= LOOP;
+    dustArmed.take = false; dustArmed.land = false;
+    LION.gait = 0; tailReset();
+  }
+  simulate(dtGlobal);
+  render();
+  requestAnimationFrame(frame);
+}
+
+/* ── boot ─────────────────────────────────────────────────────────────── */
+resize();
+window.addEventListener('resize', resize);
+buildSprites(); buildScene(); buildGrain(); tailReset();
+CAM.x = RUN_X0 * 0.52;
+
+if (startT > 0) {                        /* deterministic still for inspection */
+  let acc = 0, guard = 0;
+  dtGlobal = 1 / 60;
+  while (acc < startT && guard++ < 1500) { clock = acc; simulate(1 / 60); acc += 1 / 60; }
+  clock = startT; simulate(1e-6); render();
+  if (!STILL) { last = 0; requestAnimationFrame(frame); }
+} else {
+  for (let i = 0; i < 160; i++) { clock = 0; simulate(1 / 60); }   // pre-burn the fire
+  clock = 0;
+  requestAnimationFrame(frame);
+}
+</script>
+<!--zc-home:start--><style>.zc-home-btn{position:fixed;top:16px;left:16px;z-index:2147483647;display:inline-flex;align-items:center;gap:6px;padding:8px 14px;font:500 13px/1.1 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Noto Sans SC",sans-serif;color:#111;background:rgba(255,255,255,.86);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);border:1px solid rgba(0,0,0,.08);border-radius:999px;text-decoration:none;box-shadow:0 2px 12px rgba(0,0,0,.2);transition:background .2s ease,transform .2s ease,box-shadow .2s ease}.zc-home-btn:hover{background:#fff;transform:translateY(-1px);box-shadow:0 4px 18px rgba(0,0,0,.26)}</style><a class="zc-home-btn" href="../">← 返回首页</a><!--zc-home:end-->
+</body>
+</html>

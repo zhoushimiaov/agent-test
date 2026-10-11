@@ -1,0 +1,805 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>狮跃火圈</title>
+<style>
+  html,body{margin:0;height:100%;background:#050308;overflow:hidden}
+  #stage{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;
+         background:radial-gradient(130% 100% at 50% 40%,#170b13,#050308)}
+  canvas{display:block}
+</style>
+</head>
+<body>
+<div id="stage"><canvas id="c" width="1280" height="720"></canvas></div>
+<script>
+(()=>{
+'use strict';
+/* ============================================================
+   狮跃火圈 · lion-fire-loop · model: MiMo-V2.6-Flash
+   单文件 2D Canvas 动画:助跑 → 跃过火圈 → 落地咆哮 → 冲出 → 循环
+   ============================================================ */
+const cvs=document.getElementById('c'), ctx=cvs.getContext('2d');
+const W=1280, H=720;
+function fit(){
+  const s=Math.min(innerWidth/W, innerHeight/H);
+  cvs.style.width=(W*s|0)+'px'; cvs.style.height=(H*s|0)+'px';
+}
+addEventListener('resize',fit); fit();
+
+/* ---------- 工具 ---------- */
+const TAU=Math.PI*2;
+const clamp=(v,a,b)=>v<a?a:(v>b?b:v);
+const lerp=(a,b,t)=>a+(b-a)*t;
+const hash=n=>{const r=Math.sin(n*127.1+311.7)*43758.5453; return r-Math.floor(r);};
+const smooth=t=>{t=clamp(t,0,1); return t*t*(3-2*t);};
+/** 0 → 1(a..b 上升,保持) → 0(c..d 下降) */
+function ramp(x,a,b,c,d){
+  if(x<=a||x>=d) return 0;
+  if(x<b) return smooth((x-a)/(b-a));
+  if(x>c) return 1-smooth((x-c)/(d-c));
+  return 1;
+}
+
+/* ---------- 场景常量 / 时间轴 ---------- */
+const GROUND=560;                    // 马戏场地面线
+const RING={x:870,y:352,r:110};      // 火圈
+const DUR=6.0;                       // 循环总时长(秒)
+const TAKE_X=650, LAND_X=1090, BODY_Y=560-52;
+const T_LEAP0=2.0, T_LEAP1=2.9;      // 腾空窗口
+const T_EXIT0=3.6, T_EXIT1=5.1;      // 冲出窗口
+const PK=156/((RING.x-TAKE_X)*(RING.x-TAKE_X)); // 跳跃抛物线系数
+
+/* ---------- 观众席 / 帐篷背景 ---------- */
+function drawTent(){
+  /* 背景条纹墙 */
+  for(let i=-5;i<31;i++){
+    const x=i*96;
+    ctx.fillStyle=(i&1)?'#370f1e':'#431427';
+    ctx.fillRect(x,50,96,GROUND-50);
+  }
+  const vg=ctx.createLinearGradient(0,50,0,GROUND);
+  vg.addColorStop(0,'rgba(12,4,9,0.92)');
+  vg.addColorStop(0.42,'rgba(0,0,0,0)');
+  vg.addColorStop(1,'rgba(0,0,0,0.62)');
+  ctx.fillStyle=vg; ctx.fillRect(-400,50,3400,GROUND-50);
+
+  /* 顶棚:深色穹顶 + 波浪帷幔 */
+  ctx.fillStyle='#1a0912';
+  ctx.beginPath();
+  ctx.moveTo(-400,-300); ctx.lineTo(3000,-300); ctx.lineTo(3000,40);
+  for(let x=3000;x>=-400;x-=80){
+    ctx.quadraticCurveTo(x-40,76,x-80,40);
+  }
+  ctx.closePath(); ctx.fill();
+  /* 帐篷放射缝线 */
+  ctx.strokeStyle='rgba(255,190,140,0.045)'; ctx.lineWidth=3;
+  for(let x=-300;x<2900;x+=160){
+    ctx.beginPath(); ctx.moveTo(x,44); ctx.lineTo(1300+(x-1300)*0.12,-300); ctx.stroke();
+  }
+}
+
+/* ---------- 灯串(灯泡 + 小旗) ---------- */
+function glowDot(x,y,r,core){
+  const g=ctx.createRadialGradient(x,y,0,x,y,r*4);
+  g.addColorStop(0,'rgba(255,205,130,0.5)');
+  g.addColorStop(1,'rgba(255,160,60,0)');
+  ctx.fillStyle=g; ctx.beginPath(); ctx.arc(x,y,r*4,0,TAU); ctx.fill();
+  ctx.fillStyle=core; ctx.beginPath(); ctx.arc(x,y,r,0,TAU); ctx.fill();
+}
+function drawGarland(y0,seed){
+  for(let x=-300;x<2900;x+=400){
+    ctx.strokeStyle='rgba(30,16,12,0.95)'; ctx.lineWidth=2.5;
+    ctx.beginPath();
+    for(let u=0;u<=1.001;u+=0.1){
+      const px=x+400*u, py=y0+34*Math.sin(Math.PI*u);
+      if(u===0) ctx.moveTo(px,py); else ctx.lineTo(px,py);
+    }
+    ctx.stroke();
+    for(let u=0.07;u<1;u+=0.118){
+      const px=x+400*u, py=y0+34*Math.sin(Math.PI*u);
+      const h=hash(seed+px*0.17);
+      if(h<0.5){
+        const col=['#ffd98a','#ffb46a','#ffe9c0'][(h*97|0)%3];
+        glowDot(px,py+7,4.5,col);
+      }else{
+        ctx.fillStyle=(h<0.78)?'#a62b3a':'#c9992f';
+        ctx.beginPath(); ctx.moveTo(px-8,py); ctx.lineTo(px+8,py);
+        ctx.lineTo(px,py+22); ctx.closePath(); ctx.fill();
+      }
+    }
+  }
+}
+
+/* ---------- 观众剪影 ---------- */
+function drawCrowd(){
+  ctx.fillStyle='#150b16';
+  ctx.fillRect(-400,406,3400,150);
+  for(let row=0;row<2;row++){
+    const cy=450+row*46, r=13-row;
+    for(let i=0;i<132;i++){
+      const x=-380+i*26+(row?13:0);
+      const h=hash(i*3.7+row*91.3);
+      const col='rgb('+(18+h*16|0)+','+(11+h*10|0)+','+(20+h*12|0)+')';
+      ctx.fillStyle=col;
+      ctx.beginPath(); ctx.arc(x,cy,r,0,TAU); ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(x-17,cy+r+14);
+      ctx.quadraticCurveTo(x,cy+r-4,x+17,cy+r+14);
+      ctx.lineTo(x+17,cy+r+34); ctx.lineTo(x-17,cy+r+34);
+      ctx.closePath(); ctx.fill();
+      /* 顶部暖色轮廓光 */
+      ctx.strokeStyle='rgba(255,170,90,0.10)'; ctx.lineWidth=2;
+      ctx.beginPath(); ctx.arc(x,cy,r-0.5,Math.PI*1.05,Math.PI*1.95); ctx.stroke();
+      if(h>0.93){ /* 帽子 */
+        ctx.fillStyle='#241318';
+        ctx.fillRect(x-11,cy-r-7,22,6);
+        ctx.fillRect(x-7,cy-r-13,14,7);
+      }else if(h>0.78&&h<0.83){ /* 举起的手臂 */
+        ctx.strokeStyle=col; ctx.lineWidth=5; ctx.lineCap='round';
+        ctx.beginPath(); ctx.moveTo(x+12,cy+r+8);
+        ctx.lineTo(x+12+(h-0.8)*40,cy+r-14); ctx.stroke();
+      }
+    }
+  }
+}
+
+/* ---------- 场边围栏 ---------- */
+function drawBarrier(){
+  ctx.fillStyle='#4a2c17'; ctx.fillRect(-400,532,3400,30);
+  const bg=ctx.createLinearGradient(0,532,0,562);
+  bg.addColorStop(0,'#6b4122'); bg.addColorStop(1,'#3a2110');
+  ctx.fillStyle=bg; ctx.fillRect(-400,532,3400,30);
+  for(let x=-380;x<3000;x+=120){
+    ctx.fillStyle='#5c3718'; ctx.fillRect(x,522,16,44);
+    ctx.fillStyle='#7a4c26'; ctx.fillRect(x,522,5,44);
+  }
+}
+
+/* ---------- 沙地 ---------- */
+function drawFloor(){
+  const g=ctx.createLinearGradient(0,GROUND,0,H+30);
+  g.addColorStop(0,'#c9914f'); g.addColorStop(0.5,'#a9743a'); g.addColorStop(1,'#7d4c26');
+  ctx.fillStyle=g; ctx.fillRect(-400,GROUND,3400,H-GROUND+60);
+  /* 中央装饰圈 */
+  ctx.strokeStyle='rgba(110,64,26,0.55)'; ctx.lineWidth=7;
+  ctx.beginPath(); ctx.ellipse(760,648,560,74,0,0,TAU); ctx.stroke();
+  ctx.strokeStyle='rgba(255,220,170,0.10)'; ctx.lineWidth=2.5;
+  ctx.beginPath(); ctx.ellipse(760,644,560,74,0,0,TAU); ctx.stroke();
+  /* 耙痕 */
+  ctx.strokeStyle='rgba(90,55,25,0.28)'; ctx.lineWidth=3;
+  for(let i=0;i<46;i++){
+    const x=-300+hash(i*5.1)*2800, y=GROUND+8+hash(i*9.7)*(H-GROUND-14);
+    const w=30+hash(i*3.3)*70;
+    ctx.beginPath(); ctx.moveTo(x,y); ctx.quadraticCurveTo(x+w/2,y-3,x+w,y); ctx.stroke();
+  }
+  /* 底部压暗 */
+  const fg=ctx.createLinearGradient(0,H-140,0,H);
+  fg.addColorStop(0,'rgba(20,8,4,0)'); fg.addColorStop(1,'rgba(15,6,3,0.55)');
+  ctx.fillStyle=fg; ctx.fillRect(-400,H-140,3400,200);
+}
+/* ---------- 火圈:支架 + 火环 + 火焰 + 火星 ---------- */
+function drawRingStand(){
+  ctx.lineCap='round';
+  /* 底座横梁 */
+  ctx.strokeStyle='#17110f'; ctx.lineWidth=22;
+  ctx.beginPath(); ctx.moveTo(RING.x-120,GROUND+4); ctx.lineTo(RING.x+120,GROUND+4); ctx.stroke();
+  ctx.strokeStyle='#2d2521'; ctx.lineWidth=7;
+  ctx.beginPath(); ctx.moveTo(RING.x-120,GROUND); ctx.lineTo(RING.x+120,GROUND); ctx.stroke();
+  /* 立柱(两根,略微错开产生立体感) */
+  for(const dx of [-10,10]){
+    ctx.strokeStyle='#0d0a09'; ctx.lineWidth=15;
+    ctx.beginPath(); ctx.moveTo(RING.x+dx,GROUND);
+    ctx.lineTo(RING.x+dx*1.6,RING.y+RING.r-8); ctx.stroke();
+    ctx.strokeStyle='#3a302a'; ctx.lineWidth=4.5;
+    ctx.beginPath(); ctx.moveTo(RING.x+dx-3,GROUND);
+    ctx.lineTo(RING.x+dx*1.6-3,RING.y+RING.r-8); ctx.stroke();
+  }
+  /* 环体金属 */
+  ctx.strokeStyle='#0c0a09'; ctx.lineWidth=16;
+  ctx.beginPath(); ctx.arc(RING.x,RING.y,RING.r,0,TAU); ctx.stroke();
+  ctx.strokeStyle='#38302b'; ctx.lineWidth=6;
+  ctx.beginPath(); ctx.arc(RING.x,RING.y,RING.r,Math.PI*0.5,Math.PI*1.9); ctx.stroke();
+  /* 接地光斑 */
+  const pg=ctx.createRadialGradient(RING.x,GROUND+6,4,RING.x,GROUND+6,150);
+  pg.addColorStop(0,'rgba(255,120,30,0.35)'); pg.addColorStop(1,'rgba(255,120,30,0)');
+  ctx.fillStyle=pg; ctx.beginPath();
+  ctx.ellipse(RING.x,GROUND+8,150,26,0,0,TAU); ctx.fill();
+}
+
+function drawFlames(t,intensity){
+  ctx.save();
+  ctx.globalCompositeOperation='lighter';
+  const N=46;
+  for(let i=0;i<N;i++){
+    const a=i/N*TAU+0.06;
+    const cos=Math.cos(a), sin=Math.sin(a);
+    /* 速度近似:狮子过环瞬间的湍流 */
+    const flick=Math.sin(t*9.5+i*1.7)*0.5+Math.sin(t*15.3+i*3.1)*0.3+Math.sin(t*4.1+i*0.6)*0.2;
+    const rBase=RING.r+9;
+    const px=RING.x+cos*rBase, py=RING.y+sin*rBase;
+    const outW=10+8*flick, outH=(26+34*(0.6+0.4*Math.sin(t*11+i*2.3)))*intensity;
+    /* 外层暗红火舌(径向拉伸,背离圆心) */
+    ctx.save();
+    ctx.translate(px,py);
+    ctx.rotate(a+Math.PI/2);
+    ctx.fillStyle='rgba(220,52,10,'+(0.30*intensity).toFixed(3)+')';
+    ctx.beginPath(); ctx.ellipse(0,-outH*0.4,outW,outH,0,0,TAU); ctx.fill();
+    /* 中层橙黄 */
+    const inH=outH*0.55;
+    ctx.fillStyle='rgba(255,140,20,'+(0.5*intensity).toFixed(3)+')';
+    ctx.beginPath(); ctx.ellipse(0,-inH*0.42,outW*0.6,inH,0,0,TAU); ctx.fill();
+    /* 内芯亮黄 */
+    ctx.fillStyle='rgba(255,225,140,'+(0.55*intensity).toFixed(3)+')';
+    ctx.beginPath(); ctx.ellipse(0,-inH*0.3,outW*0.3,inH*0.5,0,0,TAU); ctx.fill();
+    ctx.restore();
+  }
+  /* 环体本体的热辉光 */
+  ctx.strokeStyle='rgba(255,90,10,'+(0.55*intensity).toFixed(3)+')';
+  ctx.lineWidth=13; ctx.beginPath(); ctx.arc(RING.x,RING.y,RING.r,0,TAU); ctx.stroke();
+  ctx.strokeStyle='rgba(255,190,80,'+(0.7*intensity).toFixed(3)+')';
+  ctx.lineWidth=5; ctx.beginPath(); ctx.arc(RING.x,RING.y,RING.r,0,TAU); ctx.stroke();
+  ctx.strokeStyle='rgba(255,245,210,'+(0.75*intensity).toFixed(3)+')';
+  ctx.lineWidth=2; ctx.beginPath(); ctx.arc(RING.x,RING.y,RING.r,0,TAU); ctx.stroke();
+  ctx.restore();
+
+  /* 环体照亮周围 */
+  const halo=ctx.createRadialGradient(RING.x,RING.y,RING.r*0.35,RING.x,RING.y,RING.r*2.1);
+  halo.addColorStop(0,'rgba(255,130,30,'+(0.20*intensity).toFixed(3)+')');
+  halo.addColorStop(1,'rgba(255,90,10,0)');
+  ctx.fillStyle=halo; ctx.beginPath();
+  ctx.arc(RING.x,RING.y,RING.r*2.1,0,TAU); ctx.fill();
+}
+
+function drawEmbers(t){
+  ctx.save();
+  ctx.globalCompositeOperation='lighter';
+  for(let i=0;i<44;i++){
+    const sd=i*13.37, period=1.9+hash(sd)*1.6;
+    const life=((t+hash(sd+9)*period)%period)/period;
+    const a0=hash(sd+3)*TAU;
+    const r0=RING.r*(0.92+hash(sd+5)*0.16);
+    const rise=(60+hash(sd+7)*150)*life;
+    const drift=(hash(sd+11)-0.5)*70*life;
+    const px=RING.x+Math.cos(a0)*r0+drift+Math.sin(t*2.6+i)*7;
+    const py=RING.y+Math.sin(a0)*r0-rise;
+    const alpha=(1-life)*0.85;
+    const size=1.4+hash(sd+13)*2.4;
+    ctx.fillStyle='rgba(255,'+(140+hash(sd+17)*90|0)+',40,'+alpha.toFixed(3)+')';
+    ctx.beginPath(); ctx.arc(px,py,size,0,TAU); ctx.fill();
+  }
+  ctx.restore();
+}
+
+/* ---------- 顶部聚光灯 ---------- */
+function drawRig(){
+  ctx.fillStyle='#151013';
+  ctx.fillRect(-300,28,3400,26);
+  for(const lx of [330,650,970]){
+    ctx.fillStyle='#0f0c0e';
+    ctx.fillRect(lx-5,54,10,26);
+    ctx.beginPath(); ctx.moveTo(lx-22,80); ctx.lineTo(lx+22,80);
+    ctx.lineTo(lx+14,104); ctx.lineTo(lx-14,104); ctx.closePath(); ctx.fill();
+    ctx.fillStyle='#ffd27a';
+    ctx.fillRect(lx-13,100,26,5);
+  }
+}
+function drawSpotlights(t){
+  ctx.save();
+  ctx.globalCompositeOperation='lighter';
+  for(const lx of [330,650,970]){
+    const sway=Math.sin(t*0.45+lx)*0.16;
+    const g=ctx.createLinearGradient(lx,100,lx,GROUND+60);
+    g.addColorStop(0,'rgba(255,214,150,0.13)');
+    g.addColorStop(1,'rgba(255,190,120,0)');
+    ctx.fillStyle=g;
+    ctx.beginPath();
+    ctx.moveTo(lx-13,100); ctx.lineTo(lx+13,100);
+    ctx.lineTo(lx+190+sway*300,GROUND+60);
+    ctx.lineTo(lx-190+sway*300,GROUND+60);
+    ctx.closePath(); ctx.fill();
+  }
+  ctx.restore();
+}
+
+/* ---------- 摄影机:跟随狮子,火圈处推近 ---------- */
+function camState(t){
+  let tx=0.5, ty=500, zoom=1;
+  if(t<T_LEAP0){
+    const p=smooth(clamp((t-1.45)/(T_LEAP0-1.45),0,1));
+    tx=lerp(0.5,0.60,p); ty=lerp(500,478,p); zoom=lerp(1,1.08,p);
+  }else if(t<T_LEAP1){
+    const p=smooth((t-T_LEAP0)/(T_LEAP1-T_LEAP0));
+    tx=lerp(0.60,0.74,p); ty=lerp(478,492,p); zoom=lerp(1.08,1.14,p);
+  }else if(t<T_EXIT0){
+    const p=smooth((t-T_LEAP1)/(T_EXIT0-T_LEAP1));
+    tx=lerp(0.74,0.70,p); ty=lerp(492,510,p); zoom=lerp(1.14,1.06,p);
+  }else if(t<T_EXIT1){
+    const p=smooth((t-T_EXIT0)/(T_EXIT1-T_EXIT0));
+    tx=lerp(0.70,0.66,p); ty=lerp(510,506,p); zoom=lerp(1.06,1.03,p);
+  }else{
+    const p=smooth((t-T_EXIT1)/(DUR-T_EXIT1));
+    tx=lerp(0.66,0.50,p); ty=lerp(506,500,p); zoom=lerp(1.03,1.00,p);
+  }
+  return {tx,ty,zoom};
+}
+/* ---------- 颜色 ---------- */
+function mixc(a,b,t){return [lerp(a[0],b[0],t),lerp(a[1],b[1],t),lerp(a[2],b[2],t)];}
+const css=(c,a)=>a===undefined?('rgb('+(c[0]|0)+','+(c[1]|0)+','+(c[2]|0)+')'):('rgba('+(c[0]|0)+','+(c[1]|0)+','+(c[2]|0)+','+a+')');
+const PELT=[196,131,62], PELT_D=[139,88,36], BELLY=[228,184,116],
+      MANE_D=[104,56,20], MANE_M=[168,102,34], MANE_L=[214,144,58],
+      WARM=[255,152,58];
+
+/* ---------- 两段骨骼 IK ---------- */
+function ik(px,py,tx,ty,a,b,bend){
+  let dx=tx-px, dy=ty-py;
+  let d=Math.hypot(dx,dy)||0.001;
+  const maxd=a+b-0.01;
+  if(d>maxd){ dx*=maxd/d; dy*=maxd/d; d=maxd; tx=px+dx; ty=py+dy; }
+  const cosA=clamp((a*a+d*d-b*b)/(2*a*d),-1,1);
+  const ang=Math.atan2(dy,dx)+bend*Math.acos(cosA);
+  return {x:px+Math.cos(ang)*a, y:py+Math.sin(ang)*a, fx:tx, fy:ty};
+}
+
+/* ---------- 狮子时间状态 ---------- */
+const RUN_CYCLE=0.34;
+function lionState(t){
+  const s={x:-240,h:0,pitch:0,rise:0,pivot:0,g:(t/RUN_CYCLE)%1,
+           mode:'run',crouch:0,mouth:0,mane:1,headP:0,stretch:1,
+           leapU:-1,roar:0};
+  if(t<T_LEAP0){
+    s.x=lerp(-260,TAKE_X,t/T_LEAP0);
+    s.crouch=smooth(clamp((t-1.86)/0.14,0,1))*0.55;
+    s.pitch=4+Math.sin(s.g*TAU)*3;
+  }else if(t<T_LEAP1){
+    const u=(t-T_LEAP0)/(T_LEAP1-T_LEAP0);
+    s.mode='leap'; s.leapU=u;
+    s.x=lerp(TAKE_X,LAND_X,u);
+    s.h=Math.max(0,156-PK*(s.x-RING.x)*(s.x-RING.x));
+    s.pitch=-30+62*u;
+    s.stretch=1+0.10*Math.sin(Math.PI*u);
+    s.g=(t/RUN_CYCLE)%1;
+  }else if(t<T_EXIT0){
+    s.mode='land';
+    const dt=t-T_LEAP1;
+    s.x=lerp(LAND_X,1150,smooth(dt/0.7));
+    s.rise=-13*Math.exp(-6*dt)*Math.cos(9.5*dt);
+    s.pitch=34*Math.exp(-7*dt)+Math.sin(s.g*TAU)*2;
+    s.crouch=Math.exp(-5*dt);
+    s.g=(2.9/RUN_CYCLE+dt/RUN_CYCLE*0.55)%1;
+  }else if(t<T_EXIT0+1.5){
+    s.mode='roar';
+    const k=ramp(t,3.60,3.86,4.72,5.04);
+    s.roar=k;
+    s.x=lerp(1150,1185,smooth(clamp((t-3.6)/1.4,0,1)));
+    s.pitch=-54*k; s.pivot=k; s.rise=6*k;
+    s.mouth=ramp(t,3.64,3.78,4.68,4.94);
+    s.mane=1+0.14*k; s.headP=-16*k;
+    s.g=(t/RUN_CYCLE)%1;
+  }else{
+    s.mode='exit';
+    const p=(t-5.1)/0.9;
+    s.x=1185+1080*Math.pow(clamp(p,0,1),1.7);
+    s.pitch=5+Math.sin(s.g*TAU)*3;
+    s.g=(t/RUN_CYCLE)%1;
+  }
+  s.fire=clamp(1-Math.abs(s.x-RING.x)/300,0,1);
+  return s;
+}
+
+/* ---------- 单条腿 ---------- */
+function legPath(px,py,tx,ty,a,b,bend){
+  const k=ik(px,py,tx,ty,a,b,bend);
+  ctx.lineCap='round'; ctx.lineJoin='round';
+  ctx.beginPath(); ctx.moveTo(px,py); ctx.lineTo(k.x,k.y); ctx.lineTo(k.fx,k.fy);
+  return k;
+}
+function drawPaw(x,y,ang,col){
+  ctx.save(); ctx.translate(x,y); ctx.rotate(ang);
+  ctx.fillStyle=col;
+  ctx.beginPath(); ctx.ellipse(2,0,8,5.5,0,0,TAU); ctx.fill();
+  ctx.strokeStyle='rgba(60,32,12,0.55)'; ctx.lineWidth=1.4;
+  ctx.beginPath(); ctx.moveTo(4,-4); ctx.lineTo(5,1);
+  ctx.moveTo(7,-2.5); ctx.lineTo(8,1.5); ctx.stroke();
+  ctx.restore();
+}
+
+/* ---------- 腿部 IK + 绘制 ---------- */
+function drawLegs(s,pelt,peltDark,fireF,side){
+  const far=mixc(peltDark,[255,140,50],fireF*0.25);
+  const near=mixc(pelt,[255,150,60],fireF*0.3);
+  const groundY=s.h+52+s.rise;      // 局部地面线
+  const SH={x:18,y:-8}, HP={x:-40,y:-4};
+  const A1=36,B1=34, A2=34,B2=32;
+  let fr={x:24,y:groundY}, fl={x:10,y:groundY-1},
+      rr={x:-34,y:groundY}, rl={x:-48,y:groundY-1};
+
+  if(s.mode==='leap'){
+    const u=s.leapU;
+    const frT=(u<0.5)?{x:lerp(64,34,u*2),y:lerp(6,30,u*2)}:{x:lerp(34,50,(u-.5)*2),y:lerp(30,50,(u-.5)*2)};
+    const flT={x:frT.x-14,y:frT.y+4};
+    const rrT=(u<0.5)?{x:lerp(-80,-30,u*2),y:lerp(34,26,u*2)}:{x:lerp(-30,-56,(u-.5)*2),y:lerp(26,48,(u-.5)*2)};
+    const rlT={x:rrT.x-12,y:rrT.y+3};
+    fr=frT; fl=flT; rr=rrT; rl=rlT;
+  }else if(s.mode==='land'){
+    const p=clamp((tGlobal-T_LEAP1)/0.7,0,1);
+    fr={x:lerp(40,24,p),y:groundY}; fl={x:lerp(26,10,p),y:groundY-1};
+    rr={x:lerp(-64,-34,p),y:groundY}; rl={x:lerp(-76,-48,p),y:groundY-1};
+  }else if(s.mode==='roar'&&s.roar>0.02){
+    const k=s.roar, gy=groundY;
+    fr={x:lerp(24,34,k),y:lerp(gy,6,k)}; fl={x:lerp(10,20,k),y:lerp(gy-1,-2,k)};
+    /* 后爪需钉在世界地面:把世界目标逆旋转回身体坐标系 */
+    const th=s.pitch*Math.PI/180, c=Math.cos(th), sn=Math.sin(th);
+    const hind=dx=>({x:-40+(c*dx+sn*gy), y:-4+(-sn*dx+c*gy)});
+    rr=hind(-10); rl=hind(6);
+  }else{
+    /* 疾跑:四蹄错相位 Gallop */
+    const ph=s.g;
+    const offs=[0.00,0.13,0.52,0.65];   // 右前 左前 右后 左后
+    const foot=(base,off,swing)=>{
+      const p=(ph+off)%1;
+      const ST=0.58;
+      let fx,fy;
+      if(p<ST){ const q=p/ST; fx=base.x+swing*(0.5-q); fy=0; }
+      else{ const q=(p-ST)/(1-ST); fx=base.x+swing*(q-0.5);
+            fy=-26*Math.sin(Math.PI*q)*(0.7+0.3*hash(base.x)); }
+      return {x:fx,y:fy+groundY};
+    };
+    fr=foot({x:26},offs[0],56); fl=foot({x:10},offs[1],56);
+    rr=foot({x:-34},offs[2],58); rl=foot({x:-48},offs[3],58);
+  }
+  const crouch=s.crouch*10;
+  let k;
+  if(side!=='near'){          /* 远侧两条腿(画在躯干之下) */
+    ctx.strokeStyle=css(far); ctx.lineWidth=13;
+    k=legPath(HP.x,HP.y-2,rl.x,rl.y,A2,B2,-1);
+    drawPaw(k.fx,k.fy,0,css(far));
+    ctx.strokeStyle=css(far); ctx.lineWidth=12;
+    k=legPath(SH.x,SH.y-2-crouch,fl.x,fl.y-crouch*0.4,A1,B1,1);
+    drawPaw(k.fx,k.fy,0,css(far));
+  }
+  if(side!=='far'){           /* 近侧两条腿(画在躯干之上) */
+    ctx.strokeStyle=css(near); ctx.lineWidth=15;
+    k=legPath(HP.x,HP.y,rr.x,rr.y,A2,B2,-1);
+    drawPaw(k.fx,k.fy,0,css(near));
+    ctx.strokeStyle=css(near); ctx.lineWidth=14;
+    k=legPath(SH.x,SH.y-crouch,fr.x,fr.y,A1,B1,1);
+    drawPaw(k.fx,k.fy,0,css(near));
+  }
+}
+
+/* ---------- 尾巴 ---------- */
+function drawTail(s,t,col,dark){
+  const w=Math.sin(t*6.2)*10+Math.sin(t*3.1)*6;
+  ctx.strokeStyle=css(dark); ctx.lineWidth=8; ctx.lineCap='round';
+  ctx.beginPath(); ctx.moveTo(-48,-8);
+  ctx.quadraticCurveTo(-76,-26+w*0.5,-94,-4+w);
+  ctx.stroke();
+  ctx.save(); ctx.translate(-94,-4+w); ctx.rotate(w*0.03);
+  ctx.fillStyle=css(dark);
+  ctx.beginPath(); ctx.ellipse(0,0,9,6,0.4,0,TAU); ctx.fill();
+  ctx.restore();
+}
+
+/* ---------- 鬃毛 ---------- */
+function drawMane(s,t,colD,colM,colL){
+  const R=42*s.mane;
+  for(let layer=0;layer<2;layer++){
+    const N=layer?16:22;
+    for(let i=0;i<N;i++){
+      const a=(i/N)*TAU+0.19*layer;
+      const fwd=Math.abs(((a+Math.PI)%TAU)-Math.PI);
+      if(fwd<0.62) continue;                 // 脸部开口
+      const jitter=Math.sin(t*4+i*2.1)*0.03;
+      const aa=a+jitter;
+      const len=R*(0.72+0.42*hash(i*7.7+layer*31))*(layer?0.78:1);
+      const cx=14+Math.cos(aa)*len*0.66, cy=-24+Math.sin(aa)*len*0.66;
+      ctx.save(); ctx.translate(cx,cy); ctx.rotate(aa+Math.PI/2);
+      ctx.fillStyle=layer?css(colL):css(colD);
+      ctx.beginPath(); ctx.ellipse(0,0,len*0.30,len*0.62,0,0,TAU); ctx.fill();
+      ctx.restore();
+    }
+  }
+}
+
+/* ---------- 头部 ---------- */
+function drawHead(s,t,skin){
+  const open=s.mouth;
+  ctx.save();
+  ctx.translate(54,-26);
+  ctx.rotate((s.headP+Math.sin(s.g*TAU)*2)*Math.PI/180);
+  /* 耳朵 */
+  for(const e of [[-10,-14,1],[2,-16,0.9]]){
+    ctx.fillStyle=css(skin.dark);
+    ctx.beginPath(); ctx.ellipse(e[0],e[1],7*e[2],7*e[2],0,0,TAU); ctx.fill();
+    ctx.fillStyle='#d9a173';
+    ctx.beginPath(); ctx.ellipse(e[0],e[1]+1.5,3.6*e[2],3.4*e[2],0,0,TAU); ctx.fill();
+  }
+  /* 颅骨 */
+  ctx.fillStyle=css(skin.body);
+  ctx.beginPath(); ctx.ellipse(0,0,18,16,-0.1,0,TAU); ctx.fill();
+  /* 颊毛(浅色) */
+  ctx.fillStyle=css(skin.belly);
+  ctx.beginPath(); ctx.ellipse(6,7,13,10,0.2,0,TAU); ctx.fill();
+  /* 眉弓 + 眼睛 */
+  const blink=(t>1.10&&t<1.22)||(t>4.30&&t<4.38&&s.mode!=='roar');
+  ctx.fillStyle=css(skin.dark);
+  if(s.roar>0.4){ /* 怒眉 */
+    ctx.beginPath(); ctx.moveTo(2,-9); ctx.lineTo(14,-5); ctx.lineTo(14,-2);
+    ctx.lineTo(2,-5); ctx.closePath(); ctx.fill();
+  }
+  if(!blink){
+    ctx.fillStyle='#ffb52e';
+    ctx.beginPath(); ctx.ellipse(8,-4,4.6,3.8,0.15,0,TAU); ctx.fill();
+    ctx.fillStyle='#241208';
+    ctx.beginPath(); ctx.ellipse(9.4,-4,1.5,3.2,0.15,0,TAU); ctx.fill();
+    ctx.fillStyle='rgba(255,255,255,0.9)';
+    ctx.beginPath(); ctx.arc(7,-6,1.1,0,TAU); ctx.fill();
+  }else{
+    ctx.strokeStyle=css(skin.dark); ctx.lineWidth=2.4; ctx.lineCap='round';
+    ctx.beginPath(); ctx.moveTo(4,-4); ctx.quadraticCurveTo(8,-2,12,-5); ctx.stroke();
+  }
+  /* 上颌 / 鼻吻 */
+  ctx.fillStyle=css(skin.body);
+  ctx.beginPath(); ctx.ellipse(16,3,13,9,0.12,0,TAU); ctx.fill();
+  ctx.fillStyle='#4a2620';
+  ctx.beginPath(); ctx.moveTo(23,-3); ctx.quadraticCurveTo(28,0,24,3.5);
+  ctx.quadraticCurveTo(20,3.5,21,-2); ctx.closePath(); ctx.fill();
+  /* 胡须 */
+  ctx.strokeStyle='rgba(255,250,240,0.5)'; ctx.lineWidth=1.3;
+  for(let i=0;i<3;i++){
+    ctx.beginPath(); ctx.moveTo(24,2+i*2.5);
+    ctx.quadraticCurveTo(33,0+i*3.5,38,-2+i*4.5); ctx.stroke();
+  }
+  /* 下颌(张嘴) */
+  ctx.save();
+  ctx.translate(8,7);
+  ctx.rotate(open*0.62);
+  ctx.fillStyle=css(skin.body);
+  ctx.beginPath(); ctx.ellipse(7,4,12,7,0,0,TAU); ctx.fill();
+  if(open>0.05){
+    ctx.fillStyle='#7a1f24';
+    ctx.beginPath(); ctx.ellipse(6,1,10,7*open+2,0,0,TAU); ctx.fill();
+    ctx.fillStyle='#c94b5b';
+    ctx.beginPath(); ctx.ellipse(5,4,7,4*open+1,0,0,TAU); ctx.fill();
+    /* 獠牙 */
+    ctx.fillStyle='#fff6e8';
+    ctx.beginPath(); ctx.moveTo(11,-1); ctx.lineTo(14,4+open*3); ctx.lineTo(8,-1);
+    ctx.closePath(); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(-1,-1); ctx.lineTo(1.5,3+open*2.5); ctx.lineTo(-3.5,-1);
+    ctx.closePath(); ctx.fill();
+  }
+  ctx.restore();
+  /* 上颌獠牙(闭嘴时也露一点) */
+  if(open<0.5){
+    ctx.fillStyle='#fff6e8';
+    ctx.beginPath(); ctx.moveTo(19,8); ctx.lineTo(21,11+open*4); ctx.lineTo(16.5,8);
+    ctx.closePath(); ctx.fill();
+  }
+  /* 额前鬃毛碎毛 */
+  ctx.fillStyle=css(skin.maneL);
+  for(let i=0;i<4;i++){
+    ctx.beginPath();
+    ctx.ellipse(-4+i*5,-14-Math.sin(t*3+i)*0.6,5,7,-0.3+i*0.15,0,TAU);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+/* ---------- 狮子主体 ---------- */
+function drawLion(s,t){
+  const f=s.fire;
+  const skin={body:mixc(PELT,WARM,f*0.4),dark:mixc(PELT_D,WARM,f*0.3),
+              belly:mixc(BELLY,[255,210,150],f*0.4),
+              maneD:mixc(MANE_D,[200,90,20],f*0.35),
+              maneM:mixc(MANE_M,[255,140,40],f*0.35),
+              maneL:mixc(MANE_L,[255,190,90],f*0.4)};
+  ctx.save();
+  const cx=s.x, cy=GROUND-s.h-52-s.rise;
+  ctx.translate(cx,cy);
+  ctx.rotate(s.pitch*Math.PI/180);
+  /* 旋转支点向髋部混合(咆哮时后仰绕髋旋转) */
+  if(s.pivot>0.01){
+    const p=s.pivot*s.pitch*Math.PI/180, hx=-40, hy=-4;
+    const rx=hx*Math.cos(p)-hy*Math.sin(p), ry=hx*Math.sin(p)+hy*Math.cos(p);
+    ctx.translate((hx-rx)*pivotK(s),(hy-ry)*pivotK(s));
+  }
+  ctx.scale(1/Math.sqrt(s.stretch),s.stretch);
+  /* 尾巴 */
+  drawTail(s,t,skin.dark,skin.maneD);
+  /* 远侧腿 */
+  drawLegs(s,skin.body,skin.dark,f,'far');
+  /* 躯干 */
+  ctx.fillStyle=css(skin.body);
+  ctx.beginPath(); ctx.ellipse(-8,-4,54,27,0,0,TAU); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(28,-10,30,23,0,0,TAU); ctx.fill();  // 肩胛
+  /* 背脊毛刺 */
+  ctx.fillStyle=css(skin.dark);
+  for(let i=0;i<7;i++){
+    const bx=-44+i*13, by=-30+Math.abs(i-3)*1.6;
+    ctx.beginPath(); ctx.moveTo(bx-4,by+4); ctx.lineTo(bx,by-4.5);
+    ctx.lineTo(bx+4,by+4); ctx.closePath(); ctx.fill();
+  }
+  /* 腹部 */
+  ctx.fillStyle=css(skin.belly);
+  ctx.beginPath(); ctx.ellipse(-4,10,44,15,0.02,0,TAU); ctx.fill();
+  /* 鬃毛 */
+  drawMane(s,t,skin.maneD,skin.maneM,skin.maneL);
+  /* 近侧腿压在身体之上 */
+  drawLegs(s,skin.body,skin.dark,f,'near');
+  /* 头 */
+  drawHead(s,t,skin);
+  /* 火光轮廓 */
+  if(f>0.05){
+    ctx.save();
+    ctx.globalCompositeOperation='lighter';
+    ctx.fillStyle='rgba(255,130,40,'+(0.10*f).toFixed(3)+')';
+    ctx.beginPath(); ctx.ellipse(-8,-8,58,30,0,0,TAU); ctx.fill();
+    ctx.restore();
+  }
+  ctx.restore();
+}
+function pivotK(s){return s.pivot;}
+
+/* ---------- 地面影子 ---------- */
+function drawShadow(s){
+  const k=clamp(1-s.h/280,0.18,1);
+  ctx.fillStyle='rgba(30,12,6,'+(0.40*k).toFixed(3)+')';
+  ctx.beginPath();
+  ctx.ellipse(s.x,GROUND+6,66*k+14,13*k+3,0,0,TAU);
+  ctx.fill();
+}
+
+/* ---------- 尘土 ---------- */
+const DUST=[
+  {t0:2.00,x:646,n:9, life:0.75,pw:0.55,sp:0.9},
+  {t0:2.92,x:1074,n:22,life:1.25,pw:1.0, sp:1.7},
+  {t0:3.62,x:1168,n:10,life:1.0, pw:0.7, sp:2.4}
+];
+function drawDust(t){
+  for(const ev of DUST){
+    const dt=t-ev.t0;
+    if(dt<0||dt>ev.life) continue;
+    const p=dt/ev.life;
+    for(let i=0;i<ev.n;i++){
+      const s1=hash(i*3.1+ev.t0), s2=hash(i*7.7+ev.t0), s3=hash(i*11.3+ev.t0);
+      const dir=(s1<0.5?-1:1)*(s2<0.5?0.6:1);
+      const px=ev.x+dir*(30+s3*150)*p*ev.sp+Math.sin(t*3+i)*4;
+      const py=GROUND-4-(10+s2*46)*Math.sin(Math.PI*Math.min(p*1.15,1))*ev.sp*0.6+6;
+      const r=(4+s3*7)*(1+p*2.6);
+      ctx.fillStyle='rgba(216,182,138,'+(ev.pw*0.34*(1-p)).toFixed(3)+')';
+      ctx.beginPath(); ctx.ellipse(px,py,r,r*0.7,0,0,TAU); ctx.fill();
+    }
+    /* 落地/咆哮的地面冲击圈 */
+    if(ev.pw>=1){
+      const pr=clamp((t-ev.t0)/0.75,0,1);
+      if(pr>0&&pr<1){
+        ctx.strokeStyle='rgba(230,190,140,'+(0.5*(1-pr)).toFixed(3)+')';
+        ctx.lineWidth=5*(1-pr)+1;
+        ctx.beginPath(); ctx.ellipse(ev.x,GROUND+4,40+pr*230,9+pr*30,0,0,TAU);
+        ctx.stroke();
+      }
+    }
+  }
+}
+
+/* ---------- 咆哮冲击波 ---------- */
+function drawRoarFX(s,t){
+  if(s.mode!=='roar'||s.mouth<0.25) return;
+  ctx.save();
+  ctx.globalCompositeOperation='lighter';
+  const mouthX=s.x+88, mouthY=GROUND-s.h-52-s.rise-18;
+  for(let j=0;j<3;j++){
+    const p=((t-3.70-j*0.30)/0.95)%1;
+    if(p<0||p>1||t<3.70+j*0.30) continue;
+    const d=30+p*150, r=14+p*76, a=0.95*(1-p)*s.mouth;
+    const cx=mouthX+Math.cos(-0.12)*d, cy=mouthY+Math.sin(-0.12)*d;
+    ctx.strokeStyle='rgba(255,196,96,'+a.toFixed(3)+')';
+    ctx.lineWidth=11*(1-p)+2;
+    ctx.beginPath(); ctx.arc(cx,cy,r,-0.9,-0.15); ctx.stroke();
+    ctx.beginPath(); ctx.arc(cx,cy,r,0.15,0.9); ctx.stroke();
+    ctx.strokeStyle='rgba(255,240,190,'+(a*0.7).toFixed(3)+')';
+    ctx.lineWidth=4*(1-p)+1;
+    ctx.beginPath(); ctx.arc(cx,cy,r*0.86,-0.82,-0.23); ctx.stroke();
+    ctx.beginPath(); ctx.arc(cx,cy,r*0.86,0.23,0.82); ctx.stroke();
+  }
+  ctx.restore();
+}
+let tGlobal=0;
+/* ---------- 开场字幕(每轮自动淡入淡出) ---------- */
+function drawIntro(t){
+  const a=ramp(t,0.35,1.15,1.95,2.55);
+  if(a<=0.01) return;
+  const cy=178, lift=(1-smooth(clamp((t-0.35)/1.1,0,1)))*14;
+  ctx.save();
+  ctx.textAlign='center';
+  const fs=62;
+  ctx.font='800 '+fs+'px "Noto Serif SC","Songti SC","STSong","SimSun",serif';
+  ctx.letterSpacing='14px';
+  /* 金边描画 */
+  ctx.globalAlpha=a;
+  ctx.lineWidth=7; ctx.lineJoin='round';
+  const grad=ctx.createLinearGradient(0,cy-40,0,cy+30);
+  grad.addColorStop(0,'#ffe7ad'); grad.addColorStop(0.45,'#ffdf96');
+  grad.addColorStop(0.5,'#f0a32e'); grad.addColorStop(1,'#ffedc4');
+  ctx.strokeStyle='rgba(60,18,8,0.9)';
+  ctx.strokeText('狮 跃 火 圈',640,cy+lift);
+  ctx.fillStyle=grad;
+  ctx.fillText('狮 跃 火 圈',640,cy+lift);
+  ctx.letterSpacing='10px';
+  ctx.font='700 21px "Noto Serif SC","Songti SC","STSong","SimSun",serif';
+  ctx.strokeStyle='rgba(60,18,8,0.85)'; ctx.lineWidth=5;
+  ctx.strokeText('雄狮 — 穿越烈焰',640,cy+50+lift);
+  ctx.fillStyle='#ffe9bd';
+  ctx.fillText('雄狮 — 穿越烈焰',640,cy+50+lift);
+  /* 两侧金饰线 */
+  ctx.strokeStyle='rgba(255,214,140,'+(a*0.75).toFixed(3)+')';
+  ctx.lineWidth=2.5;
+  for(const dir of [-1,1]){
+    const x0=640+dir*230, x1=640+dir*390;
+    ctx.beginPath(); ctx.moveTo(x0,cy+44+lift); ctx.lineTo(x1,cy+44+lift); ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(x1-dir*12,cy+38+lift); ctx.lineTo(x1,cy+44+lift);
+    ctx.lineTo(x1-dir*12,cy+50+lift); ctx.stroke();
+  }
+  ctx.restore();
+}
+
+/* ---------- 渲染一帧 ---------- */
+function render(t){
+  tGlobal=t;
+  ctx.setTransform(1,0,0,1,0,0);
+  ctx.clearRect(0,0,W,H);
+  const cam=camState(t);
+  ctx.translate(W/2,H/2);
+  ctx.scale(cam.zoom,cam.zoom);
+  ctx.translate(-cam.tx*W,-cam.ty);
+
+  const s=lionState(t);
+
+  drawTent();
+  drawGarland(92,1);
+  drawGarland(150,2);
+  drawRig();
+  drawCrowd();
+  drawBarrier();
+  drawFloor();
+  drawSpotlights(t);
+
+  drawRingStand();
+  const inFlames=clamp(1-Math.abs(s.x-RING.x)/420,0,1);
+  const flash=ramp(t,2.36,2.46,2.58,3.00);   /* 过环瞬间火焰爆燃 */
+  drawFlames(t,clamp(0.95+inFlames*0.35+flash*1.05,0,2.2));
+  drawEmbers(t);
+
+  drawShadow(s);
+  drawDust(t);
+  drawLion(s,t);
+  drawRoarFX(s,t);
+
+  /* 以下为屏幕空间叠加层 */
+  ctx.setTransform(1,0,0,1,0,0);
+  drawIntro(t);
+  const v=ctx.createRadialGradient(W*0.5,H*0.46,H*0.30,W*0.5,H*0.5,H*0.78);
+  v.addColorStop(0,'rgba(0,0,0,0)'); v.addColorStop(1,'rgba(5,2,4,0.55)');
+  ctx.fillStyle=v; ctx.fillRect(0,0,W,H);
+}
+
+/* ---------- 主循环(固定时长循环) ---------- */
+/* 无界面定格参数 ?t=,仅供截图验收使用,正常打开不生效 */
+const FREEZE=(()=>{const m=/[?&]t=([0-9.]+)/.exec(location.search);return m?parseFloat(m[1]):null;})();
+let t0=null;
+function loop(now){
+  if(t0===null) t0=now;
+  const t=FREEZE!==null?FREEZE:((now-t0)/1000)%DUR;
+  render(t);
+  if(FREEZE===null) requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+// ==PART4==
+})();
+</script>
+<!--zc-home:start--><style>.zc-home-btn{position:fixed;top:16px;left:16px;z-index:2147483647;display:inline-flex;align-items:center;gap:6px;padding:8px 14px;font:500 13px/1.1 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Noto Sans SC",sans-serif;color:#111;background:rgba(255,255,255,.86);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);border:1px solid rgba(0,0,0,.08);border-radius:999px;text-decoration:none;box-shadow:0 2px 12px rgba(0,0,0,.2);transition:background .2s ease,transform .2s ease,box-shadow .2s ease}.zc-home-btn:hover{background:#fff;transform:translateY(-1px);box-shadow:0 4px 18px rgba(0,0,0,.26)}</style><a class="zc-home-btn" href="../">← 返回首页</a><!--zc-home:end-->
+</body>
+</html>

@@ -148,7 +148,19 @@ const categories = [
     emoji: "🦁",
     blurb: "狮子跃过火圈,考抛物线轨迹、火圈粒子效果与落地时机的配合。",
     exam: "起跳到落地的抛物线轨迹、火圈的粒子效果,以及穿圈与落地时机的配合。",
-    versions: [],
+    lede: "一头狮子助跑、起跳,正好从燃烧的火圈中心穿过再稳稳落地。考的是起跳到落地的抛物线轨迹(符合重力、顶点落在火圈处)、火圈的粒子与火焰效果,以及穿圈与落地的时机配合 —— 时间轴一旦没对齐就会穿模或「人到了圈还没到」。下面按模型版本归档,缩略图为真实渲染效果,点击卡片查看可交互的在线页面。",
+    versions: [
+      ["gemini-3.8-flash", "Gemini 3.8 Flash", "Three.js 3D"],
+      ["glm-5.3", "GLM-5.3", "Three.js 3D"],
+      ["ling-3.1-flash", "Ling 3.1 Flash", "Three.js 3D"],
+      ["deepseek-4.1-flash", "DeepSeek 4.1 Flash", "Canvas 2D"],
+      ["mimo-2.6-flash", "MiMo 2.6 Flash", "Canvas 2D"],
+      ["glm-5.3-flash", "GLM 5.3 Flash", "Canvas 2D"],
+      ["opus-4.8", "Claude Opus 4.8", "Canvas 2D"],
+      ["tierflow-pro", "Tierflow-Pro", "Canvas 2D"],
+      ["muse-spark", "Muse Spark", "Canvas 2D"],
+      ["qwen-3.8-flash-next", "Qwen 3.8 Flash Next", "Canvas 2D"],
+    ].map(([slug, name, sub]) => ({ slug, name, sub })),
   },
 ];
 
@@ -165,7 +177,7 @@ const ZOO = { slug: "zoo", name: "Zoo Test", base: "", categories };
 // rendered HTML here to get a TypeSafe Jev score. Until the Worker is deployed
 // this stays a placeholder; set it to the deployed URL, then `node build.mjs`.
 // Empty string ("") hides the scoring UI entirely.
-const JEV_ENDPOINT = "https://zoo-jev.REPLACE-SUBDOMAIN.workers.dev";
+const JEV_ENDPOINT = "https://zoo-jev.zhoushimiao.workers.dev";
 
 // ---- preset prompts (for the in-browser "测试你的大模型" playground) ----
 // Each category archives its model-facing prompt in <slug>/PROMPT.md inside a
