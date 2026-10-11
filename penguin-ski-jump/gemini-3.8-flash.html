@@ -1,0 +1,907 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>企鹅跳台滑雪 - Ski Jumping Penguin</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    body, html {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background-color: #0b1426;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+    #webgl-canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      display: block;
+      z-index: 1;
+    }
+    /* 电影感遮幅与暗角营造震撼氛围 */
+    .cinematic-vignette {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      z-index: 2;
+      box-shadow: inset 0 0 100px rgba(7, 18, 38, 0.7), inset 0 0 160px rgba(5, 12, 26, 0.85);
+      background: radial-gradient(circle at center, transparent 45%, rgba(6, 16, 35, 0.4) 100%);
+    }
+    /* 速度线与风雪动感遮罩 */
+    .speed-lines {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      z-index: 2;
+      opacity: 0;
+      transition: opacity 0.25s ease-out;
+      background: radial-gradient(ellipse at center, transparent 40%, rgba(255, 255, 255, 0.15) 100%);
+    }
+    /* 电影感上下微黑边（可选）让构图更具大片质感 */
+    .cinematic-bars {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      z-index: 3;
+      border-top: 14px solid rgba(8, 14, 25, 0.88);
+      border-bottom: 14px solid rgba(8, 14, 25, 0.88);
+    }
+  </style>
+  <!-- 引入稳定成熟的 Three.js r128 CDN -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+<body>
+  <canvas id="webgl-canvas"></canvas>
+  <div class="cinematic-vignette"></div>
+  <div class="speed-lines" id="speedLines"></div>
+  <div class="cinematic-bars"></div>
+
+  <script>
+    // ==========================================
+    // 企鹅跳台滑雪全三维动画场景
+    // 模型名称: new-provider-7/[AN]gemini-3.8-flash
+    // ==========================================
+
+    const canvas = document.getElementById('webgl-canvas');
+    const speedLinesEl = document.getElementById('speedLines');
+
+    // 1. 渲染器与场景
+    const renderer = new THREE.WebGLRenderer({
+      canvas: canvas,
+      antialias: true,
+      powerPreference: "high-performance"
+    });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.15;
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0xd6eaf8);
+    scene.fog = new THREE.FogExp2(0xcde3f5, 0.0035);
+
+    // 2. 摄像机
+    const camera = new THREE.PerspectiveCamera(46, window.innerWidth / window.innerHeight, 0.5, 1200);
+    camera.position.set(-60, 110, 90);
+
+    // 3. 动态光照体系
+    const hemiLight = new THREE.HemisphereLight(0xf0f7ff, 0x8ea2be, 0.85);
+    scene.add(hemiLight);
+
+    const dirLight = new THREE.DirectionalLight(0xfff5e6, 1.45);
+    dirLight.position.set(120, 220, 80);
+    dirLight.castShadow = true;
+    dirLight.shadow.mapSize.width = 2048;
+    dirLight.shadow.mapSize.height = 2048;
+    dirLight.shadow.camera.near = 10;
+    dirLight.shadow.camera.far = 480;
+    dirLight.shadow.camera.left = -160;
+    dirLight.shadow.camera.right = 160;
+    dirLight.shadow.camera.top = 160;
+    dirLight.shadow.camera.bottom = -160;
+    dirLight.shadow.bias = -0.0006;
+    scene.add(dirLight);
+
+    // 逆光/轮廓光，勾勒冰雪和企鹅毛绒质感
+    const rimLight = new THREE.DirectionalLight(0x9bd8ff, 0.8);
+    rimLight.position.set(-180, 80, -120);
+    scene.add(rimLight);
+
+    // 4. 材质库
+    const snowMat = new THREE.MeshStandardMaterial({
+      color: 0xf9fbfe,
+      roughness: 0.65,
+      metalness: 0.05,
+      flatShading: true
+    });
+
+    const jumpRampMat = new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      roughness: 0.35,
+      metalness: 0.1
+    });
+
+    const towerWoodMat = new THREE.MeshStandardMaterial({
+      color: 0x3d312a,
+      roughness: 0.8
+    });
+
+    const railingMat = new THREE.MeshStandardMaterial({
+      color: 0x1f476b,
+      metalness: 0.7,
+      roughness: 0.3
+    });
+
+    // 5. 构建雪山远景、群山与地面
+    function buildEnvironment() {
+      // 崎岖冰原地面
+      const groundGeo = new THREE.PlaneGeometry(1000, 1000, 64, 64);
+      const pos = groundGeo.attributes.position;
+      for (let i = 0; i < pos.count; i++) {
+        const vx = pos.getX(i);
+        const vy = pos.getY(i);
+        // 低频自然丘陵起伏
+        const h = Math.sin(vx * 0.015) * Math.cos(vy * 0.015) * 8 +
+                  Math.sin(vx * 0.04 + vy * 0.03) * 3;
+        pos.setZ(i, h);
+      }
+      groundGeo.computeVertexNormals();
+      const ground = new THREE.Mesh(groundGeo, snowMat);
+      ground.rotation.x = -Math.PI / 2;
+      ground.position.y = -1;
+      ground.receiveShadow = true;
+      scene.add(ground);
+
+      // 宏伟远山背景群
+      const mountainColors = [0xb8d4ec, 0xa3c5e4, 0x8eb6dc, 0x7fa9d1];
+      for (let i = 0; i < 28; i++) {
+        const radius = 60 + Math.random() * 90;
+        const height = 110 + Math.random() * 150;
+        const mountainGeo = new THREE.ConeGeometry(radius, height, 6 + Math.floor(Math.random() * 4));
+        const col = mountainColors[Math.floor(Math.random() * mountainColors.length)];
+        const mMat = new THREE.MeshStandardMaterial({
+          color: col,
+          roughness: 0.8,
+          flatShading: true
+        });
+        const mountain = new THREE.Mesh(mountainGeo, mMat);
+        const angle = (i / 28) * Math.PI * 2 + (Math.random() - 0.5) * 0.2;
+        const dist = 320 + Math.random() * 260;
+        mountain.position.x = Math.cos(angle) * dist;
+        mountain.position.z = Math.sin(angle) * dist;
+        mountain.position.y = height * 0.45 - 10;
+        mountain.scale.set(1 + Math.random() * 0.6, 1, 1 + Math.random() * 0.6);
+        scene.add(mountain);
+      }
+
+      // 针叶冷杉松树群
+      const trunkMat = new THREE.MeshStandardMaterial({ color: 0x3d271d, roughness: 0.9 });
+      const pineMat = new THREE.MeshStandardMaterial({ color: 0x1b3b2b, roughness: 0.7, flatShading: true });
+      const snowPineMat = new THREE.MeshStandardMaterial({ color: 0xeef5fc, roughness: 0.5, flatShading: true });
+
+      function createTree(x, z, scale) {
+        const treeGroup = new THREE.Group();
+        const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.8, 4, 6), trunkMat);
+        trunk.position.y = 2;
+        trunk.castShadow = true;
+        treeGroup.add(trunk);
+
+        for (let l = 0; l < 3; l++) {
+          const cone = new THREE.Mesh(
+            new THREE.ConeGeometry(4 - l * 0.9, 5 - l * 0.6, 7),
+            l === 2 ? snowPineMat : pineMat
+          );
+          cone.position.y = 4.5 + l * 2.8;
+          cone.castShadow = true;
+          treeGroup.add(cone);
+        }
+        treeGroup.position.set(x, 0, z);
+        treeGroup.scale.setScalar(scale);
+        scene.add(treeGroup);
+      }
+
+      // 在赛道两侧及山谷中自然散布松树
+      for (let i = 0; i < 90; i++) {
+        const tx = (Math.random() - 0.5) * 500;
+        const tz = (Math.random() - 0.5) * 500;
+        // 避开跳台滑道中心区域
+        if (Math.abs(tz) > 18 || tx < -60 || tx > 240) {
+          createTree(tx, tz, 0.7 + Math.random() * 1.1);
+        }
+      }
+    }
+    buildEnvironment();
+
+    // 6. 经典奥林匹克跳台滑雪专业跳台系统 (In-run -> Takeoff -> Landing Hill)
+    const rampGroup = new THREE.Group();
+
+    // 6.1 助滑坡与起跳台曲面
+    // 轨迹规划: x 从 -45 到 0 为助滑坡，0 到 5 为平滑起跳端，5 到 160 为着陆坡与减速区
+    const inrunCurve = new THREE.CatmullRomCurve3([
+      new THREE.Vector3(-45, 95, 0),
+      new THREE.Vector3(-32, 75, 0),
+      new THREE.Vector3(-18, 52, 0),
+      new THREE.Vector3(-6, 36, 0),
+      new THREE.Vector3(0, 31, 0),
+      new THREE.Vector3(6, 30.5, 0) // 起跳嘴 (Table edge)
+    ]);
+
+    // 挤出助滑道几何体
+    const rampShape = new THREE.Shape();
+    rampShape.moveTo(-4, -0.6);
+    rampShape.lineTo(4, -0.6);
+    rampShape.lineTo(4, 0.6);
+    rampShape.lineTo(-4, 0.6);
+    rampShape.closePath();
+
+    const inrunGeo = new THREE.ExtrudeGeometry(rampShape, {
+      steps: 60,
+      bevelEnabled: false,
+      extrudePath: inrunCurve
+    });
+    const inrunMesh = new THREE.Mesh(inrunGeo, jumpRampMat);
+    inrunMesh.castShadow = true;
+    inrunMesh.receiveShadow = true;
+    rampGroup.add(inrunMesh);
+
+    // 助滑道两侧红色警示护栏
+    const railMat = new THREE.MeshStandardMaterial({ color: 0xd63031, roughness: 0.4 });
+    const rail1Points = inrunCurve.getPoints(50).map(p => new THREE.Vector3(p.x, p.y + 0.8, p.z + 3.8));
+    const rail2Points = inrunCurve.getPoints(50).map(p => new THREE.Vector3(p.x, p.y + 0.8, p.z - 3.8));
+    const rail1Geo = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(rail1Points), 40, 0.18, 6, false);
+    const rail2Geo = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(rail2Points), 40, 0.18, 6, false);
+    rampGroup.add(new THREE.Mesh(rail1Geo, railMat));
+    rampGroup.add(new THREE.Mesh(rail2Geo, railMat));
+
+    // 跳台高耸钢结构塔架与支撑桁架
+    for (let x = -42; x <= 4; x += 8) {
+      const p = inrunCurve.getPointAt((x + 45) / 51);
+      const legHeight = p.y;
+      const legGeo = new THREE.CylinderGeometry(0.4, 0.6, legHeight, 6);
+      const legL = new THREE.Mesh(legGeo, towerWoodMat);
+      legL.position.set(p.x, legHeight / 2, 3.4);
+      legL.castShadow = true;
+      rampGroup.add(legL);
+
+      const legR = new THREE.Mesh(legGeo, towerWoodMat);
+      legR.position.set(p.x, legHeight / 2, -3.4);
+      legR.castShadow = true;
+      rampGroup.add(legR);
+
+      // 横梁连接
+      const beamGeo = new THREE.BoxGeometry(0.4, 0.4, 7);
+      const beam = new THREE.Mesh(beamGeo, towerWoodMat);
+      beam.position.set(p.x, legHeight * 0.7, 0);
+      rampGroup.add(beam);
+    }
+
+    // 顶部出发平台与门架
+    const platform = new THREE.Mesh(new THREE.BoxGeometry(10, 2, 10), towerWoodMat);
+    platform.position.set(-47, 94, 0);
+    platform.castShadow = true;
+    rampGroup.add(platform);
+
+    // 出发门旗帜
+    const flagGeo = new THREE.BoxGeometry(0.1, 2, 4);
+    const flagMat = new THREE.MeshBasicMaterial({ color: 0x0984e3 });
+    const flag = new THREE.Mesh(flagGeo, flagMat);
+    flag.position.set(-45, 98, 0);
+    rampGroup.add(flag);
+
+    // 6.2 宏大的着陆山坡 (Landing Hill)
+    // 从起跳嘴下方(x=10, y=20)倾斜向下直至谷底平原(x=150, y=0)
+    const landingCurve = new THREE.CatmullRomCurve3([
+      new THREE.Vector3(6, 18, 0),
+      new THREE.Vector3(25, 14, 0),
+      new THREE.Vector3(55, 6, 0),
+      new THREE.Vector3(85, 1.2, 0),
+      new THREE.Vector3(120, 0.1, 0),
+      new THREE.Vector3(160, 0, 0)
+    ]);
+
+    const landingShape = new THREE.Shape();
+    landingShape.moveTo(-16, -2);
+    landingShape.lineTo(16, -2);
+    landingShape.lineTo(16, 1);
+    landingShape.lineTo(-16, 1);
+    landingShape.closePath();
+
+    const landingGeo = new THREE.ExtrudeGeometry(landingShape, {
+      steps: 40,
+      bevelEnabled: false,
+      extrudePath: landingCurve
+    });
+    const landingMesh = new THREE.Mesh(landingGeo, snowMat);
+    landingMesh.receiveShadow = true;
+    rampGroup.add(landingMesh);
+
+    // 着陆区K点红线与距离标志线
+    const kLineGeo = new THREE.BoxGeometry(0.5, 0.15, 26);
+    const kLineMat = new THREE.MeshBasicMaterial({ color: 0xe74c3c });
+    const kLine = new THREE.Mesh(kLineGeo, kLineMat);
+    const kPos = landingCurve.getPointAt(0.52);
+    kLine.position.set(kPos.x, kPos.y + 0.95, 0);
+    rampGroup.add(kLine);
+
+    // 50m / 70m / 90m 蓝线
+    for (let f = 0.25; f <= 0.85; f += 0.2) {
+      const bLine = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.15, 24), new THREE.MeshBasicMaterial({ color: 0x3498db }));
+      const bp = landingCurve.getPointAt(f);
+      bLine.position.set(bp.x, bp.y + 0.95, 0);
+      rampGroup.add(bLine);
+    }
+
+    scene.add(rampGroup);
+
+    // 7. 精致呆萌可爱的全3D企鹅角色与其动作骨骼系统
+    function createPenguin() {
+      const penguinRoot = new THREE.Group();
+
+      // 材质
+      const blackFeatherMat = new THREE.MeshStandardMaterial({
+        color: 0x181c24,
+        roughness: 0.5,
+        metalness: 0.1
+      });
+      const whiteBellyMat = new THREE.MeshStandardMaterial({
+        color: 0xffffff,
+        roughness: 0.35,
+        metalness: 0.05
+      });
+      const orangeBeakMat = new THREE.MeshStandardMaterial({
+        color: 0xff793f,
+        roughness: 0.4
+      });
+      const yellowCheekMat = new THREE.MeshStandardMaterial({
+        color: 0xffb142,
+        roughness: 0.5
+      });
+      const redScarfMat = new THREE.MeshStandardMaterial({
+        color: 0xd63031,
+        roughness: 0.6
+      });
+      const skiMat = new THREE.MeshStandardMaterial({
+        color: 0x0984e3,
+        roughness: 0.25,
+        metalness: 0.4
+      });
+      const gogglesMat = new THREE.MeshStandardMaterial({
+        color: 0x00cec9,
+        metalness: 0.9,
+        roughness: 0.1
+      });
+
+      // 躯干与重心节点
+      const bodyGroup = new THREE.Group();
+      penguinRoot.add(bodyGroup);
+
+      // 企鹅水滴形圆滚滚身体
+      const bodyGeo = new THREE.SphereGeometry(1.6, 24, 24);
+      bodyGeo.scale(0.9, 1.35, 1.0);
+      const bodyMesh = new THREE.Mesh(bodyGeo, blackFeatherMat);
+      bodyMesh.castShadow = true;
+      bodyMesh.position.y = 1.8;
+      bodyGroup.add(bodyMesh);
+
+      // 大白肚皮 (稍微往外凸)
+      const bellyGeo = new THREE.SphereGeometry(1.4, 20, 20);
+      bellyGeo.scale(0.8, 1.25, 0.6);
+      const bellyMesh = new THREE.Mesh(bellyGeo, whiteBellyMat);
+      bellyMesh.position.set(0.6, 1.7, 0);
+      bodyGroup.add(bellyMesh);
+
+      // 帝企鹅专属黄色颊斑
+      const cheekGeo = new THREE.SphereGeometry(0.35, 12, 12);
+      cheekGeo.scale(0.5, 1, 0.5);
+      const cheekL = new THREE.Mesh(cheekGeo, yellowCheekMat);
+      cheekL.position.set(0.4, 2.7, 0.65);
+      bodyGroup.add(cheekL);
+      const cheekR = new THREE.Mesh(cheekGeo, yellowCheekMat);
+      cheekR.position.set(0.4, 2.7, -0.65);
+      bodyGroup.add(cheekR);
+
+      // 企鹅头部
+      const headGeo = new THREE.SphereGeometry(1.0, 20, 20);
+      headGeo.scale(1.0, 0.95, 0.95);
+      const headMesh = new THREE.Mesh(headGeo, blackFeatherMat);
+      headMesh.position.set(0.1, 3.2, 0);
+      headMesh.castShadow = true;
+      bodyGroup.add(headMesh);
+
+      // 橘色嘴喙
+      const beakGeo = new THREE.ConeGeometry(0.35, 1.1, 14);
+      beakGeo.rotateZ(-Math.PI / 2);
+      const beak = new THREE.Mesh(beakGeo, orangeBeakMat);
+      beak.position.set(1.4, 3.1, 0);
+      beak.castShadow = true;
+      bodyGroup.add(beak);
+
+      // 帅气的专业防风护目镜 (Goggles)
+      const goggleFrameGeo = new THREE.TorusGeometry(0.65, 0.16, 10, 24);
+      goggleFrameGeo.rotateY(Math.PI / 2);
+      const goggleFrame = new THREE.Mesh(goggleFrameGeo, new THREE.MeshStandardMaterial({ color: 0x2d3436, roughness: 0.3 }));
+      goggleFrame.position.set(0.7, 3.3, 0);
+      bodyGroup.add(goggleFrame);
+
+      const lensGeo = new THREE.SphereGeometry(0.45, 16, 16);
+      lensGeo.scale(0.3, 0.6, 1.1);
+      const lens = new THREE.Mesh(lensGeo, gogglesMat);
+      lens.position.set(0.75, 3.3, 0);
+      bodyGroup.add(lens);
+
+      const strapGeo = new THREE.CylinderGeometry(1.05, 1.05, 0.22, 20, 1, true);
+      const strap = new THREE.Mesh(strapGeo, new THREE.MeshBasicMaterial({ color: 0xd63031 }));
+      strap.rotation.z = Math.PI / 2;
+      strap.position.set(0.1, 3.3, 0);
+      bodyGroup.add(strap);
+
+      // 迎风飘扬的温暖红围巾
+      const scarfRing = new THREE.Mesh(
+        new THREE.TorusGeometry(1.15, 0.25, 12, 24),
+        redScarfMat
+      );
+      scarfRing.rotation.x = Math.PI / 2;
+      scarfRing.position.set(0, 2.65, 0);
+      scarfRing.castShadow = true;
+      bodyGroup.add(scarfRing);
+
+      // 围巾飘带 (用于风力抖动)
+      const scarfTailGeo = new THREE.BoxGeometry(0.08, 0.45, 1.8);
+      const scarfTail = new THREE.Mesh(scarfTailGeo, redScarfMat);
+      scarfTail.position.set(-1.0, 2.5, 0.3);
+      bodyGroup.add(scarfTail);
+
+      // 企鹅翅膀 (鳍状肢 Flippers - 可独立摆动)
+      const flipperGeo = new THREE.SphereGeometry(1.1, 14, 14);
+      flipperGeo.scale(0.18, 1.0, 0.45);
+
+      const leftFlipperPivot = new THREE.Group();
+      leftFlipperPivot.position.set(0, 2.4, 1.25);
+      const leftFlipper = new THREE.Mesh(flipperGeo, blackFeatherMat);
+      leftFlipper.position.set(0, -0.65, 0);
+      leftFlipper.castShadow = true;
+      leftFlipperPivot.add(leftFlipper);
+      bodyGroup.add(leftFlipperPivot);
+
+      const rightFlipperPivot = new THREE.Group();
+      rightFlipperPivot.position.set(0, 2.4, -1.25);
+      const rightFlipper = new THREE.Mesh(flipperGeo, blackFeatherMat);
+      rightFlipper.position.set(0, -0.65, 0);
+      rightFlipper.castShadow = true;
+      rightFlipperPivot.add(rightFlipper);
+      bodyGroup.add(rightFlipperPivot);
+
+      // 尾羽
+      const tailGeo = new THREE.ConeGeometry(0.4, 0.9, 10);
+      tailGeo.rotateZ(Math.PI / 2.3);
+      const tailMesh = new THREE.Mesh(tailGeo, blackFeatherMat);
+      tailMesh.position.set(-1.4, 0.9, 0);
+      bodyGroup.add(tailMesh);
+
+      // 企鹅脚蹼 (站在雪板上)
+      const footGeo = new THREE.BoxGeometry(0.9, 0.25, 0.55);
+      const footL = new THREE.Mesh(footGeo, orangeBeakMat);
+      footL.position.set(0.3, 0.2, 0.65);
+      bodyGroup.add(footL);
+
+      const footR = new THREE.Mesh(footGeo, orangeBeakMat);
+      footR.position.set(0.3, 0.2, -0.65);
+      bodyGroup.add(footR);
+
+      // 专业V字形跳台双滑雪板 (Ski Skis)
+      const skisGroup = new THREE.Group();
+      skisGroup.position.y = 0.1;
+      penguinRoot.add(skisGroup);
+
+      // 单块长雪板构造 (前端微微翘起)
+      function makeSingleSki() {
+        const skiG = new THREE.Group();
+        const base = new THREE.Mesh(new THREE.BoxGeometry(5.2, 0.12, 0.42), skiMat);
+        base.castShadow = true;
+        skiG.add(base);
+
+        const tip = new THREE.Mesh(new THREE.CylinderGeometry(0.21, 0.21, 0.7, 10), skiMat);
+        tip.rotation.z = Math.PI / 4;
+        tip.position.set(2.6, 0.25, 0);
+        skiG.add(tip);
+        return skiG;
+      }
+
+      const skiLeft = makeSingleSki();
+      skiLeft.position.set(0.4, 0, 0.65);
+      skisGroup.add(skiLeft);
+
+      const skiRight = makeSingleSki();
+      skiRight.position.set(0.4, 0, -0.65);
+      skisGroup.add(skiRight);
+
+      return {
+        root: penguinRoot,
+        bodyGroup,
+        leftFlipperPivot,
+        rightFlipperPivot,
+        scarfTail,
+        skisGroup,
+        skiLeft,
+        skiRight
+      };
+    }
+
+    const penguin = createPenguin();
+    scene.add(penguin.root);
+
+    // 8. 真实冰雪粒子系统 (环境鹅毛大雪 + 赛道冲刺喷雪花 + 着陆激爆雪浪)
+    // 8.1 漫天飞雪
+    const snowCount = 2400;
+    const snowGeo = new THREE.BufferGeometry();
+    const snowPos = new Float32Array(snowCount * 3);
+    const snowVel = new Float32Array(snowCount * 3);
+
+    for (let i = 0; i < snowCount; i++) {
+      snowPos[i * 3] = (Math.random() - 0.5) * 400;
+      snowPos[i * 3 + 1] = Math.random() * 160;
+      snowPos[i * 3 + 2] = (Math.random() - 0.5) * 400;
+
+      snowVel[i * 3] = 0.2 + Math.random() * 0.5;      // 随风向右漂
+      snowVel[i * 3 + 1] = -(0.4 + Math.random() * 0.8); // 缓缓下落
+      snowVel[i * 3 + 2] = (Math.random() - 0.5) * 0.3;
+    }
+    snowGeo.setAttribute('position', new THREE.BufferAttribute(snowPos, 3));
+
+    // 使用圆形软边缘Canvas纹理提升雪花真实度
+    function createSnowTexture() {
+      const c = document.createElement('canvas');
+      c.width = 32;
+      c.height = 32;
+      const ctx = c.getContext('2d');
+      const grad = ctx.createRadialGradient(16, 16, 0, 16, 16, 16);
+      grad.addColorStop(0, 'rgba(255,255,255,1)');
+      grad.addColorStop(0.5, 'rgba(235,245,255,0.7)');
+      grad.addColorStop(1, 'rgba(255,255,255,0)');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, 32, 32);
+      return new THREE.CanvasTexture(c);
+    }
+
+    const snowMaterial = new THREE.PointsMaterial({
+      size: 1.4,
+      map: createSnowTexture(),
+      transparent: true,
+      opacity: 0.85,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false
+    });
+    const snowSystem = new THREE.Points(snowGeo, snowMaterial);
+    scene.add(snowSystem);
+
+    // 8.2 滑行与着陆爆发动态雪花 (Spray Particles)
+    const sprayCount = 400;
+    const sprayGeo = new THREE.BufferGeometry();
+    const sprayPositions = new Float32Array(sprayCount * 3);
+    const sprayVelocities = new Float32Array(sprayCount * 3);
+    const sprayLifes = new Float32Array(sprayCount);
+
+    for (let i = 0; i < sprayCount; i++) {
+      sprayPositions[i * 3] = 0;
+      sprayPositions[i * 3 + 1] = -100; // 初始隐藏在地下
+      sprayPositions[i * 3 + 2] = 0;
+      sprayLifes[i] = 0;
+    }
+    sprayGeo.setAttribute('position', new THREE.BufferAttribute(sprayPositions, 3));
+    const sprayMaterial = new THREE.PointsMaterial({
+      size: 2.2,
+      map: createSnowTexture(),
+      transparent: true,
+      opacity: 0.9,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false
+    });
+    const spraySystem = new THREE.Points(sprayGeo, sprayMaterial);
+    scene.add(spraySystem);
+
+    let sprayCursor = 0;
+    function emitSpray(x, y, z, intensity, burst = false) {
+      const count = burst ? 70 : 8;
+      for (let k = 0; k < count; k++) {
+        sprayCursor = (sprayCursor + 1) % sprayCount;
+        sprayPositions[sprayCursor * 3] = x + (Math.random() - 0.5) * 1.5;
+        sprayPositions[sprayCursor * 3 + 1] = y + Math.random() * 0.4;
+        sprayPositions[sprayCursor * 3 + 2] = z + (Math.random() - 0.5) * 1.8;
+
+        if (burst) {
+          sprayVelocities[sprayCursor * 3] = (Math.random() - 0.3) * 1.2 * intensity;
+          sprayVelocities[sprayCursor * 3 + 1] = (0.5 + Math.random() * 1.4) * intensity;
+          sprayVelocities[sprayCursor * 3 + 2] = (Math.random() - 0.5) * 1.6 * intensity;
+        } else {
+          sprayVelocities[sprayCursor * 3] = -0.8 - Math.random() * 0.6;
+          sprayVelocities[sprayCursor * 3 + 1] = 0.2 + Math.random() * 0.5;
+          sprayVelocities[sprayCursor * 3 + 2] = (Math.random() - 0.5) * 0.8;
+        }
+        sprayLifes[sprayCursor] = 1.0;
+      }
+    }
+
+    // 9. 动画时序与物理运动学核心架构 (总时长 11.5 秒一轮自动无缝循环)
+    // 阶段划分:
+    // 0.0s - 1.2s: 准备出发，企鹅蓄力并前后观察，滑出
+    // 1.2s - 4.0s: 极速俯冲！俯身减阻，助滑道狂飙破风
+    // 4.0s - 4.3s: 起跳瞬间 (Take-off snap)！猛烈蹬腿伸展
+    // 4.3s - 7.6s: 翱翔腾空 (Flight)！经典V-Style气动翼形姿态，迎风滑翔，极速大景慢镜头
+    // 7.6s - 8.3s: 完美长距着陆 (Landing)！雪板平行，弓步吸震，激起万丈雪浪
+    // 8.3s - 10.2s: 平稳减速收势，直立挥翅欢呼庆祝
+    // 10.2s - 11.5s: 优雅电影级视线淡入复位
+
+    const TOTAL_CYCLE = 11.5;
+    let clock = new THREE.Clock();
+
+    // 辅助插值函数
+    function easeInQuad(t) { return t * t; }
+    function easeOutQuad(t) { return t * (2 - t); }
+    function easeInOutQuad(t) { return t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t; }
+    function easeOutCubic(t) { return (--t) * t * t + 1; }
+
+    function updateSimulation(time) {
+      const cycleTime = time % TOTAL_CYCLE;
+      const speedLinesRatio = 0;
+
+      // 企鹅核心坐标与旋转
+      let px = -45, py = 95, pz = 0;
+      let rotX = 0, rotY = 0, rotZ = 0;
+      let bodyPitch = 0; // 身体前倾度
+      let flipperAngle = 0; // 翅膀展开度
+      let skiVSpread = 0; // 雪板V字张角
+      let isGrounded = true;
+      let cameraMode = 0;
+
+      // --- 阶段 1: 准备与启程 (0.0s - 1.2s) ---
+      if (cycleTime < 1.2) {
+        const t = cycleTime / 1.2;
+        const pt = inrunCurve.getPointAt(t * 0.04);
+        px = pt.x; py = pt.y; pz = pt.z;
+        rotZ = -0.4;
+        bodyPitch = 0.3 + Math.sin(t * Math.PI * 4) * 0.1;
+        flipperAngle = 0.2;
+        skiVSpread = 0;
+        cameraMode = 1;
+        speedLinesEl.style.opacity = 0;
+      }
+      // --- 阶段 2: 助滑坡极速俯冲 (1.2s - 4.0s) ---
+      else if (cycleTime < 4.0) {
+        const t = (cycleTime - 1.2) / 2.8;
+        const progress = 0.04 + easeInQuad(t) * 0.96;
+        const pt = inrunCurve.getPointAt(Math.min(progress, 1.0));
+        px = pt.x; py = pt.y; pz = pt.z;
+
+        // 根据轨道切线计算倾角
+        const tangent = inrunCurve.getTangentAt(Math.min(progress, 1.0));
+        rotZ = Math.atan2(tangent.y, tangent.x);
+
+        // 极限下蹲抱团减小风阻 (Aerodynamic Tuck)
+        bodyPitch = 1.1 + Math.sin(t * 20) * 0.05;
+        flipperAngle = -0.3; // 紧贴体侧
+        skiVSpread = 0.05;
+
+        // 持续喷出高速滑雪细雪沫
+        emitSpray(px, py, pz, 0.9 + t * 0.8, false);
+        speedLinesEl.style.opacity = (t * 0.6).toFixed(2);
+        cameraMode = 2;
+      }
+      // --- 阶段 3: 起跳瞬爆 (4.0s - 4.3s) ---
+      else if (cycleTime < 4.3) {
+        const t = (cycleTime - 4.0) / 0.3;
+        px = 6 + t * 5;
+        py = 30.5 + t * 3.5;
+        pz = 0;
+        rotZ = -0.05 + t * 0.35; // 身体迎风上仰
+        bodyPitch = 0.8 - t * 0.7; // 伸展身体起跳
+        flipperAngle = t * 1.3; // 展翅高飞
+        skiVSpread = t * 0.45; // 雪板迅速张开成V型
+
+        emitSpray(px, py, pz, 1.6, true);
+        speedLinesEl.style.opacity = '0.75';
+        cameraMode = 3;
+      }
+      // --- 阶段 4: 腾空翱翔与气动滑翔 (4.3s - 7.6s) ---
+      else if (cycleTime < 7.6) {
+        const t = (cycleTime - 4.3) / 3.3; // 腾空3.3秒，极其震撼优雅的滞空
+        // 宏伟抛物线物理轨迹: 水平匀速远推，垂直重力加速度抛物线下落
+        px = 11 + t * 96; // 飞跃接近百米！
+        py = 34 + Math.sin(t * Math.PI * 0.7) * 9 - Math.pow(t, 2.1) * 38;
+        pz = Math.sin(t * Math.PI) * 1.5; // 轻微空气侧风漂移
+
+        // 国际顶尖跳台选手的标志性“V-Style”体态:
+        // 身体前扑与雪板近乎平行，形成完美气动升力机翼
+        rotZ = -0.22 - Math.sin(t * Math.PI) * 0.12;
+        bodyPitch = 0.95 + Math.sin(t * 8) * 0.04;
+        flipperAngle = 1.45 + Math.sin(t * 12) * 0.08; // 翅膀如机翼般平展御风
+        skiVSpread = 0.58; // 经典完美大V字板型
+        isGrounded = false;
+
+        speedLinesEl.style.opacity = (0.45 + Math.sin(t * Math.PI) * 0.35).toFixed(2);
+        cameraMode = 3;
+      }
+      // --- 阶段 5: 破空着陆与雪浪激爆 (7.6s - 8.3s) ---
+      else if (cycleTime < 8.3) {
+        const t = (cycleTime - 7.6) / 0.7;
+        const pt = landingCurve.getPointAt(0.55 + t * 0.2);
+        px = pt.x; py = pt.y + 0.3; pz = pt.z;
+
+        const tangent = landingCurve.getTangentAt(0.55 + t * 0.2);
+        rotZ = Math.atan2(tangent.y, tangent.x);
+
+        // 触地 Telemark 弓步屈膝吸震动作
+        bodyPitch = 0.4 + (1 - t) * 0.5;
+        flipperAngle = 1.0 * (1 - t) + 0.4;
+        skiVSpread = 0.58 * (1 - t); // 雪板由V字快速合拢收平
+
+        // 触地瞬间激起滔天雪浪
+        if (t < 0.4) {
+          emitSpray(px, py, pz, 2.8, true);
+        } else {
+          emitSpray(px, py, pz, 1.2, false);
+        }
+        speedLinesEl.style.opacity = ((1 - t) * 0.5).toFixed(2);
+        cameraMode = 4;
+      }
+      // --- 阶段 6: 减速与兴奋欢呼庆祝 (8.3s - 10.2s) ---
+      else if (cycleTime < 10.2) {
+        const t = (cycleTime - 8.3) / 1.9;
+        const progress = 0.75 + easeOutCubic(t) * 0.23;
+        const pt = landingCurve.getPointAt(progress);
+        px = pt.x; py = pt.y + 0.3; pz = pt.z;
+        rotZ = 0;
+
+        // 企鹅直立起来，兴奋挥动双翅，左右摇摆欢庆！
+        bodyPitch = Math.sin(t * Math.PI * 4) * 0.15;
+        rotY = Math.sin(t * Math.PI * 3) * 0.3; // 摇摇晃晃可爱庆祝
+        flipperAngle = 1.3 + Math.sin(t * Math.PI * 8) * 0.5; // 欢快扇动翅膀
+        skiVSpread = 0;
+
+        if (t < 0.6) {
+          emitSpray(px, py, pz, (1 - t) * 0.7, false);
+        }
+        speedLinesEl.style.opacity = 0;
+        cameraMode = 5;
+      }
+      // --- 阶段 7: 无缝循环转场镜头回拉 (10.2s - 11.5s) ---
+      else {
+        const t = (cycleTime - 10.2) / 1.3;
+        px = 155; py = 0.3; pz = 0;
+        rotZ = 0;
+        bodyPitch = 0.1;
+        flipperAngle = 0.3;
+        skiVSpread = 0;
+        speedLinesEl.style.opacity = 0;
+        cameraMode = 6;
+      }
+
+      // 将计算得出的位置与旋转施加给企鹅
+      penguin.root.position.set(px, py, pz);
+      penguin.root.rotation.set(rotX, rotY, rotZ);
+      penguin.bodyGroup.rotation.z = -bodyPitch;
+
+      // 翅膀开合与高频微风颤动
+      const flutter = Math.sin(time * 35) * 0.05;
+      penguin.leftFlipperPivot.rotation.x = flipperAngle + flutter;
+      penguin.rightFlipperPivot.rotation.x = -(flipperAngle + flutter);
+
+      // 围巾飘逸物理风效
+      penguin.scarfTail.rotation.z = 0.3 + Math.sin(time * 25) * 0.25;
+      penguin.scarfTail.rotation.x = Math.cos(time * 20) * 0.2;
+
+      // 滑雪板V字张角联动
+      penguin.skiLeft.rotation.y = skiVSpread;
+      penguin.skiRight.rotation.y = -skiVSpread;
+
+      // ==========================================
+      // 10. 电影级大师镜头跟拍调度系统 (Cinematic Director Camera)
+      // 动态推拉摇移、侧方伴飞追踪、极速特写与大广角俯瞰
+      // ==========================================
+      const targetLookAt = new THREE.Vector3(px + 1.5, py + 1.2, pz);
+
+      if (cameraMode === 1) {
+        // 出发特写机位：侧前方低角度仰拍企鹅坚毅可爱的眼神
+        const camTarget = new THREE.Vector3(px - 14, py + 7, pz + 16);
+        camera.position.lerp(camTarget, 0.08);
+        camera.lookAt(targetLookAt);
+      } else if (cameraMode === 2) {
+        // 俯冲狂飙机位：后上方伴飞高速特写，强调冲刺速度感
+        const camTarget = new THREE.Vector3(px - 22, py + 12, pz + 18);
+        camera.position.lerp(camTarget, 0.12);
+        camera.lookAt(targetLookAt);
+      } else if (cameraMode === 3) {
+        // 腾空翱翔世纪机位：横向大广角伴飞！
+        // 企鹅在画面中心迎风翱翔，背景是雄伟广袤的雪山和谷底松林
+        const camTarget = new THREE.Vector3(px - 4, py + 4, pz + 38);
+        camera.position.lerp(camTarget, 0.09);
+        camera.lookAt(new THREE.Vector3(px + 4, py - 1, pz));
+      } else if (cameraMode === 4) {
+        // 惊天着陆机位：地面低角度捕捉雪花爆散与落地震撼瞬间
+        const camTarget = new THREE.Vector3(px + 22, py + 6, pz + 24);
+        camera.position.lerp(camTarget, 0.15);
+        camera.lookAt(targetLookAt);
+      } else if (cameraMode === 5) {
+        // 欢呼庆祝机位：平缓拉近至正面中景，分享胜利喜悦
+        const camTarget = new THREE.Vector3(px + 18, py + 5, pz + 12);
+        camera.position.lerp(camTarget, 0.06);
+        camera.lookAt(targetLookAt);
+      } else {
+        // 循环回拉过渡机位：宏观鸟瞰全景，优雅过渡到跳台顶端准备下一跳
+        const t = (cycleTime - 10.2) / 1.3;
+        const startPos = new THREE.Vector3(170, 10, 15);
+        const endPos = new THREE.Vector3(-60, 105, 75);
+        camera.position.lerpVectors(startPos, endPos, easeInOutQuad(t));
+        camera.lookAt(new THREE.Vector3(-30, 80, 0));
+      }
+
+      // 11. 更新粒子物理动力学
+      // 11.1 更新环境大雪
+      const sPos = snowGeo.attributes.position.array;
+      for (let i = 0; i < snowCount; i++) {
+        sPos[i * 3] += snowVel[i * 3];
+        sPos[i * 3 + 1] += snowVel[i * 3 + 1];
+        sPos[i * 3 + 2] += snowVel[i * 3 + 2];
+
+        // 循环复位
+        if (sPos[i * 3 + 1] < 0) sPos[i * 3 + 1] = 160;
+        if (sPos[i * 3] > 200) sPos[i * 3] = -200;
+        if (Math.abs(sPos[i * 3 + 2]) > 200) sPos[i * 3 + 2] = -sPos[i * 3 + 2];
+      }
+      snowGeo.attributes.position.needsUpdate = true;
+
+      // 11.2 更新滑雪飞溅雪沫
+      const spPos = sprayGeo.attributes.position.array;
+      for (let i = 0; i < sprayCount; i++) {
+        if (sprayLifes[i] > 0) {
+          sprayLifes[i] -= 0.025;
+          spPos[i * 3] += sprayVelocities[i * 3];
+          spPos[i * 3 + 1] += sprayVelocities[i * 3 + 1];
+          spPos[i * 3 + 2] += sprayVelocities[i * 3 + 2];
+          sprayVelocities[i * 3 + 1] -= 0.03; // 重力下坠
+        } else {
+          spPos[i * 3 + 1] = -100;
+        }
+      }
+      sprayGeo.attributes.position.needsUpdate = true;
+    }
+
+    // 12. 主动画循环
+    function animate() {
+      requestAnimationFrame(animate);
+      const elapsedTime = clock.getElapsedTime();
+      updateSimulation(elapsedTime);
+      renderer.render(scene, camera);
+    }
+    animate();
+
+    // 13. 响应式自适应视口调整
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+  </script>
+<!--zc-home:start--><style>.zc-home-btn{position:fixed;top:16px;left:16px;z-index:2147483647;display:inline-flex;align-items:center;gap:6px;padding:8px 14px;font:500 13px/1.1 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Noto Sans SC",sans-serif;color:#111;background:rgba(255,255,255,.86);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);border:1px solid rgba(0,0,0,.08);border-radius:999px;text-decoration:none;box-shadow:0 2px 12px rgba(0,0,0,.2);transition:background .2s ease,transform .2s ease,box-shadow .2s ease}.zc-home-btn:hover{background:#fff;transform:translateY(-1px);box-shadow:0 4px 18px rgba(0,0,0,.26)}</style><a class="zc-home-btn" href="../">← 返回首页</a><!--zc-home:end-->
+</body>
+</html>

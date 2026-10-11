@@ -18,17 +18,58 @@
   <section class="hero sub">
     <div class="crumb"><a href="../">首页</a> &nbsp;/&nbsp; 企鹅滑雪跳台</div>
     <h1>企鹅滑雪跳台</h1>
-    <p class="lede">新加入的测试命题 —— 企鹅冲下斜坡、腾空、再落地,考验 3D 相机运动与阴影的连续变化。即将收录不同模型与 Agent 的实现版本,按版本归档对比。</p>
+    <p class="lede">一只企鹅从跳台俯冲而下、在台口腾空飞出,划出一道抛物线再落回雪坡。考的是助滑到起跳的加速、腾空的抛物线与姿态,以及相机跟随和雪地投影阴影随之变化的连续感 —— 这题几乎非 3D 不可,2D 很难把相机运动和实时阴影做出来。下面按模型版本归档,缩略图为真实渲染效果,点击卡片查看可交互的在线页面。</p>
   </section>
 
-  <section class="empty">
-    <div class="box">
-      <div class="mk">🐧</div>
-      <h2>版本征集中</h2>
-      <p>这个命题还没有收录任何模型版本。它考察的是:斜坡与腾空的抛物线、落地缓冲,以及 3D 相机跟随与投影阴影的实时变化。</p>
-      <a href="../">← 返回首页看看其他命题</a>
-    </div>
-  </section>
+  <div class="label"><span>Jev 排行</span><b>Leaderboard</b><i></i></div>
+  <div class="note">
+    <span class="tag">TypeSafe Jev 评分</span>
+    <span class="k">由 System One 判定模型 <b>jev-1.13.0</b> 根据每个版本的真实渲染结果打分(满分 100)</span>
+    <span class="k"><b>起跳腾空</b> 35 · <b>相机跟随</b> 20 · <b>场景阴影</b> 25 · <b>企鹅姿态</b> 20</span>
+  </div>
+
+  <div class="grid">
+    <a class="ver" href="deepseek-4.1-flash.html">
+      <div class="shot"><span class="rk g1">#1</span><span class="score hi"><b>92</b><span class="j">Jev</span></span><img src="thumbs/deepseek-4.1-flash.webp" alt="DeepSeek 4.1 Flash Three.js 3D 预览" loading="lazy" decoding="async" onload="this.classList.add('loaded')"></div>
+      <div class="meta">
+        <div class="txt"><h3>DeepSeek 4.1 Flash</h3><p>Three.js 3D</p></div>
+        <span class="arr2">↗</span>
+      </div>
+      <div class="dims"><div class="d"><div class="dh"><span>起跳腾空</span><em class="hi">98</em></div><div class="tr"><div class="fl hi" style="width:98%"></div></div></div><div class="d"><div class="dh"><span>相机跟随</span><em class="hi">99</em></div><div class="tr"><div class="fl hi" style="width:99%"></div></div></div><div class="d"><div class="dh"><span>场景阴影</span><em class="hi">87</em></div><div class="tr"><div class="fl hi" style="width:87%"></div></div></div><div class="d"><div class="dh"><span>企鹅姿态</span><em class="mid">79</em></div><div class="tr"><div class="fl mid" style="width:79%"></div></div></div></div>
+    </a>
+    <a class="ver" href="gemini-3.8-flash.html">
+      <div class="shot"><span class="rk">#2</span><span class="score"><b>83</b><span class="j">Jev</span></span><img src="thumbs/gemini-3.8-flash.webp" alt="Gemini 3.8 Flash Three.js 3D 预览" loading="lazy" decoding="async" onload="this.classList.add('loaded')"></div>
+      <div class="meta">
+        <div class="txt"><h3>Gemini 3.8 Flash</h3><p>Three.js 3D</p></div>
+        <span class="arr2">↗</span>
+      </div>
+      <div class="dims"><div class="d"><div class="dh"><span>起跳腾空</span><em class="hi">92</em></div><div class="tr"><div class="fl hi" style="width:92%"></div></div></div><div class="d"><div class="dh"><span>相机跟随</span><em class="hi">98</em></div><div class="tr"><div class="fl hi" style="width:98%"></div></div></div><div class="d"><div class="dh"><span>场景阴影</span><em class="hi">86</em></div><div class="tr"><div class="fl hi" style="width:86%"></div></div></div><div class="d"><div class="dh"><span>企鹅姿态</span><em class="mid">51</em></div><div class="tr"><div class="fl mid" style="width:51%"></div></div></div></div>
+    </a>
+    <a class="ver" href="space-bunny.html">
+      <div class="shot"><span class="rk">#3</span><span class="score"><b>51</b><span class="j">Jev</span></span><img src="thumbs/space-bunny.webp" alt="Space Bunny Canvas 2D 预览" loading="lazy" decoding="async" onload="this.classList.add('loaded')"></div>
+      <div class="meta">
+        <div class="txt"><h3>Space Bunny</h3><p>Canvas 2D</p></div>
+        <span class="arr2">↗</span>
+      </div>
+      <div class="dims"><div class="d"><div class="dh"><span>起跳腾空</span><em class="mid">58</em></div><div class="tr"><div class="fl mid" style="width:58%"></div></div></div><div class="d"><div class="dh"><span>相机跟随</span><em class="mid">72</em></div><div class="tr"><div class="fl mid" style="width:72%"></div></div></div><div class="d"><div class="dh"><span>场景阴影</span><em class="mid">54</em></div><div class="tr"><div class="fl mid" style="width:54%"></div></div></div><div class="d"><div class="dh"><span>企鹅姿态</span><em class="lo">12</em></div><div class="tr"><div class="fl lo" style="width:12%"></div></div></div></div>
+    </a>
+    <a class="ver" href="glm-5.3-flash.html">
+      <div class="shot"><span class="rk">#4</span><span class="score lo"><b>32</b><span class="j">Jev</span></span><img src="thumbs/glm-5.3-flash.webp" alt="GLM 5.3 Flash Canvas 2D 预览" loading="lazy" decoding="async" onload="this.classList.add('loaded')"></div>
+      <div class="meta">
+        <div class="txt"><h3>GLM 5.3 Flash</h3><p>Canvas 2D</p></div>
+        <span class="arr2">↗</span>
+      </div>
+      <div class="dims"><div class="d"><div class="dh"><span>起跳腾空</span><em class="lo">1</em></div><div class="tr"><div class="fl lo" style="width:1%"></div></div></div><div class="d"><div class="dh"><span>相机跟随</span><em class="lo">2</em></div><div class="tr"><div class="fl lo" style="width:2%"></div></div></div><div class="d"><div class="dh"><span>场景阴影</span><em class="mid">73</em></div><div class="tr"><div class="fl mid" style="width:73%"></div></div></div><div class="d"><div class="dh"><span>企鹅姿态</span><em class="mid">64</em></div><div class="tr"><div class="fl mid" style="width:64%"></div></div></div></div>
+    </a>
+    <a class="ver" href="muse-spark.html">
+      <div class="shot"><span class="rk">#5</span><span class="score lo"><b>11</b><span class="j">Jev</span></span><img src="thumbs/muse-spark.webp" alt="Muse Spark Canvas 2D 预览" loading="lazy" decoding="async" onload="this.classList.add('loaded')"></div>
+      <div class="meta">
+        <div class="txt"><h3>Muse Spark</h3><p>Canvas 2D</p></div>
+        <span class="arr2">↗</span>
+      </div>
+      <div class="dims"><div class="d"><div class="dh"><span>起跳腾空</span><em class="lo">11</em></div><div class="tr"><div class="fl lo" style="width:11%"></div></div></div><div class="d"><div class="dh"><span>相机跟随</span><em class="lo">3</em></div><div class="tr"><div class="fl lo" style="width:3%"></div></div></div><div class="d"><div class="dh"><span>场景阴影</span><em class="lo">0</em></div><div class="tr"><div class="fl lo" style="width:0%"></div></div></div><div class="d"><div class="dh"><span>企鹅姿态</span><em class="lo">34</em></div><div class="tr"><div class="fl lo" style="width:34%"></div></div></div></div>
+    </a>
+  </div>
 
   <footer>
     <div class="wrap">

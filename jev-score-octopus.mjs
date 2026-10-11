@@ -93,6 +93,8 @@ const ITEMS = [
     desc: "A purple octopus sits amid a large kit with several cream toms and multiple cymbals, arms spread to reach the various pieces. The kit is big and the many arms cover a lot of the drums, giving good distribution, over a dark, moody stage. Good coverage, slightly busy composition." },
   { slug: "muse-spark", render: "2D (SVG 动画)",
     desc: "A pink octopus sits behind an 'OCTO-8' bass drum in an underwater-themed teal scene with seaweed and bubbles, cymbals on stands and drumsticks raised. Thematically distinctive (an underwater drummer) and pretty, with sticks held up ready to strike; arm-to-drum assignment is moderate and the kit is fairly standard." },
+  { slug: "space-bunny", render: "2D (animated HTML canvas)",
+    desc: "A big-eyed pink octopus is centered on a dark spotlit stage with a complete, well-arranged kit around it: a hi-hat and crash cymbal on stands to the left, mounted toms and a snare, a floor tom and a second cymbal to the right, and a large bass drum with a pedal and sticks in front. Its eight pink arms fan out symmetrically, and several clearly grip pink-tipped mallets that reach onto distinct drums and cymbals; across the animation the stick-holding arms visibly shift and strike different pieces, reading as active, coordinated drumming. Polished, charming character with strong color, staging and lighting; clear eight-arm coverage of the whole kit." },
 ];
 
 const questions = Object.fromEntries(

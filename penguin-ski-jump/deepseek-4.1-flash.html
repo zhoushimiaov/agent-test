@@ -1,0 +1,1037 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<script>
+// Collect load-time failures so a broken CDN or WebGL context is not silent.
+window.__errs = [];
+window.addEventListener("error", function (e) { window.__errs.push(String(e.message || e.error)); });
+</script>
+<title>Penguin Ski Jump</title>
+<style>
+  html,body{margin:0;padding:0;height:100%;background:#0b1622;overflow:hidden}
+  #stage{position:fixed;inset:0}
+  canvas{display:block;width:100%;height:100%}
+  /* lens vignette + a whisper of warm grade */
+  #vig{position:absolute;inset:0;pointer-events:none;
+       background:radial-gradient(ellipse 78% 68% at 50% 46%,rgba(0,0,0,0) 42%,rgba(12,24,40,.30) 78%,rgba(6,14,26,.62) 100%)}
+  #fade{position:absolute;inset:0;pointer-events:none;background:#eef6ff;opacity:1}
+  /* only ever visible if the renderer library could not be fetched at all */
+  #boot{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+        font:15px/1.6 system-ui,-apple-system,"Segoe UI",sans-serif;color:#4a6b8a;
+        background:#eef6ff;text-align:center;padding:0 8vw}
+</style>
+</head>
+<body>
+<div id="stage">
+  <canvas id="c"></canvas>
+  <div id="vig"></div>
+  <div id="fade"></div>
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js"></script>
+<script>
+// ---------------------------------------------------------------------------
+// Fallback CDN if the primary one is blocked.
+// ---------------------------------------------------------------------------
+if (!window.THREE) {
+  document.write('<script src="https://cdn.jsdelivr.net/npm/three@0.134.0/build/three.min.js"><\/script>');
+}
+if (!window.THREE) {
+  document.write('<div id="boot">Could not load the 3D library &mdash; check the network connection and reload.</div>');
+}
+</script>
+<script>
+(function () {
+'use strict';
+var THREE = window.THREE;
+
+// Colours are authored as sRGB and converted to linear, because the renderer
+// tone-maps and then sRGB-encodes: feeding it raw hex makes everything pale.
+function C(hex) { return new THREE.Color(hex).convertSRGBToLinear(); }
+
+// ===========================================================================
+// 1. WORLD MODEL
+//    The course is derived from physics rather than hand-placed: the approach
+//    ramp is integrated under friction, the takeoff speed falls out of the
+//    energy balance, the flight is integrated with real aerodynamic lift/drag,
+//    and the landing hill is shaped so the flight path meets it TANGENTIALLY
+//    (which is what makes a landing read as a landing rather than a crash).
+// ===========================================================================
+var W = (function () {
+  var smooth = function (a, b, t) { return a + (b - a) * (t * t * (3 - 2 * t)); };
+  var cl = function (t) { return t < 0 ? 0 : t > 1 ? 1 : t; };
+
+  var G = 9.8;            // gravity, m/s^2  (world is 1:1 metres)
+  var MU = 0.022;         // snow friction on the inrun
+  var CD = 0.0009;        // inrun air drag
+  var KL = 0.018;         // lift coefficient (perp. to airspeed)
+  var KD = 0.015;         // drag coefficient  (L/D = 1.2, as on a real jumper)
+  var INRUN = 42, DROP = 27, TABLE = 14, LAUNCH_DEG = 38;
+
+  var X0 = -46, X1 = 320, DX = 0.1, N = Math.round((X1 - X0) / DX);
+  var kIn = DROP / INRUN * 1.65;
+
+  // slope (dy/dx) of the approach: flat start, steepening to the takeoff lip,
+  // then a short flick over the crest.
+  var slopeIn = function (x) {
+    if (x <= 0) return -kIn * Math.pow(cl((x + INRUN) / INRUN), 0.65);
+    if (x < 7) return smooth(-kIn, 0.30, x / 7);
+    return smooth(0.30, 0.0, (x - 7) / (TABLE - 7));
+  };
+
+  var gY = new Float64Array(N + 1);           // approach ramp surface
+  gY[0] = DROP + 3;
+  for (var i = 1; i <= N; i++) gY[i] = gY[i - 1] + 0.5 * (slopeIn(X0 + (i - 1) * DX) + slopeIn(X0 + i * DX)) * DX;
+  var iLip = Math.round((TABLE - X0) / DX), lipY = gY[iLip];
+
+  // landing hill: steep drop-away at the edge, long face, flattening outrun
+  var SEG = [[TABLE, 21, 0, -0.58], [21, 31, -0.58, -0.70], [31, 96, -0.70, -0.80],
+             [96, 132, -0.80, -0.62], [132, 178, -0.62, -0.32], [178, 228, -0.32, -0.10],
+             [228, 278, -0.10, -0.03]];
+  var hillSlope = function (x) {
+    if (x <= TABLE) return slopeIn(x);
+    for (var k = 0; k < SEG.length; k++) { var s = SEG[k]; if (x < s[1]) return smooth(s[2], s[3], (x - s[0]) / (s[1] - s[0])); }
+    return -0.03;
+  };
+  var hY = new Float64Array(N + 1);
+  for (i = 0; i <= N; i++) {
+    var xx = X0 + i * DX;
+    hY[i] = i <= iLip ? gY[i] : hY[i - 1] + 0.5 * (hillSlope(xx - DX) + hillSlope(xx)) * DX;
+  }
+
+  // terrain (the snowfield the ramp stands on) - rises gently uphill behind the lip
+  var baseY = hY[iLip];
+  var terrainAt = function (x) { return x <= TABLE ? baseY - 0.20 * x : hY[Math.round(cl((x - X0) / (X1 - X0)) * N)]; };
+
+  var idx = function (x) { return cl((x - X0) / (X1 - X0)) * N; };
+  var courseAt = function (x) {                 // surface the penguin rides on
+    var f = idx(x), a = Math.max(0, Math.min(N - 1, Math.floor(f))), u = f - a;
+    return hY[a] * (1 - u) + hY[a + 1] * u;
+  };
+  var rampAt = function (x) {                   // inrun ramp surface
+    var f = idx(x), a = Math.max(0, Math.min(N - 1, Math.floor(f))), u = f - a;
+    return gY[a] * (1 - u) + gY[a + 1] * u;
+  };
+
+  // ---- slide down the ramp, from rest at the start gate
+  var run = [], v = 6.0, t = 0, x = X0;         // joins the run already rolling
+  run.push({ t: t, x: x, y: rampAt(x), v: v, a: Math.atan(slopeIn(x)) });
+  var dt = 0.004;
+  while (x < TABLE) {
+    var th = Math.atan(-slopeIn(x));
+    var acc = G * Math.sin(th) - MU * G * Math.cos(th) - CD * v * v;
+    v += acc * dt; x += v * Math.cos(th) * dt; t += dt;
+    run.push({ t: t, x: x, y: rampAt(x), v: v, a: Math.atan(slopeIn(x)) });
+  }
+  var vLip = v, T_RUN = t;
+
+  // ---- flight (lift perpendicular to airspeed, drag along it)
+  var th0 = LAUNCH_DEG * Math.PI / 180;
+  var fly = [], px = TABLE, py = lipY, vx = vLip * Math.cos(th0), vy = vLip * Math.sin(th0), ft = 0;
+  fly.push({ t: 0, x: px, y: py, vx: vx, vy: vy });
+  var fdt = 0.004, landed = null;
+  while (ft < 16) {
+    var sp = Math.hypot(vx, vy), ux = vx / sp, uy = vy / sp;
+    var L = KL * sp * sp, D = KD * sp * sp;
+    vx += (-uy * L - ux * D) * fdt;
+    vy += (ux * L - uy * D - G) * fdt;
+    px += vx * fdt; py += vy * fdt; ft += fdt;
+    fly.push({ t: ft, x: px, y: py, vx: vx, vy: vy });
+    if (py <= courseAt(px) && ft > 0.3) { landed = { t: ft, x: px, y: py, vx: vx, vy: vy }; break; }
+  }
+  var T_FLY = landed.t;
+
+  // ---- ride-out: hard carve, scrubbing speed down the outrun
+  var ride = [], rx = landed.x, rv = Math.hypot(landed.vx, landed.vy), rt = 0;
+  ride.push({ t: 0, x: rx, y: courseAt(rx), v: rv });
+  var RIDE_T = 3.0;
+  while (rt < RIDE_T) {
+    var dec = 4.2 + 3.4 * Math.exp(-rt / 1.1);
+    rv = Math.max(1.2, rv - dec * dt);
+    var sl = hillSlope(rx);
+    rx += rv * Math.cos(Math.atan(-sl)) * dt;
+    rt += dt;
+    ride.push({ t: rt, x: rx, y: courseAt(rx), v: rv });
+  }
+
+  var sample = function (arr, tt) {
+    var lo = 0, hi = arr.length - 1;
+    if (tt <= arr[0].t) return arr[0];
+    if (tt >= arr[hi].t) return arr[hi];
+    while (hi - lo > 1) { var m = (lo + hi) >> 1; if (arr[m].t <= tt) lo = m; else hi = m; }
+    var a = arr[lo], b = arr[hi], u = (tt - a.t) / (b.t - a.t);
+    var o = {}; for (var k in a) o[k] = a[k] + (b[k] - a[k]) * u;
+    return o;
+  };
+
+  var apex = fly.reduce(function (b, p) { return p.y > b.y ? p : b; }, fly[0]);
+
+  return {
+    G: G, X0: X0, X1: X1, TABLE: TABLE, LAUNCH_DEG: LAUNCH_DEG,
+    courseAt: courseAt, rampAt: rampAt, terrainAt: terrainAt, hillSlope: hillSlope, slopeIn: slopeIn,
+    lipY: lipY, vLip: vLip, startY: gY[0],
+    run: run, fly: fly, ride: ride,
+    T_RUN: T_RUN, T_FLY: T_FLY, T_RIDE: ride[ride.length - 1].t,
+    landed: landed, apexT: apex.t, apexY: apex.y,
+    sample: sample
+  };
+})();
+
+// ===========================================================================
+// 2. RENDERER / SCENE
+// ===========================================================================
+var canvas = document.getElementById('c');
+var renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true, powerPreference: 'high-performance' });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+renderer.outputEncoding = THREE.sRGBEncoding;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.06;
+// Shadow maps produced visible acne streaks on the far valley wall, and this
+// scene only needs one soft contact shadow, so the skier gets a projected
+// blob instead: cheaper, and clean on a stylised snowfield.
+renderer.shadowMap.enabled = false;
+
+var scene = new THREE.Scene();
+scene.fog = new THREE.FogExp2(0xdceaf8, 0.0016);
+
+var camera = new THREE.PerspectiveCamera(34, 1, 0.3, 6000);
+// Custom shaders must reproduce the renderer's tone mapping + output encoding
+// themselves, or they will not match the lit materials around them.
+var EXPOSURE = 1.06;
+var COLOR_DEFS = '#define EXPOSURE ' + EXPOSURE.toFixed(3) + '\n';
+var COLOR_GLSL = [
+  'vec3 acesFit(vec3 v){ vec3 a=v*(v+0.0245786)-0.000090537;',
+  '  vec3 b=v*(0.983729*v+0.4329510)+0.238081; return a/b; }',
+  'vec3 toneMap(vec3 c){',
+  '  const mat3 IN=mat3(0.59719,0.07600,0.02840, 0.35458,0.90834,0.13383, 0.04823,0.01566,0.83777);',
+  '  const mat3 OUT=mat3(1.60475,-0.10208,-0.00327, -0.53108,1.10813,-0.07276, -0.07367,-0.00605,1.07602);',
+  '  c*=EXPOSURE; c=IN*c; c=acesFit(c); c=OUT*c; return clamp(c,0.0,1.0); }',
+  'vec3 enc(vec3 c){ vec3 lo=c*12.92;',
+  '  vec3 hi=pow(max(c,vec3(0.0)),vec3(0.41666))*1.055-0.055;',
+  '  return mix(hi,lo,vec3(lessThanEqual(c,vec3(0.0031308)))); }'
+].join('\n') + '\n';
+
+// ---- sky dome -------------------------------------------------------------
+var SUN_DIR = new THREE.Vector3(0.58, 0.60, 0.50).normalize();
+var sky = new THREE.Mesh(
+  new THREE.SphereGeometry(3000, 32, 20),
+  new THREE.ShaderMaterial({
+    side: THREE.BackSide, depthWrite: false, fog: false,
+    uniforms: {
+      cTop: { value: C(0x1c5aa8) },
+      cMid: { value: C(0x6aa8e6) },
+      cBot: { value: C(0xd6e9fb) },
+      sunDir: { value: SUN_DIR.clone() },
+      sunCol: { value: C(0xfff2d8) }
+    },
+    vertexShader:
+      'varying vec3 vW; void main(){ vW=(modelMatrix*vec4(position,1.0)).xyz;' +
+      ' gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }',
+    fragmentShader:
+      COLOR_DEFS + COLOR_GLSL +
+      'uniform vec3 cTop,cMid,cBot,sunCol; uniform vec3 sunDir; varying vec3 vW;' +
+      'void main(){ vec3 d=normalize(vW-cameraPosition);' +
+      ' float h=clamp(d.y*0.5+0.5,0.0,1.0);' +
+      ' vec3 c=mix(cBot,cMid,smoothstep(0.44,0.53,h));' +
+      ' c=mix(c,cTop,smoothstep(0.53,0.98,h));' +
+      ' float s=max(dot(d,normalize(sunDir)),0.0);' +
+      ' c+=sunCol*pow(s,180.0)*1.6;' +
+      ' c+=sunCol*pow(s,6.0)*0.10;' +
+      ' gl_FragColor=vec4(enc(toneMap(c)),1.0); }'
+  })
+);
+scene.add(sky);
+
+// ---- lights ---------------------------------------------------------------
+scene.add(new THREE.HemisphereLight(0xbcd9ff, 0xf0f6ff, 0.46));
+var sun = new THREE.DirectionalLight(0xfff4e0, 1.42);
+scene.add(sun); scene.add(sun.target);
+var rim = new THREE.DirectionalLight(0xa8c8ff, 0.22);
+rim.position.set(-40, 30, -50);
+scene.add(rim);
+
+// ===========================================================================
+// 3. SNOWFIELD, RAMP, TREES, MOUNTAINS
+// ===========================================================================
+
+// --- terrain grid (smooth groomed hill near the course, drifts further out)
+(function buildTerrain() {
+  var xA = -150, xB = 340, xS = 2.0, zA = -95, zB = 95, zS = 3.0;
+  var nx = Math.round((xB - xA) / xS), nz = Math.round((zB - zA) / zS);
+  var pos = [], nor = [], col = [];
+  var cWhite = C(0xffffff), cBlue = C(0xc3d8ef);
+  var h = function (x, z) {
+    var base = W.terrainAt(x);
+    var d = Math.abs(z);
+    var amp = 0.95 * Math.max(0, Math.min(1, (d - 17) / 34));
+    var n = Math.sin(x * 0.11 + z * 0.07) * 0.55 + Math.sin(x * 0.031 - z * 0.045 + 1.7) * 0.9 +
+            Math.sin(x * 0.23 + z * 0.19 + 4.2) * 0.22;
+    return base + amp * n + Math.max(0, d - 34) * 0.040;
+  };
+  for (var j = 0; j <= nz; j++) for (var i = 0; i <= nx; i++) {
+    var x = xA + i * xS, z = zA + j * zS;
+    pos.push(x, h(x, z), z);
+    var d = Math.abs(z), t = Math.max(0, Math.min(1, (d - 24) / 46));
+    var c = cWhite.clone().lerp(cBlue, 0.07 + 0.26 * t);
+    col.push(c.r, c.g, c.b);
+  }
+  var idx = [];
+  for (j = 0; j < nz; j++) for (i = 0; i < nx; i++) {
+    var a = j * (nx + 1) + i, b = a + 1, c2 = a + nx + 1, d2 = c2 + 1;
+    idx.push(a, c2, b, b, c2, d2);
+  }
+  var g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  g.setIndex(idx); g.computeVertexNormals();
+  var m = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.94 }));
+  m.receiveShadow = true;
+  scene.add(m);
+})();
+
+// --- the jump itself: a narrow groomed ramp on a tower, with rails
+(function buildRamp() {
+  var steelMat = new THREE.MeshStandardMaterial({ color: C(0x8ea3b8), roughness: 0.55, metalness: 0.35 });
+  var xA = -47, xB = 14, xS = 0.6, hw = 1.25;
+  var pos = [], idx = [], n = 0;
+  var i, x;
+  for (i = 0, x = xA; x <= xB + 0.001; x += xS, i++) {
+    var y = W.rampAt(x), s = W.slopeIn(x);
+    var dxn = 1 / Math.hypot(1, s), dyn = s * dxn;         // along-slope unit
+    var nxn = -dyn, nyn = dxn;                             // surface normal
+    // top surface, two verts
+    pos.push(x - hw * nxn * 0, y, -hw); pos.push(x, y, hw);
+    n += 2;
+  }
+  for (i = 0; i < n / 2 - 1; i++) { var a = i * 2, b = a + 1, c = a + 2, d = a + 3; idx.push(a, c, b, b, c, d); }
+  var g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setIndex(idx); g.computeVertexNormals();
+  var deck = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ color: C(0xdfeaf8), roughness: 0.85, side: THREE.DoubleSide }));
+  deck.receiveShadow = true;
+  scene.add(deck);
+
+  // side rails
+  for (var side = -1; side <= 1; side += 2) {
+    var p2 = [], i2 = [];
+    for (i = 0, x = xA; x <= xB + 0.001; x += 1.2, i++) {
+      var y2 = W.rampAt(x);
+      p2.push(x, y2 + 0.02, side * hw, x, y2 + 0.10, side * hw);
+    }
+    for (i = 0; i < p2.length / 6 - 1; i++) { var a2 = i * 2, b2 = a2 + 1, c2 = a2 + 2, d2 = a2 + 3; i2.push(a2, c2, b2, b2, c2, d2); }
+    var g2 = new THREE.BufferGeometry();
+    g2.setAttribute('position', new THREE.Float32BufferAttribute(p2, 3));
+    g2.setIndex(i2); g2.computeVertexNormals();
+    var rail = new THREE.Mesh(g2, new THREE.MeshStandardMaterial({ color: C(0x5f9ad8), roughness: 0.55, side: THREE.DoubleSide }));
+    rail.castShadow = true;
+    scene.add(rail);
+  }
+
+  // tower: legs from the ramp deck down to the terrain
+  var legs = [];
+  for (x = xA + 3; x < xB - 2; x += 5.2) {
+    var top = W.rampAt(x), bot = W.terrainAt(x) - 0.4, hgt = top - bot - 0.16;
+    if (hgt < 1.2) continue;
+    legs.push([x, bot + hgt / 2, -hw * 0.78, 0.26, hgt, 0.26]);
+    legs.push([x, bot + hgt / 2, hw * 0.78, 0.26, hgt, 0.26]);
+    legs.push([x, bot + hgt / 2, 0, 0.26, hgt, 0.26]);
+  }
+  var im = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), steelMat, legs.length);
+  im.castShadow = true;
+  var mtx = new THREE.Matrix4();
+  legs.forEach(function (L, i) {
+    mtx.makeScale(L[3], L[4], L[5]);
+    mtx.setPosition(L[0], L[1], L[2]);
+    im.setMatrixAt(i, mtx);
+  });
+  im.instanceMatrix.needsUpdate = true;
+  scene.add(im);
+
+  // start hut at the top
+  var hut = new THREE.Mesh(new THREE.BoxGeometry(2.6, 2.0, 2.8),
+    new THREE.MeshStandardMaterial({ color: C(0xa8341f), roughness: 0.7 }));
+  hut.position.set(xA - 4.2, W.rampAt(xA) + 0.9, 0);
+  hut.castShadow = true; scene.add(hut);
+  var roof = new THREE.Mesh(new THREE.ConeGeometry(2.4, 1.0, 4),
+    new THREE.MeshStandardMaterial({ color: C(0xeef5ff), roughness: 0.8 }));
+  roof.position.set(xA - 4.2, W.rampAt(xA) + 2.35, 0); roof.rotation.y = Math.PI / 4;
+  roof.castShadow = true; scene.add(roof);
+})();
+
+// --- groomed landing track with distance markers, so the hill reads as a hill
+(function buildTrack() {
+  var xA = 15, xB = 232, xS = 0.25, hw = 3.2;
+  var pos = [], col = [], idx = [], n = 0;
+  var cTrack = C(0xe2edfb), cMark = C(0x93b4dd);
+  for (var x = xA; x <= xB; x += xS) {
+    var y = W.courseAt(x) + 0.06;
+    var near = Math.abs(x - Math.round(x / 30) * 30) < 0.18 && x > 25;
+    var c = near ? cMark : cTrack;
+    pos.push(x, y, -hw, x, y, hw);
+    col.push(c.r, c.g, c.b, c.r, c.g, c.b);
+    n++;
+  }
+  for (var i = 0; i < n - 1; i++) { var a = i * 2, b = a + 1, c2 = a + 2, d = a + 3; idx.push(a, c2, b, b, c2, d); }
+  var g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  g.setIndex(idx); g.computeVertexNormals();
+  scene.add(new THREE.Mesh(g, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.88 })));
+})();
+
+// --- pine trees (instanced)
+(function buildTrees() {
+  var rnd = (function (s) { return function () { s = (s * 16807) % 2147483647; return s / 2147483647; }; })(99);
+  var spots = [];
+  for (var i = 0; i < 150; i++) {
+    var x = -140 + rnd() * 470, z = (rnd() < 0.5 ? -1 : 1) * (26 + rnd() * 62);
+    var s = 0.7 + rnd() * 0.9;
+    spots.push({ x: x, z: z, s: s });
+  }
+  var trunk = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.16, 0.22, 1.6, 6),
+    new THREE.MeshStandardMaterial({ color: C(0x4a3626), roughness: 0.9 }), spots.length);
+  var cone = new THREE.InstancedMesh(new THREE.ConeGeometry(1.5, 5.4, 8),
+    new THREE.MeshStandardMaterial({ color: C(0x1d4630), roughness: 0.95 }), spots.length);
+  var cap = new THREE.InstancedMesh(new THREE.ConeGeometry(1.16, 2.1, 8),
+    new THREE.MeshStandardMaterial({ color: C(0xf2f8ff), roughness: 0.9 }), spots.length);
+  var m = new THREE.Matrix4();
+  spots.forEach(function (p, i) {
+    var base = W.terrainAt(p.x) + Math.abs(p.z) * 0.055;
+    m.makeScale(p.s, p.s, p.s); m.setPosition(p.x, base + 0.8 * p.s, p.z); trunk.setMatrixAt(i, m);
+    m.makeScale(p.s, p.s, p.s); m.setPosition(p.x, base + (1.6 + 2.7) * p.s, p.z); cone.setMatrixAt(i, m);
+    m.makeScale(p.s, p.s, p.s); m.setPosition(p.x, base + (1.6 + 4.4) * p.s, p.z); cap.setMatrixAt(i, m);
+  });
+  [trunk, cone, cap].forEach(function (o) { o.instanceMatrix.needsUpdate = true; o.castShadow = true; scene.add(o); });
+})();
+
+// --- distant ranges: flat snow-capped silhouettes fading into the fog
+(function buildRanges() {
+  var defs = [
+    { z: -240, tint: 0x9db8d6, h: 46, j: 0.55 },
+    { z: -430, tint: 0xb2c7e0, h: 62, j: 0.75 },
+    { z: -680, tint: 0xc6d6e9, h: 78, j: 1.0 }
+  ];
+  defs.forEach(function (d, di) {
+    var pts = [], col = [], idx = [], step = 26, xA = -1500, xB = 2400, n = 0;
+    var top = C(0xffffff), bot = C(d.tint);
+    for (var x = xA, i = 0; x <= xB; x += step, i++) {
+      var t = x * 0.0016 + di * 9.3;
+      var h = d.h * (0.45 + 0.55 * Math.abs(Math.sin(t) * Math.cos(t * 2.3 + 1.1))) + d.j * 14 * Math.abs(Math.sin(x * 0.0041 + di));
+      h = Math.max(8, h);
+      pts.push(x, -30, d.z, x, h, d.z);
+      col.push(bot.r, bot.g, bot.b, top.r, top.g, top.b);
+      n++;
+    }
+    for (i = 0; i < n - 1; i++) { var a = i * 2, b = a + 1, c = a + 2, e = a + 3; idx.push(a, c, b, b, c, e); }
+    var g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
+    g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+    g.setIndex(idx);
+    scene.add(new THREE.Mesh(g, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide })));
+  });
+  // a few soft clouds
+  var cloudMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.75, fog: true });
+  for (var i = 0; i < 7; i++) {
+    var c = new THREE.Mesh(new THREE.SphereGeometry(1, 10, 8), cloudMat);
+    c.position.set(-700 + i * 340, 120 + (i % 3) * 34, -520 - (i % 4) * 130);
+    c.scale.set(90 + (i % 3) * 40, 16 + (i % 2) * 8, 30);
+    scene.add(c);
+  }
+})();
+
+// ---- projected contact shadow ---------------------------------------------
+var UPZ = new THREE.Vector3(0, 0, 1);
+var blobShadow = (function () {
+  var sz = 128, cv = document.createElement('canvas'); cv.width = cv.height = sz;
+  var g = cv.getContext('2d');
+  var grd = g.createRadialGradient(sz / 2, sz / 2, 0, sz / 2, sz / 2, sz / 2);
+  grd.addColorStop(0, 'rgba(255,255,255,0.95)');
+  grd.addColorStop(0.42, 'rgba(255,255,255,0.55)');
+  grd.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = grd; g.fillRect(0, 0, sz, sz);
+  var tex = new THREE.CanvasTexture(cv); tex.needsUpdate = true;
+  var m = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({
+    map: tex, transparent: true, depthWrite: false, opacity: 0.55, color: C(0x62809f)
+  }));
+  m.frustumCulled = false; m.renderOrder = 1;
+  scene.add(m);
+  return m;
+})();
+var tmpN = new THREE.Vector3();
+
+// ===========================================================================
+// 4. PARTICLES (snowfall + ski spray)
+// ===========================================================================
+function softDot() {
+  var s = 64, cv = document.createElement('canvas'); cv.width = cv.height = s;
+  var g = cv.getContext('2d'), grd = g.createRadialGradient(s / 2, s / 2, 0, s / 2, s / 2, s / 2);
+  grd.addColorStop(0, 'rgba(255,255,255,1)');
+  grd.addColorStop(0.45, 'rgba(255,255,255,0.75)');
+  grd.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = grd; g.fillRect(0, 0, s, s);
+  var t = new THREE.CanvasTexture(cv); t.needsUpdate = true; return t;
+}
+var DOT = softDot();
+
+var PART_VS =
+  'attribute float psize; attribute float palpha; attribute vec3 pcol;' +
+  'varying float vA; varying vec3 vC;' +
+  'void main(){ vA=palpha; vC=pcol; vec4 mv=modelViewMatrix*vec4(position,1.0);' +
+  ' gl_PointSize=psize*(320.0/max(-mv.z,0.001)); gl_Position=projectionMatrix*mv; }';
+var PART_FS =
+  COLOR_DEFS + COLOR_GLSL +
+  'uniform sampler2D map; varying float vA; varying vec3 vC;' +
+  'void main(){ vec4 t=texture2D(map,gl_PointCoord); if(t.a*vA<0.01) discard;' +
+  ' gl_FragColor=vec4(enc(toneMap(vC)),t.a*vA); }';
+
+function ParticlePool(count, gravity, drag) {
+  var pos = new Float32Array(count * 3), size = new Float32Array(count),
+      alpha = new Float32Array(count), col = new Float32Array(count * 3);
+  var vel = new Float32Array(count * 3), life = new Float32Array(count), maxLife = new Float32Array(count);
+  var baseSize = new Float32Array(count), cursor = 0;
+  var g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  g.setAttribute('psize', new THREE.BufferAttribute(size, 1));
+  g.setAttribute('palpha', new THREE.BufferAttribute(alpha, 1));
+  g.setAttribute('pcol', new THREE.BufferAttribute(col, 3));
+  g.setDrawRange(0, count);
+  var m = new THREE.ShaderMaterial({
+    uniforms: { map: { value: DOT } }, vertexShader: PART_VS, fragmentShader: PART_FS,
+    transparent: true, depthWrite: false
+  });
+  var points = new THREE.Points(g, m);
+  points.frustumCulled = false;
+  scene.add(points);
+  return {
+    points: points,
+    spawn: function (x, y, z, vx, vy, vz, sz, lf, r, gg, b) {
+      var i = cursor; cursor = (cursor + 1) % count;
+      pos[i * 3] = x; pos[i * 3 + 1] = y; pos[i * 3 + 2] = z;
+      vel[i * 3] = vx; vel[i * 3 + 1] = vy; vel[i * 3 + 2] = vz;
+      life[i] = lf; maxLife[i] = lf; baseSize[i] = sz;
+      size[i] = sz; alpha[i] = 1;
+      col[i * 3] = r; col[i * 3 + 1] = gg; col[i * 3 + 2] = b;
+    },
+    update: function (dt) {
+      for (var i = 0; i < count; i++) {
+        if (life[i] <= 0) { alpha[i] = 0; continue; }
+        life[i] -= dt;
+        if (life[i] <= 0) { alpha[i] = 0; continue; }
+        vel[i * 3 + 1] -= gravity * dt;
+        var d = 1 - drag * dt; vel[i * 3] *= d; vel[i * 3 + 1] *= d; vel[i * 3 + 2] *= d;
+        pos[i * 3] += vel[i * 3] * dt;
+        pos[i * 3 + 1] += vel[i * 3 + 1] * dt;
+        pos[i * 3 + 2] += vel[i * 3 + 2] * dt;
+        var u = life[i] / maxLife[i];
+        alpha[i] = u * u * 0.95;
+        size[i] = baseSize[i] * (1.6 - 0.6 * u);
+      }
+      g.attributes.position.needsUpdate = true;
+      g.attributes.psize.needsUpdate = true;
+      g.attributes.palpha.needsUpdate = true;
+      g.attributes.pcol.needsUpdate = true;
+    }
+  };
+}
+
+var spray = ParticlePool(760, 9.0, 1.4);
+
+// --- ambient snowfall: wraps around the camera
+var SNOW_N = 2600;
+var snowGeo = new THREE.BufferGeometry();
+var snowPos = new Float32Array(SNOW_N * 3), snowSize = new Float32Array(SNOW_N),
+    snowAlpha = new Float32Array(SNOW_N), snowCol = new Float32Array(SNOW_N * 3);
+var snowVel = new Float32Array(SNOW_N * 3);
+var SNOW_BOX = { x: 90, y: 46, z: 90 };
+for (var si = 0; si < SNOW_N; si++) {
+  snowPos[si * 3] = (Math.random() - 0.5) * SNOW_BOX.x;
+  snowPos[si * 3 + 1] = (Math.random() - 0.5) * SNOW_BOX.y;
+  snowPos[si * 3 + 2] = (Math.random() - 0.5) * SNOW_BOX.z;
+  var big = Math.random();
+  snowSize[si] = 0.10 + big * big * 0.42;
+  snowVel[si * 3] = -1.6 - Math.random() * 1.6;
+  snowVel[si * 3 + 1] = -1.1 - Math.random() * 1.9;
+  snowVel[si * 3 + 2] = (Math.random() - 0.5) * 0.7;
+  snowAlpha[si] = 0.35 + Math.random() * 0.6;
+  var c = 0.93 + Math.random() * 0.07;
+  snowCol[si * 3] = c; snowCol[si * 3 + 1] = c; snowCol[si * 3 + 2] = 1.0;
+}
+snowGeo.setAttribute('position', new THREE.BufferAttribute(snowPos, 3));
+snowGeo.setAttribute('psize', new THREE.BufferAttribute(snowSize, 1));
+snowGeo.setAttribute('palpha', new THREE.BufferAttribute(snowAlpha, 1));
+snowGeo.setAttribute('pcol', new THREE.BufferAttribute(snowCol, 3));
+var snowfall = new THREE.Points(snowGeo, new THREE.ShaderMaterial({
+  uniforms: { map: { value: DOT } }, vertexShader: PART_VS, fragmentShader: PART_FS,
+  transparent: true, depthWrite: false
+}));
+snowfall.frustumCulled = false;
+scene.add(snowfall);
+
+// ===========================================================================
+// 5. THE PENGUIN
+//    Built from primitives: lathed torso, head group (so it can tilt), a white
+//    belly patch, flippers on shoulder pivots, skis on a leg pivot, and a scarf
+//    that trails in world space so it reacts to the airflow, not the body.
+// ===========================================================================
+var P = {};
+(function buildPenguin() {
+  var bodyMat = new THREE.MeshStandardMaterial({ color: C(0x232a3a), roughness: 0.58 });
+  var flipperMat = new THREE.MeshStandardMaterial({ color: C(0x2e3850), roughness: 0.62 });
+  var whiteMat = new THREE.MeshStandardMaterial({ color: C(0xfbfdff), roughness: 0.78 });
+  var beakMat = new THREE.MeshStandardMaterial({ color: C(0xf08c1c), roughness: 0.48 });
+  var footMat = new THREE.MeshStandardMaterial({ color: C(0xe07c12), roughness: 0.6 });
+  var skiMat = new THREE.MeshStandardMaterial({ color: C(0xc42a12), roughness: 0.34, metalness: 0.12 });
+
+  var root = new THREE.Group();
+  var body = new THREE.Group();            // squash / crouch lives here
+  root.add(body);
+
+  // --- torso (lathe), max radius ~0.31, height ~0.66
+  var prof = [[0.05, 0.00], [0.16, 0.04], [0.25, 0.11], [0.30, 0.22], [0.315, 0.34],
+              [0.30, 0.44], [0.275, 0.52], [0.255, 0.58], [0.245, 0.635]];
+  var pv = prof.map(function (p) { return new THREE.Vector2(p[0], p[1]); });
+  var torso = new THREE.Mesh(new THREE.LatheGeometry(pv, 26), bodyMat);
+  torso.castShadow = true;
+  body.add(torso);
+
+  // --- white belly patch: front half of the same profile, pushed out a hair
+  var bv = prof.map(function (p) { return new THREE.Vector2(p[0] * 1.015 + 0.004, p[1]); });
+  var belly = new THREE.Mesh(new THREE.LatheGeometry(bv, 16, 0, Math.PI), whiteMat);
+  belly.scale.set(0.99, 1.0, 0.99);
+  body.add(belly);
+
+  // --- head group, pivot at the neck
+  var head = new THREE.Group();
+  head.position.set(0, 0.60, 0);
+  body.add(head);
+  var skull = new THREE.Mesh(new THREE.SphereGeometry(0.235, 24, 18), bodyMat);
+  skull.position.set(0.012, 0.20, 0); skull.scale.set(0.98, 1.02, 1.0);
+  skull.castShadow = true; head.add(skull);
+  var beak = new THREE.Mesh(new THREE.ConeGeometry(0.066, 0.26, 14), beakMat);
+  beak.rotation.z = -Math.PI / 2; beak.position.set(0.30, 0.145, 0);
+  beak.castShadow = true; head.add(beak);
+  var eyeW = new THREE.MeshStandardMaterial({ color: C(0xf7fbff), roughness: 0.5 });
+  var eyeB = new THREE.MeshStandardMaterial({ color: C(0x080c14), roughness: 0.18 });
+  [-1, 1].forEach(function (sd) {
+    var d = new THREE.Vector3(0.74, 0.10, sd * 0.66).normalize();
+    var e = new THREE.Mesh(new THREE.SphereGeometry(0.050, 14, 12), eyeW);
+    e.position.set(0.012 + d.x * 0.205, 0.20 + d.y * 0.205, d.z * 0.205);
+    e.scale.set(0.66, 1.0, 1.0); head.add(e);
+    var pu = new THREE.Mesh(new THREE.SphereGeometry(0.030, 12, 10), eyeB);
+    pu.position.set(0.012 + d.x * 0.232, 0.20 + d.y * 0.232, d.z * 0.232);
+    head.add(pu);
+  });
+  // beanie: shallow cap on the crown, thin brim, pompom
+  var capEdge = Math.PI * 0.36;
+  var beanieMat = new THREE.MeshStandardMaterial({ color: C(0xc0301c), roughness: 0.92 });
+  var beanie = new THREE.Mesh(new THREE.SphereGeometry(0.246, 22, 12, 0, Math.PI * 2, 0, capEdge), beanieMat);
+  beanie.position.set(0.012, 0.20, 0); beanie.scale.set(0.99, 1.06, 1.0);
+  beanie.castShadow = true; head.add(beanie);
+  var brimMat = new THREE.MeshStandardMaterial({ color: C(0xeef5ff), roughness: 0.95 });
+  var brim = new THREE.Mesh(new THREE.TorusGeometry(0.228, 0.030, 8, 24), brimMat);
+  brim.rotation.x = Math.PI / 2;
+  brim.position.set(0.012, 0.20 + 0.246 * 1.06 * Math.cos(capEdge), 0);
+  head.add(brim);
+  var pom = new THREE.Mesh(new THREE.SphereGeometry(0.055, 12, 10), brimMat);
+  pom.position.set(0.012, 0.20 + 0.246 * 1.06, 0); head.add(pom);
+  var neckAnchor = new THREE.Object3D();
+  neckAnchor.position.set(-0.16, 0.16, 0); head.add(neckAnchor);
+
+  // --- flippers on shoulder pivots
+  var flippers = [];
+  [-1, 1].forEach(function (s) {
+    var g = new THREE.Group();
+    g.position.set(0, 0.50, s * 0.255);
+    var pad = new THREE.Mesh(new THREE.SphereGeometry(1, 12, 10), flipperMat);
+    pad.scale.set(0.062, 0.235, 0.115);
+    pad.position.set(-0.02, -0.19, 0);
+    pad.castShadow = true;
+    g.add(pad);
+    body.add(g);
+    flippers.push({ g: g, s: s });
+  });
+
+  // --- legs + feet + skis on a pivot so they can tuck back in the air
+  var legs = new THREE.Group();
+  legs.position.set(0, 0.19, 0);
+  body.add(legs);
+  [-1, 1].forEach(function (s) {
+    var foot = new THREE.Mesh(new THREE.BoxGeometry(0.20, 0.045, 0.11), footMat);
+    foot.position.set(0.05, -0.175, s * 0.105);
+    foot.castShadow = true; legs.add(foot);
+    var ski = new THREE.Mesh(new THREE.BoxGeometry(1.30, 0.034, 0.100), skiMat);
+    ski.position.set(0.10, -0.205, s * 0.115);
+    ski.castShadow = true; legs.add(ski);
+    var tip = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.032, 0.100), skiMat);
+    tip.position.set(0.82, -0.155, s * 0.115);
+    tip.rotation.z = 0.42; legs.add(tip);
+    var tail = new THREE.Mesh(new THREE.BoxGeometry(0.17, 0.032, 0.100), skiMat);
+    tail.position.set(-0.58, -0.185, s * 0.115);
+    tail.rotation.z = -0.22; legs.add(tail);
+  });
+  // a tiny tail of the penguin's own
+  var tail = new THREE.Mesh(new THREE.SphereGeometry(1, 10, 8), bodyMat);
+  tail.scale.set(0.16, 0.05, 0.10); tail.position.set(-0.30, 0.10, 0);
+  body.add(tail);
+
+  root.traverse(function (o) { if (o.isMesh) { o.castShadow = true; o.receiveShadow = false; } });
+  scene.add(root);
+
+  // --- scarf: one smooth ribbon, rebuilt every frame from a trailing chain
+  var SC_N = 12;
+  var scPos = new Float32Array(SC_N * 2 * 3);
+  var scGeo = new THREE.BufferGeometry();
+  scGeo.setAttribute('position', new THREE.BufferAttribute(scPos, 3));
+  var scIdx = [];
+  for (var i = 0; i < SC_N - 1; i++) {
+    var q0 = i * 2;
+    scIdx.push(q0, q0 + 2, q0 + 1, q0 + 1, q0 + 2, q0 + 3);
+  }
+  scGeo.setIndex(scIdx);
+  var scMesh = new THREE.Mesh(scGeo, new THREE.MeshStandardMaterial({
+    color: C(0xc2301b), roughness: 0.92, side: THREE.DoubleSide
+  }));
+  scMesh.castShadow = true; scMesh.frustumCulled = false;
+  scene.add(scMesh);
+
+  P.root = root; P.body = body; P.head = head; P.flippers = flippers; P.legs = legs;
+  P.neckAnchor = neckAnchor; P.scarf = scMesh; P.scarfN = SC_N; P.scarfPos = scPos; P.scarfGeo = scGeo;
+})();
+
+// ===========================================================================
+// 6. TIMELINE  (story time -> pose + camera)
+// ===========================================================================
+var HOLD = 0.52;
+var T_LIP = HOLD + W.T_RUN;              // takeoff
+var T_LAND = T_LIP + W.T_FLY;            // touchdown
+var T_END = T_LAND + W.T_RIDE;           // fade out
+var LOOP = T_END + 0.9;
+
+// time-warp: slow-motion beats on the takeoff, the apex and the impact
+function timeScale(t) {
+  var s = 1.70;                       // approach
+  var sFly = 2.10;                    // airborne cruise
+  if (t > HOLD + W.T_RUN * 0.55) s = 1.50;
+  if (t > T_LIP - 0.22 && t < T_LIP + 0.26) s = 0.42;   // hold the takeoff
+  if (t > T_LIP + 0.26) s = sFly;
+  var ax = T_LIP + W.apexT;
+  if (t > ax - 0.55 && t < ax + 0.55) {                 // float at the top
+    var k = 1 - Math.abs(t - ax) / 0.55;
+    s = sFly + (0.62 - sFly) * (k * k * (3 - 2 * k));
+  }
+  if (t > T_LAND - 0.20 && t < T_LAND + 0.30) s = 0.34; // hit the deck
+  if (t > T_LAND + 0.30) s = 1.30;
+  return s;
+}
+
+// full state of the skier at a given story time
+function stateAt(t) {
+  var st = { x: 0, y: 0, z: 0, vx: 0, vy: 0, speed: 0, ground: true, phase: 'hold', slope: 0 };
+  if (t < HOLD) {
+    var r0 = W.run[0];
+    st.x = r0.x; st.y = r0.y; st.speed = r0.v; st.vx = r0.v; st.slope = r0.a;
+    return st;
+  }
+  var tr = t - HOLD;
+  if (tr < W.T_RUN) {
+    var p = W.sample(W.run, tr);
+    st.x = p.x; st.y = p.y; st.speed = p.v; st.slope = p.a;
+    st.vx = p.v * Math.cos(p.a); st.vy = p.v * Math.sin(p.a);
+    st.phase = 'run';
+  } else if (tr < W.T_RUN + W.T_FLY) {
+    var f = W.sample(W.fly, tr - W.T_RUN);
+    st.x = f.x; st.y = f.y; st.vx = f.vx; st.vy = f.vy;
+    st.speed = Math.hypot(f.vx, f.vy); st.ground = false; st.phase = 'fly';
+    st.slope = Math.atan2(f.vy, f.vx);
+  } else {
+    var rd = W.sample(W.ride, tr - W.T_RUN - W.T_FLY);
+    st.x = rd.x; st.y = rd.y; st.speed = rd.v; st.phase = 'ride';
+    var sl = W.hillSlope(rd.x);
+    st.slope = Math.atan(sl);
+    st.vx = rd.v * Math.cos(st.slope); st.vy = rd.v * Math.sin(st.slope);
+  }
+  return st;
+}
+
+// ===========================================================================
+// 7. CAMERA RIG
+// ===========================================================================
+var cam = {
+  pos: new THREE.Vector3(), look: new THREE.Vector3(), fov: 34,
+  dist: 8, height: 2.4, back: 1.6, shake: 0
+};
+function camTargets(t, st) {
+  var d, h, b, lookAhead = 1.8, lookDrop = 0;
+  if (t < HOLD) { d = 13.5; h = 4.6; b = 1.6; }
+  else if (t < T_LIP) { d = 7.6; h = 2.4; b = 1.4; lookAhead = 1.6; }
+  else if (t < T_LIP + 0.3) { d = 8.4; h = 1.3; b = 2.2; lookAhead = 2.0; }
+  else if (t < T_LAND) {
+    var u = (t - T_LIP) / W.T_FLY;                    // 0..1 across the flight
+    var keys = [
+      { u: 0.00, d: 9.5, h: 2.2, b: 3.0, la: 2.2, ld: 0.12 },
+      { u: 0.26, d: 17.5, h: -3.0, b: 8.0, la: 4.2, ld: 0.02 },
+      { u: 0.58, d: 15.5, h: 0.4, b: 6.0, la: 3.4, ld: 0.18 },
+      { u: 1.00, d: 11.0, h: 2.6, b: 3.2, la: 2.2, ld: 0.20 }
+    ];
+    for (var i = 0; i < keys.length - 1; i++) {
+      if (u <= keys[i + 1].u) {
+        var a = keys[i], c = keys[i + 1], k = (u - a.u) / (c.u - a.u);
+        k = k * k * (3 - 2 * k);
+        d = a.d + (c.d - a.d) * k; h = a.h + (c.h - a.h) * k; b = a.b + (c.b - a.b) * k;
+        lookAhead = a.la + (c.la - a.la) * k; lookDrop = a.ld + (c.ld - a.ld) * k;
+        break;
+      }
+    }
+  } else if (t < T_LAND + 0.9) { d = 9.5; h = 2.6; b = 2.0; lookAhead = 2.2; }
+  else {
+    var u2 = Math.min(1, (t - T_LAND - 0.9) / Math.max(0.001, W.T_RIDE - 0.9));
+    d = 10 + 6 * u2; h = 3.0 + 2.2 * u2; b = 2.6 + 3.4 * u2; lookAhead = 2.4;
+  }
+  // aim ahead along the direction of travel, and a touch downward in the air
+  var dl = Math.hypot(st.vx, st.vy) || 1;
+  var lx = st.x + (st.vx / dl) * lookAhead;
+  var ly = st.y + 0.85 - lookDrop * 11;
+  var px = st.x - b, py = st.y + h, pz = st.z + d;
+  py = Math.max(py, W.terrainAt(px) + 1.4);
+  return { p: [px, py, pz], l: [lx, ly, 0], d: d, fov: d > 16 ? 40 : 34 };
+}
+
+// ===========================================================================
+// 8. ANIMATION
+// ===========================================================================
+var fadeEl = document.getElementById('fade');
+var storyT = 0, last = performance.now(), paused = false;
+var pitch = 0, squash = 0, armSpread = 0, footTuck = 0, prevPhase = 'hold';
+var shadowAnchor = new THREE.Vector3(1e9, 0, 0);
+var tmpV = new THREE.Vector3();
+
+function resize() {
+  var w = window.innerWidth, h = window.innerHeight;
+  renderer.setSize(w, h, false);
+  camera.aspect = w / h; camera.updateProjectionMatrix();
+}
+window.addEventListener('resize', resize); resize();
+
+function reset() {
+  storyT = 0; pitch = 0; squash = 0; armSpread = 0; footTuck = 0; prevPhase = 'hold';
+  var st = stateAt(0);
+  cam.pos.set(st.x - 10.5, st.y + 3.4, 10.5);
+  cam.look.set(st.x, st.y + 0.8, 0);
+  shadowAnchor.set(1e9, 0, 0);
+}
+
+// Some embedded/headless browsers suspend requestAnimationFrame entirely, and
+// browsers throttle it in background tabs. A watchdog keeps the scene moving.
+var rafPending = false, lastFrameAt = performance.now();
+function frame(now) {
+  rafPending = false; lastFrameAt = performance.now();
+  tickBody(now);
+  if (!window.__halted) requestFrame();
+}
+function requestFrame() {
+  if (rafPending || window.__halted) return;
+  rafPending = true;
+  requestAnimationFrame(frame);
+}
+setInterval(function () {
+  if (!window.__halted && performance.now() - lastFrameAt > 120) frame(performance.now());
+}, 33);
+function tickBody(now) {
+  var dtWall = Math.min(0.05, (now - last) / 1000); last = now;
+
+  var st = stateAt(storyT);
+  if (!paused) storyT += dtWall * timeScale(storyT);
+  if (storyT > LOOP) storyT -= LOOP;
+  st = stateAt(storyT);
+
+  // ---- pose ------------------------------------------------------------
+  var wantPitch;
+  if (st.phase === 'fly') wantPitch = st.slope + 0.16;
+  else wantPitch = st.slope + (st.phase === 'ride' ? -0.06 : 0.05);
+  var k = st.phase === 'fly' ? 5.0 : 7.5;
+  pitch += (wantPitch - pitch) * Math.min(1, k * dtWall);
+
+  var wantSquash = 0, wantArm = 0, wantFoot = 0;
+  if (storyT < HOLD) wantSquash = 0.55;
+  else if (st.phase === 'run') { wantSquash = 0.62 - 0.22 * Math.min(1, st.speed / 22); wantArm = 0.12; }
+  else if (st.phase === 'fly') {
+    wantArm = 1.0; wantFoot = 1.0; wantSquash = -0.16;   // stretch out and glide
+    if (storyT > T_LAND - 0.45) wantSquash = 0.1;
+  } else if (st.phase === 'ride') {
+    var a = Math.min(1, (storyT - T_LAND) / 0.35);
+    wantSquash = 0.15 + 0.85 * (1 - a) * (1 - a); wantArm = 0.5 * (1 - a); wantFoot = 0.15;
+  }
+  squash += (wantSquash - squash) * Math.min(1, 9 * dtWall);
+  armSpread += (wantArm - armSpread) * Math.min(1, 7 * dtWall);
+  footTuck += (wantFoot - footTuck) * Math.min(1, 7 * dtWall);
+
+  // ---- drive the model -------------------------------------------------
+  P.root.position.set(st.x, st.y, 0);
+  P.root.rotation.z = pitch;
+  P.body.scale.set(1 + 0.13 * squash, 1 - 0.26 * squash, 1 + 0.10 * squash);
+  P.body.rotation.z = -0.20 * squash;
+  P.head.rotation.z = 0.30 * squash + (st.phase === 'fly' ? 0.14 : 0);
+  P.flippers.forEach(function (f) {
+    f.g.rotation.x = -f.s * (0.22 + 1.15 * armSpread);
+    f.g.rotation.z = -0.55 * armSpread - 0.10;
+    f.g.rotation.y = f.s * 0.18 * armSpread;
+  });
+  P.legs.rotation.z = 0.14 * footTuck;
+  P.legs.position.y = 0.19 - 0.03 * footTuck;
+  P.legs.position.x = -0.07 * footTuck;
+
+  // scarf trails opposite to the airflow, in world space
+  P.neckAnchor.getWorldPosition(tmpV);
+  var sp = Math.max(3, st.speed);
+  var tx = -st.vx / sp, ty = -st.vy / sp - 0.30;
+  var base = Math.atan2(ty, tx), phase = now * 0.012 * (0.5 + sp / 22);
+  var N = P.scarfN, pos = P.scarfPos;
+  var cxs = P._cx || (P._cx = []), cys = P._cy || (P._cy = []), czs = P._cz || (P._cz = []);
+  var segLen = 0.086, ang = base, px = tmpV.x, py = tmpV.y, pz = tmpV.z;
+  var curl = st.phase === 'fly' ? 0.16 : 0.095;
+  for (var i = 0; i < N; i++) {
+    cxs[i] = px; cys[i] = py; czs[i] = pz;
+    var wob = 0.42 * Math.sin(phase - i * 0.70) * (0.35 + 0.65 * Math.min(1, sp / 20));
+    ang = base + wob + curl * i;
+    px += Math.cos(ang) * segLen; py += Math.sin(ang) * segLen;
+    pz += Math.sin(phase * 0.7 - i * 0.45) * 0.009;
+  }
+  for (i = 0; i < N; i++) {
+    var ia = Math.max(0, i - 1), ib = Math.min(N - 1, i + 1);
+    var dx2 = cxs[ib] - cxs[ia], dy2 = cys[ib] - cys[ia];
+    var dl2 = Math.hypot(dx2, dy2) || 1;
+    var nx2 = -dy2 / dl2, ny2 = dx2 / dl2;
+    var hw = 0.056 - 0.026 * (i / (N - 1));
+    pos[i * 6] = cxs[i] + nx2 * hw; pos[i * 6 + 1] = cys[i] + ny2 * hw; pos[i * 6 + 2] = czs[i];
+    pos[i * 6 + 3] = cxs[i] - nx2 * hw; pos[i * 6 + 4] = cys[i] - ny2 * hw; pos[i * 6 + 5] = czs[i];
+  }
+  P.scarfGeo.attributes.position.needsUpdate = true;
+  P.scarfGeo.computeVertexNormals();
+
+  // ---- spray -----------------------------------------------------------
+  if (st.phase === 'run' || st.phase === 'ride') {
+    var rate = st.phase === 'run' ? st.speed * 2.4 : st.speed * 3.6;
+    var n = Math.min(14, Math.floor(rate * dtWall) + (Math.random() < rate * dtWall % 1 ? 1 : 0));
+    for (var s2 = 0; s2 < n; s2++) {
+      var back = st.phase === 'run' ? -0.5 : 0.5;
+      spray.spawn(
+        st.x + (Math.random() - 0.5) * 0.5, st.y + 0.03, (Math.random() - 0.5) * 0.30,
+        -st.vx * 0.10 + (Math.random() - 0.5) * 1.2 + back,
+        1.0 + Math.random() * 2.4,
+        (Math.random() - 0.5) * 1.6,
+        0.22 + Math.random() * 0.34, 0.50 + Math.random() * 0.55,
+        0.86, 0.92, 1.0
+      );
+    }
+  }
+  if (prevPhase === 'fly' && st.phase === 'ride') {
+    for (var b2 = 0; b2 < 190; b2++) {   // landing burst
+      var a2 = Math.random() * Math.PI, sp2 = 2 + Math.random() * 9;
+      spray.spawn(st.x + (Math.random() - 0.5) * 1.2, st.y + 0.05, (Math.random() - 0.5) * 1.0,
+        -Math.cos(a2) * sp2 * 0.9 - st.vx * 0.15, Math.abs(Math.sin(a2)) * sp2 * 0.8 + 1,
+        (Math.random() - 0.5) * 3.5, 0.28 + Math.random() * 0.5, 0.8 + Math.random() * 0.9, 0.88, 0.93, 1.0);
+    }
+    cam.shake = 1.0;
+  }
+  if (prevPhase === 'run' && st.phase === 'fly') {
+    for (var b3 = 0; b3 < 70; b3++) {   // takeoff pop
+      spray.spawn(st.x, st.y, (Math.random() - 0.5) * 0.8,
+        -1 - Math.random() * 4, 1.5 + Math.random() * 4, (Math.random() - 0.5) * 3,
+        0.20 + Math.random() * 0.3, 0.45 + Math.random() * 0.6, 0.86, 0.92, 1.0);
+    }
+  }
+  prevPhase = st.phase;
+  spray.update(dtWall);
+
+  // ---- snowfall around the camera -------------------------------------
+  var cp = camera.position;
+  for (var q = 0; q < SNOW_N; q++) {
+    snowPos[q * 3] += snowVel[q * 3] * dtWall;
+    snowPos[q * 3 + 1] += snowVel[q * 3 + 1] * dtWall;
+    snowPos[q * 3 + 2] += snowVel[q * 3 + 2] * dtWall;
+    var lx2 = snowPos[q * 3] - cp.x, ly2 = snowPos[q * 3 + 1] - cp.y, lz2 = snowPos[q * 3 + 2] - cp.z;
+    if (ly2 < -SNOW_BOX.y / 2) snowPos[q * 3 + 1] += SNOW_BOX.y;
+    if (lx2 > SNOW_BOX.x / 2) snowPos[q * 3] -= SNOW_BOX.x; else if (lx2 < -SNOW_BOX.x / 2) snowPos[q * 3] += SNOW_BOX.x;
+    if (lz2 > SNOW_BOX.z / 2) snowPos[q * 3 + 2] -= SNOW_BOX.z; else if (lz2 < -SNOW_BOX.z / 2) snowPos[q * 3 + 2] += SNOW_BOX.z;
+  }
+  snowGeo.attributes.position.needsUpdate = true;
+
+  // ---- camera ----------------------------------------------------------
+  var T = camTargets(storyT, st);
+  var kp = 1 - Math.exp(-3.6 * dtWall), kl = 1 - Math.exp(-5.0 * dtWall);
+  cam.pos.lerp(tmpV.set(T.p[0], T.p[1], T.p[2]), kp);
+  cam.look.lerp(tmpV.set(T.l[0], T.l[1], T.l[2]), kl);
+  cam.fov += (T.fov - cam.fov) * (1 - Math.exp(-2.2 * dtWall));
+  cam.shake *= Math.exp(-4.2 * dtWall);
+
+  camera.position.copy(cam.pos);
+  if (cam.shake > 0.002) {
+    var sh = cam.shake * 0.45;
+    camera.position.x += (Math.random() - 0.5) * sh;
+    camera.position.y += (Math.random() - 0.5) * sh;
+    camera.position.z += (Math.random() - 0.5) * sh;
+  }
+  camera.lookAt(cam.look);
+  if (camera.fov !== cam.fov) { camera.fov = cam.fov; camera.updateProjectionMatrix(); }
+
+  // ---- sun follows the skier so the shadow map stays tight -------------
+  if (shadowAnchor.distanceToSquared(P.root.position) > 9) {
+    shadowAnchor.copy(P.root.position);
+    sun.target.position.set(shadowAnchor.x, shadowAnchor.y, 0);
+    sun.position.set(shadowAnchor.x + SUN_DIR.x * 70, shadowAnchor.y + SUN_DIR.y * 70, SUN_DIR.z * 70);
+    sun.target.updateMatrixWorld();
+  }
+
+  // ---- contact shadow --------------------------------------------------
+  var kx = SUN_DIR.x / SUN_DIR.y, kz = SUN_DIR.z / SUN_DIR.y;
+  var gx2 = st.x, gz2 = 0, gy2 = W.courseAt(gx2);
+  for (var bi = 0; bi < 3; bi++) {
+    gy2 = W.courseAt(gx2);
+    gx2 = st.x - (st.y - gy2) * kx;
+    gz2 = -(st.y - gy2) * kz;
+  }
+  gy2 = W.courseAt(gx2);
+  var hgt = Math.max(0, st.y - gy2);
+  var bs = 1.38 + hgt * 0.075;
+  blobShadow.position.set(gx2, gy2 + 0.05, gz2);
+  blobShadow.scale.set(bs, bs, 1);
+  blobShadow.material.opacity = Math.max(0.05, 0.56 - hgt * 0.015);
+  tmpN.set(-W.hillSlope(gx2), 1, 0).normalize();
+  blobShadow.quaternion.setFromUnitVectors(UPZ, tmpN);
+
+  // ---- loop fade -------------------------------------------------------
+  var f = 0;
+  if (storyT < 0.42) f = 1 - storyT / 0.42;
+  else if (storyT > T_END - 0.15) f = Math.min(1, (storyT - (T_END - 0.15)) / 0.85);
+  fadeEl.style.opacity = (f * f * (3 - 2 * f)).toFixed(3);
+
+  renderer.render(scene, camera);
+}
+
+// invisible debug hook (used only for automated frame capture)
+// Small automation hook: lets a headless capture harness scrub the timeline to
+// an exact moment and step the camera deterministically. Nothing in the page
+// UI reaches it and it does not affect playback.
+window.__pg = {
+  W: W,
+  loop: function () {
+    return { HOLD: HOLD, T_LIP: T_LIP, T_LAND: T_LAND, T_END: T_END, LOOP: LOOP,
+             T_RUN: W.T_RUN, T_FLY: W.T_FLY, apexT: W.apexT,
+             landX: W.landed.x, startX: W.run[0].x, vLip: W.vLip };
+  },
+  seek: function (t) { storyT = t; },
+  pause: function (v) { paused = !!v; },
+  halt: function () { window.__halted = true; },
+  go: function () { window.__halted = false; lastFrameAt = performance.now(); },
+  state: function () { return stateAt(storyT); },
+  step: function (dt) { last = performance.now() - (dt === undefined ? 0.033 : dt) * 1000; tickBody(performance.now()); }
+};
+
+reset();
+requestFrame();
+})();
+</script>
+<!--zc-home:start--><style>.zc-home-btn{position:fixed;top:16px;left:16px;z-index:2147483647;display:inline-flex;align-items:center;gap:6px;padding:8px 14px;font:500 13px/1.1 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Noto Sans SC",sans-serif;color:#111;background:rgba(255,255,255,.86);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);border:1px solid rgba(0,0,0,.08);border-radius:999px;text-decoration:none;box-shadow:0 2px 12px rgba(0,0,0,.2);transition:background .2s ease,transform .2s ease,box-shadow .2s ease}.zc-home-btn:hover{background:#fff;transform:translateY(-1px);box-shadow:0 4px 18px rgba(0,0,0,.26)}</style><a class="zc-home-btn" href="../">← 返回首页</a><!--zc-home:end-->
+</body>
+</html>

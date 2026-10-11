@@ -86,7 +86,14 @@ const categories = [
     emoji: "🐧",
     blurb: "企鹅冲下斜坡、腾空、再落地,考验 3D 相机运动与阴影的连续变化。",
     exam: "斜坡与腾空的抛物线、落地缓冲,以及 3D 相机跟随与投影阴影的实时变化。",
-    versions: [],
+    lede: "一只企鹅从跳台俯冲而下、在台口腾空飞出,划出一道抛物线再落回雪坡。考的是助滑到起跳的加速、腾空的抛物线与姿态,以及相机跟随和雪地投影阴影随之变化的连续感 —— 这题几乎非 3D 不可,2D 很难把相机运动和实时阴影做出来。下面按模型版本归档,缩略图为真实渲染效果,点击卡片查看可交互的在线页面。",
+    versions: [
+      ["gemini-3.8-flash", "Gemini 3.8 Flash", "Three.js 3D"],
+      ["deepseek-4.1-flash", "DeepSeek 4.1 Flash", "Three.js 3D"],
+      ["space-bunny", "Space Bunny", "Canvas 2D"],
+      ["glm-5.3-flash", "GLM 5.3 Flash", "Canvas 2D"],
+      ["muse-spark", "Muse Spark", "Canvas 2D"],
+    ].map(([slug, name, sub]) => ({ slug, name, sub })),
   },
   {
     slug: "whale-over-city",
@@ -131,6 +138,7 @@ const categories = [
       ["opus-4.8", "Claude Opus 4.8", "Canvas 2D"],
       ["tierflow-pro", "Tierflow-Pro", "Canvas 2D"],
       ["muse-spark", "Muse Spark", "SVG 动画"],
+      ["space-bunny", "Space Bunny", "Canvas 2D"],
     ].map(([slug, name, sub]) => ({ slug, name, sub })),
   },
   {

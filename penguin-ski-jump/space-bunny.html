@@ -1,0 +1,914 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>企鹅跳台 · Penguin Ski Jump</title>
+<style>
+  html,body{margin:0;padding:0;height:100%;background:#0a1626;overflow:hidden;
+    -webkit-user-select:none;user-select:none;cursor:default}
+  canvas{display:block;width:100vw;height:100vh}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+"use strict";
+/* =====================================================================
+   企鹅跳台 / PENGUIN SKI JUMP
+   自研 3D 管线：透视投影 + 画家算法 + 兰伯特光照 + 大气雾
+   零外部依赖，双击即播，13 秒无缝循环
+   ===================================================================== */
+
+const TAU = Math.PI * 2, D2R = Math.PI / 180, PI = Math.PI;
+const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+const lerp = (a, b, t) => a + (b - a) * t;
+function smoothstep(a, b, x) { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); }
+function hash2(x, y) { const s = Math.sin(x * 127.1 + y * 311.7) * 43758.5453; return s - Math.floor(s); }
+function vnoise(x, y) {
+  const xi = Math.floor(x), yi = Math.floor(y), xf = x - xi, yf = y - yi;
+  const u = xf * xf * (3 - 2 * xf), v = yf * yf * (3 - 2 * yf);
+  return lerp(lerp(hash2(xi, yi), hash2(xi + 1, yi), u),
+              lerp(hash2(xi, yi + 1), hash2(xi + 1, yi + 1), u), v);
+}
+
+/* ---------- 向量 / 矩阵 ---------- */
+const sub3 = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+const dot3 = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+const cross3 = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+function norm3(a) { const l = Math.hypot(a[0], a[1], a[2]) || 1; return [a[0] / l, a[1] / l, a[2] / l]; }
+
+function mId() { return [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]; }
+function mMul(a, b) {
+  const o = new Array(16);
+  for (let i = 0; i < 4; i++) for (let j = 0; j < 4; j++) {
+    let s = 0; for (let k = 0; k < 4; k++) s += a[i * 4 + k] * b[k * 4 + j];
+    o[i * 4 + j] = s;
+  }
+  return o;
+}
+const mT = (x, y, z) => { const m = mId(); m[12] = x; m[13] = y; m[14] = z; return m; };
+function mS(x, y, z) { const m = mId(); m[0] = x; m[5] = y; m[10] = z; return m; }
+function mRX(a) { const m = mId(), c = Math.cos(a), s = Math.sin(a); m[5] = c; m[6] = s; m[9] = -s; m[10] = c; return m; }
+function mRY(a) { const m = mId(), c = Math.cos(a), s = Math.sin(a); m[0] = c; m[2] = -s; m[8] = s; m[10] = c; return m; }
+function mRZ(a) { const m = mId(), c = Math.cos(a), s = Math.sin(a); m[0] = c; m[1] = s; m[4] = -s; m[5] = c; return m; }
+/* 行主序 4x4：平移分量在 m[12],m[13],m[14]（不是 m[3],m[7],m[11]） */
+function mApp(m, p) {
+  return [m[0] * p[0] + m[1] * p[1] + m[2] * p[2] + m[12],
+          m[4] * p[0] + m[5] * p[1] + m[6] * p[2] + m[13],
+          m[8] * p[0] + m[9] * p[1] + m[10] * p[2] + m[14]];
+}
+const xfm = (m, v) => [m[0] * v[0] + m[1] * v[1] + m[2] * v[2],
+                       m[4] * v[0] + m[5] * v[1] + m[6] * v[2],
+                       m[8] * v[0] + m[9] * v[1] + m[10] * v[2]];
+
+/* ---------- 网格 ---------- */
+function fixWinding(mesh) {
+  let vol = 0;
+  for (const f of mesh.f) {
+    const a = mesh.v[f[0]], b = mesh.v[f[1]], c = mesh.v[f[2]];
+    vol += a[0] * (b[1] * c[2] - b[2] * c[1]) - a[1] * (b[0] * c[2] - b[2] * c[0]) + a[2] * (b[0] * c[1] - b[1] * c[0]);
+  }
+  if (vol < 0) for (const f of mesh.f) f.reverse();
+}
+function mkMesh(v, f, mat, opt) {
+  fixWinding({ v, f });
+  return Object.assign({ v, f, mat, two: false, bias: 0 }, opt || {});
+}
+function sphere(sx, sy, sz, seg, ring) {
+  const v = [], f = [];
+  for (let i = 0; i <= ring; i++) {
+    const phi = i / ring * PI, sp = Math.sin(phi), cp = Math.cos(phi);
+    for (let j = 0; j <= seg; j++) {
+      const th = j / seg * TAU;
+      v.push([sp * Math.cos(th) * sx, cp * sy, sp * Math.sin(th) * sz]);
+    }
+  }
+  for (let i = 0; i < ring; i++) for (let j = 0; j < seg; j++) {
+    const a = i * (seg + 1) + j, b = a + 1, c = a + seg + 1, d = c + 1;
+    f.push([a, c, d], [a, d, b]);
+  }
+  return { v, f };
+}
+function box(hx, hy, hz, ox, oy, oz) {
+  const v = [], f = [];
+  const P = [[-1, -1, -1], [1, -1, -1], [1, 1, -1], [-1, 1, -1],
+             [-1, -1, 1], [1, -1, 1], [1, 1, 1], [-1, 1, 1]];
+  for (const p of P) v.push([p[0] * hx + ox, p[1] * hy + oy, p[2] * hz + oz]);
+  f.push([0, 3, 2, 1], [4, 5, 6, 7], [0, 1, 5, 4], [2, 3, 7, 6], [1, 2, 6, 5], [0, 4, 7, 3]);
+  return { v, f };
+}
+function cone(r, h, n, ox, oy, oz) {
+  const v = [[ox, oy + h, oz]], f = [];
+  for (let i = 0; i < n; i++) { const a = i / n * TAU; v.push([ox + Math.cos(a) * r, oy, oz + Math.sin(a) * r]); }
+  for (let i = 0; i < n; i++) f.push([0, 1 + i, 1 + (i + 1) % n]);
+  f.push(Array.from({ length: n }, (_, i) => 1 + (n - 1 - i)));
+  return { v, f };
+}
+function merge(list) {
+  const v = [], f = [];
+  for (const m of list) { const o = v.length; for (const p of m.v) v.push(p); for (const q of m.f) f.push(q.map(i => i + o)); }
+  return { v, f };
+}
+function addMerged(list, mat, opt) { const m = merge(list); return mkMesh(m.v, m.f, mat, opt); }
+
+/* ---------- 材质 ---------- */
+const SUN = norm3([-0.44, 0.66, 0.61]);
+const FOGC = [198, 218, 240];
+const MATS = [
+  { c: [248, 252, 255], sp: .34 }, // 0 雪面
+  { c: [226, 238, 251], sp: .16 }, // 1 雪松/雪帽
+  { c: [198, 216, 240], sp: .05 }, // 2 远雪
+  { c: [42, 74, 76], sp: 0 },     // 3 针叶
+  { c: [30, 56, 60], sp: 0 },     // 4 针叶暗
+  { c: [86, 66, 52], sp: 0 },     // 5 树干
+  { c: [24, 30, 42], sp: .40 },   // 6 企鹅黑
+  { c: [252, 253, 255], sp: .12 },// 7 企鹅白
+  { c: [244, 148, 42], sp: .22 }, // 8 喙脚
+  { c: [212, 52, 44], sp: .06 },  // 9 围巾
+  { c: [46, 58, 78], sp: .55 },   // 10 板面
+  { c: [240, 198, 74], sp: .45 }, // 11 板头
+  { c: [188, 48, 44], sp: .04 },  // 12 围栏
+  { c: [216, 230, 246], sp: 0 },  // 13 远山
+  { c: [92, 102, 120], sp: 0 },   // 14 建筑
+  { c: [58, 68, 86], sp: 0 },    // 15 屋顶
+  { c: [156, 168, 186], sp: .1 }, // 16 杆件
+  { c: [46, 78, 172], sp: .05 },  // 17 边线
+];
+const LST = 26, FST = 16;
+const LUT = MATS.map(m => {
+  const arr = new Array(LST * FST);
+  for (let l = 0; l < LST; l++) {
+    /* 环境光 0.62 → 1.10：雪面始终是亮白，不发灰；深色物体也保留形体 */
+    const sh = .62 + .48 * (l / (LST - 1));
+    for (let f = 0; f < FST; f++) {
+      const fg = f / (FST - 1);
+      const cl = v => Math.max(0, Math.min(255, Math.round(lerp(m.c[v] * sh, FOGC[v], fg))));
+      arr[l * FST + f] = 'rgb(' + cl(0) + ',' + cl(1) + ',' + cl(2) + ')';
+    }
+  }
+  return arr;
+});
+
+/* ======================= 跳台中线 =======================
+   自洽构造顺序：
+   1) 助滑道 -> 唇口 LIP + 弧长 inS
+   2) 由 V_LIP / 出射角解抛物线，取期望滞空 T_AIR 得落点
+   3) 着陆坡 = 过落点、坡角 LAND_A 的直线，向前延伸到 knoll
+   保证：无论参数怎么调，落点永远精确落在坡面上
+   ========================================================= */
+const HILL = [];
+const INRUN_A = 35 * D2R;   // 助滑道倾角
+const LAND_A = 35 * D2R;    // 着陆坡倾角
+const G0 = 9.81;
+(function buildHill() {
+  let x = -10, y = 46.7;
+  HILL.push({ x, y, w: 4.6, wall: .5, tag: 'gate' });
+  HILL.push({ x: 10, y: 46.0, w: 3.5, wall: 1.05, tag: 'in' });
+  const L = 36, N = 36;
+  for (let i = 1; i <= N; i++) {
+    const u = i / N;
+    const th = INRUN_A * smoothstep(0, 1, Math.min(1, u * 1.25));
+    x += Math.cos(th) * L / N; y -= Math.sin(th) * L / N;
+    HILL.push({ x, y, w: 3.4, wall: 1.2, tag: 'in' });
+  }
+  const lip = { x, y }, lipIdx = HILL.length - 1;
+  let acc = 0;
+  for (let i = 0; i <= lipIdx; i++) {
+    if (i > 0) acc += Math.hypot(HILL[i].x - HILL[i-1].x, HILL[i].y - HILL[i-1].y);
+    HILL[i].s = acc;
+  }
+  const inS = acc;
+  const vL = Math.sqrt(5.0*5.0 + 2*5.2*inS);
+  const lx = Math.cos(INRUN_A)*vL, ly = -Math.sin(INRUN_A)*vL;
+  const T_AIR = 2.05;                                  // 期望滞空
+  const landPt = [lip.x + lx*T_AIR, lip.y + ly*T_AIR - .5*G0*T_AIR*T_AIR];
+
+  /* 着陆坡：过落点、坡角 LAND_A，向前伸到 knoll（唇口下方） */
+  const d = [Math.cos(LAND_A), -Math.sin(LAND_A)];
+  const nrm = [-d[1], d[0]];                            // 坡面法向（朝上）
+  const K_LEN = 26;                                     // knoll 到落点的距离
+  const kn = [landPt[0] - d[0]*K_LEN, landPt[1] - d[1]*K_LEN];
+  const PUSH = Math.max(2.0, (kn[0]-lip.x)*d[0] + (kn[1]-lip.y)*d[1]);
+  HILL.push({ x: kn[0] - d[0]*PUSH, y: kn[1] - d[1]*PUSH, w: 6.4, wall: .25, tag: 'table' });
+  HILL.push({ x: kn[0], y: kn[1], w: 8.2, wall: .18, tag: 'knoll' });
+  const RUN = 104, M = 40;
+  for (let i = 1; i <= M; i++) {
+    const s = RUN*i/M, u = i/M;
+    HILL.push({ x: kn[0]+d[0]*s, y: kn[1]+d[1]*s,
+                w: 8.2 + 3.4*smoothstep(0,1,u), wall: .15, tag: 'land' });
+  }
+  const s2 = RUN, e2 = s2+46, e3 = s2+92;
+  for (let i = 1; i <= 32; i++) {
+    const u = i/32, th = lerp(LAND_A, -7*D2R, smoothstep(0,1,u)), s = s2+(e2-s2)*u;
+    HILL.push({ x: kn[0]+Math.cos(th)*s, y: kn[1]-Math.sin(th)*s, w: lerp(11.6,13.8,u), wall: .10, tag: 'out' });
+  }
+  for (let i = 1; i <= 22; i++) {
+    const u = i/22, th = lerp(-7*D2R, -3*D2R, smoothstep(0,1,u)), s = e2+(e3-e2)*u;
+    HILL.push({ x: kn[0]+Math.cos(th)*s, y: kn[1]-Math.sin(th)*s, w: lerp(13.8,15.5,u), wall: .05, tag: 'out' });
+  }
+  let a2 = HILL[lipIdx].s;
+  for (let i = lipIdx+1; i < HILL.length; i++) {
+    a2 += Math.hypot(HILL[i].x - HILL[i-1].x, HILL[i].y - HILL[i-1].y);
+    HILL[i].s = a2;
+  }
+  for (let i = 0; i < HILL.length; i++) {
+    const p = HILL[i], q = HILL[i+1] || p;
+    p.ang = Math.atan2(-(q.y-p.y), q.x-p.x);
+  }
+  HILL.lip = lip; HILL.lipIdx = lipIdx; HILL.knoll = kn;
+  HILL.landPt = landPt; HILL.tAir = T_AIR;
+  HILL.vLip = vL; HILL.launch = [lx, ly];
+  HILL.phase = LAND_A; HILL.total = a2; HILL.inS = inS;
+})();
+const LIP = HILL.lip, KNOLL = HILL.knoll, LIPX = LIP.x;
+
+function hillAt(x) {
+  if (x < HILL[0].x || x > HILL[HILL.length - 1].x) return null;
+  let lo = 0, hi = HILL.length - 1;
+  while (hi - lo > 1) { const m = (lo + hi) >> 1; if (HILL[m].x <= x) lo = m; else hi = m; }
+  const a = HILL[lo], b = HILL[hi], t = (x - a.x) / ((b.x - a.x) || 1);
+  return { y: lerp(a.y, b.y, t), ang: lerp(a.ang, b.ang, t), w: lerp(a.w, b.w, t), s: lerp(a.s, b.s, t) };
+}
+function xToS(x) { const h = hillAt(x); return h ? h.s : 0; }
+function sToX(s) {
+  s = clamp(s, 0, HILL.total);
+  let lo = 0, hi = HILL.length - 1;
+  while (hi - lo > 1) { const m = (lo + hi) >> 1; if (HILL[m].s <= s) lo = m; else hi = m; }
+  const a = HILL[lo], b = HILL[hi];
+  return lerp(a.x, b.x, clamp((s - a.s) / ((b.s - a.s) || 1), 0, 1));
+}
+function terrainY(x, z) {
+  const az = Math.abs(z);
+  /* 基础地形：起点平台在山顶(y≈46)，沿 x 下降到山谷(y≈-70) */
+  let y = 46.5 - 118 * smoothstep(-40, 215, x);
+  /* 两侧山脊向上抬起，形成雪谷 */
+  y += 46 * smoothstep(70, 260, az) + 34 * smoothstep(180, 340, az);
+  /* 起伏噪声 */
+  y += (vnoise(x * .012 + 4, z * .012 + 9) - .5) * 11 * smoothstep(20, 92, az);
+  y += (vnoise(x * .034 + 21, z * .034 + 2) - .5) * 2.6 * smoothstep(6, 40, az);
+  /* 跳台走廊：地形紧贴雪道下方 1.0m，形成实心坡体 */
+  const h = hillAt(x);
+  if (h) {
+    const inside = smoothstep(h.w + 20, h.w + 1, az);
+    if (inside > 0) y = lerp(y, h.y - 1.0, inside);
+  }
+  return y;
+}
+
+/* ======================= 弹道（直接采用几何段预解结果） ======================= */
+const G = G0, V0 = 5.0, ACC = 5.2;
+const V_LIP = HILL.vLip, LAUNCH = HILL.launch;
+const T_INRUN = (V_LIP - V0) / ACC;
+const T_LIP = 1.30 + T_INRUN;
+const T_AIR = HILL.tAir;
+const LAND = {
+  t: T_AIR,
+  p: HILL.landPt,
+  v: [LAUNCH[0], LAUNCH[1] - G * T_AIR],
+  v2: 0,
+  ang: LAND_A
+};
+LAND.v2 = LAND.v[0] * LAND.v[0] + LAND.v[1] * LAND.v[1];
+{
+  const h = hillAt(LAND.p[0]);
+  LAND.s = h ? h.s : 0;
+}
+const T_LAND = T_LIP + T_AIR;
+const LOOP = 15.0, T_CRS = 12.2, T_OUT_END = T_LAND + 3.6;
+
+/* ======================= 静态场景 ======================= */
+const STATIC = [];
+const add = (mesh) => STATIC.push(mesh);
+
+(function terrain() {
+  const xs = [], zs = [];
+  for (let x = -230; x < -54; x += 24) xs.push(x);
+  for (let x = -54; x < 262; x += 5.0) xs.push(x);
+  for (let x = 262; x <= 440; x += 24) xs.push(x);
+  for (let z = -360; z < -46; z += 28) zs.push(z);
+  for (let z = -46; z <= 270; z += 8.5) zs.push(z);
+  const v = [], f = [], W = zs.length;
+  for (const x of xs) for (const z of zs) v.push([x, terrainY(x, z), z]);
+  for (let i = 0; i < xs.length - 1; i++) for (let j = 0; j < W - 1; j++) {
+    const a = i * W + j; f.push([a, a + W, a + W + 1, a + 1]);
+  }
+  add(mkMesh(v, f, 0, { two: true }));
+})();
+
+(function track() {
+  const LAT = [-1, -.8, -.45, 0, .45, .8, 1], NL = LAT.length;
+  const v = [], f = [];
+  for (const p of HILL) {
+    const nx = Math.sin(p.ang), ny = Math.cos(p.ang);
+    for (const t of LAT) {
+      const lift = p.wall * Math.pow(Math.max(0, (Math.abs(t) - .4) / .6), 1.4) + .22 * (1 - t * t) * (p.tag === 'in' ? .3 : 1);
+      v.push([p.x + nx * lift * .55, p.y + ny * lift * .55, t * p.w]);
+    }
+  }
+  for (let i = 0; i < HILL.length - 1; i++) for (let j = 0; j < NL - 1; j++) {
+    const a = i * NL + j; f.push([a, a + NL, a + NL + 1, a + 1]);
+  }
+  add(mkMesh(v, f, 0, { two: true, bias: 2.5 }));
+  /* 压雪纹 / 边线 */
+  const mk = [], lk = [];
+  for (let i = 1; i < HILL.length - 1; i += 2) {
+    const p = HILL[i], q = HILL[i + 1];
+    const nx = Math.sin(p.ang), ny = Math.cos(p.ang), o = .07;
+    mk.push([p.x + nx * o, p.y + ny * o, -p.w * .34], [p.x + nx * o, p.y + ny * o, p.w * .34],
+            [q.x + nx * o, q.y + ny * o, p.w * .34], [q.x + nx * o, q.y + ny * o, -p.w * .34]);
+    for (const t of [-1, 1]) {
+      lk.push([p.x + nx * o, p.y + ny * o, t * p.w * .94], [p.x + nx * o, p.y + ny * o, t * p.w],
+              [q.x + nx * o, q.y + ny * o, t * p.w], [q.x + nx * o, q.y + ny * o, t * p.w * .94]);
+    }
+  }
+  const f1 = [], f2 = [], lv = [], lff = [];
+  for (let i = 0; i < mk.length; i += 4) { f2.push([i, i + 1, i + 2, i + 3]); for (const p of mk.slice(i, i + 4)) f1.push(p); }
+  for (let i = 0; i < lk.length; i += 4) { lff.push([i, i + 1, i + 2, i + 3]); for (const p of lk.slice(i, i + 4)) lv.push(p); }
+  add(mkMesh(f1, f2, 1, { two: true, bias: 2.2 }));
+  add(mkMesh(lv, lff, 17, { two: true, bias: 2.2 }));
+})();
+
+(function supports() {
+  const legs = [], cols = [];
+  /* 跳台钢架：立在雪面之下，向上撑住坡道 */
+  for (let i = 8; i < HILL.length; i += 7) {
+    const p = HILL[i];
+    if (p.s > 150) break;
+    for (const sd of [-1, 1]) {
+      const z = sd * (p.w + 1.4);
+      const top = p.y - 1.1, bot = p.y - 9.0;
+      const h = Math.max(1, (top - bot) / 2);
+      legs.push(box(.34, h, .34, p.x, bot + h, z));
+      const nxt = HILL[Math.min(i + 7, HILL.length - 1)];
+      if (Math.abs(nxt.x - p.x) > 1.2) {
+        const mx = (p.x + nxt.x) / 2, my = (top + bot) / 2;
+        const len = Math.hypot(nxt.x - p.x, nxt.y - p.y) / 2;
+        const bar = box(len, .17, .17, 0, 0, 0);
+        const m = mMul(mT(mx, my, z), mRZ(Math.atan2(nxt.y - p.y, nxt.x - p.x)));
+        cols.push({ v: bar.v.map(v => mApp(m, v)), f: bar.f });
+      }
+    }
+  }
+  add(addMerged(legs.concat(cols), 16));
+  /* 起始塔 + 房子 */
+  const tower = [], house = [], roof = [];
+  for (const z of [-3.4, 3.4]) for (const x of [-6, 9]) {
+    const gy = terrainY(x, z), h = Math.max(1, (46.4 - gy) / 2);
+    tower.push(box(.4, h, .4, x, gy + h, z));
+  }
+  house.push(box(4.0, 2.5, 4.8, -15.5, 48.9, 0));
+  roof.push(box(4.7, .32, 5.5, -15.5, 51.7, 0));
+  add(addMerged(tower, 16));
+  add(addMerged(house, 14));
+  add(addMerged(roof, 15));
+  const rail = [];
+  for (const sd of [-1, 1]) rail.push(box(11, .06, .06, 2, 47.7, sd * 4.2));
+  for (let i = 0; i <= 9; i++) {
+    rail.push(box(.06, .45, .06, -8 + i * 2.3, 47.3, -4.2));
+    rail.push(box(.06, .45, .06, -8 + i * 2.3, 47.3, 4.2));
+  }
+  add(addMerged(rail, 12));
+})();
+
+(function fence() {
+  const parts = [];
+  for (let i = 2; i < HILL.length; i += 3) {
+    const p = HILL[i];
+    if (p.s > 230) break;
+    for (const t of [-1, 1]) {
+      const z = t * (p.w + 1.0);
+      /* 立柱：立在雪道边缘，高 1.0m */
+      parts.push(box(.07, .50, .07, p.x, p.y + .48, z));
+      /* 横杆 */
+      if (i % 6 === 0 && i + 3 < HILL.length) {
+        const q = HILL[i + 3];
+        const len = Math.hypot(q.x - p.x, q.y - p.y) / 2;
+        const bar = box(len, .045, .045, 0, 0, 0);
+        const m = mMul(mT((p.x + q.x) / 2, (p.y + q.y) / 2 + .78, z),
+                       mRZ(Math.atan2(q.y - p.y, q.x - p.x)));
+        parts.push({ v: bar.v.map(v => mApp(m, v)), f: bar.f });
+      }
+    }
+  }
+  add(addMerged(parts, 12));
+})();
+
+(function mountains() {
+  const parts = [];
+  let seed = 7;
+  const rnd = () => { seed = (seed * 9301 + 49297) % 233280; return seed / 233280; };
+  for (let i = 0; i < 30; i++) {
+    const a = -1.35 + (i / 29) * 3.9 + (rnd() - .5) * .07;
+    const dist = 640 + rnd() * 940;
+    const x = 70 + Math.cos(a) * dist, z = Math.sin(a) * dist;
+    const h = 130 + rnd() * 260, r = 140 + rnd() * 220, n = 6, ph = rnd() * TAU;
+    const base = -30 - rnd() * 40;
+    const c = cone(r, h, n, x, base, z);
+    const rot = ph;
+    for (const p of c.v) { const dx = p[0] - x, dz = p[2] - z; p[0] = x + dx * Math.cos(rot) - dz * Math.sin(rot); p[2] = z + dx * Math.sin(rot) + dz * Math.cos(rot); }
+    parts.push(c);
+  }
+  add(addMerged(parts, 13, { two: true }));
+})();
+
+(function trees() {
+  const dark = [], snow = [];
+  let seed = 91;
+  const rnd = () => { seed = (seed * 9301 + 49297) % 233280; return seed / 233280; };
+  for (let i = 0; i < 260; i++) {
+    const x = -120 + rnd() * 460;
+    const z = (rnd() < .5 ? -1 : 1) * (30 + rnd() * 170);
+    const h = hillAt(x);
+    /* 避开跳台走廊，避免与雪道穿插 */
+    if (h && Math.abs(z) < h.w + 34) continue;
+    const y = terrainY(x, z) - .6, s = 4.0 + rnd() * 7;
+    dark.push(cone(.24 * s, s * .55, 5, x, y, z));
+    dark.push(cone(.74 * s, s * 1.6, 6, x, y + s * .26, z));
+    snow.push(cone(.58 * s, s * 1.0, 6, x, y + s * 1.14, z));
+    snow.push(cone(.32 * s, s * .6, 6, x, y + s * 2.0, z));
+  }
+  add(addMerged(dark, 4));
+  add(addMerged(snow, 1));
+})();
+
+/* ======================= 企鹅 ======================= */
+function buildPenguin() {
+  const flipper = sphere(.54, .12, .30, 10, 6);
+  const skiBase = box(1.45, .035, .105, 1.45, .035, 0);
+  const skiTip = box(.30, .032, .105, 3.05, .11, 0);
+  const ski = merge([skiBase, skiTip]);
+  const parts = [
+    [sphere(.60, .74, .58, 14, 10), mT(0, .98, 0), 6],
+    [sphere(.50, .62, .52, 12, 9), mT(.28, .92, 0), 7],
+    [sphere(.43, .43, .42, 12, 9), mT(.12, 1.76, 0), 6],
+    [sphere(.34, .36, .34, 10, 8), mT(.40, 1.76, 0), 7],
+    [cone(.15, .48, 7, 0, 0, 0), mMul(mT(.60, 1.70, 0), mRZ(-8 * D2R)), 8],
+    [sphere(.075, .078, .055, 8, 6), mT(.60, 1.93, .215), 6],
+    [sphere(.075, .078, .055, 8, 6), mT(.60, 1.93, -.215), 6],
+    [sphere(.34, .20, .40, 9, 6), mT(-.56, .58, 0), 6],
+    [sphere(.345, .17, .355, 12, 5), mT(.12, 1.44, 0), 9],
+    [box(.34, .095, .05, -.34, 0, 0), mMul(mT(.04, 1.36, -.16), mRZ(16 * D2R)), 9],
+    [sphere(.22, .09, .17, 8, 5), mT(.18, .13, .21), 8],
+    [sphere(.22, .09, .17, 8, 5), mT(.18, .13, -.21), 8],
+  ];
+  return {
+    body: parts.map(p => ({ mesh: mkMesh(p[0].v, p[0].f, p[2]), local: p[1] })),
+    skis: [1, -1].map(s => ({ mesh: mkMesh(ski.v, ski.f, 10), side: s })),
+    flips: [1, -1].map(s => ({ mesh: mkMesh(flipper.v, flipper.f, 6), side: s }))
+  };
+}
+const PEN = buildPenguin();
+
+/* ======================= 渲染器 ======================= */
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d', { alpha: false });
+let W = 0, H = 0, CX = 0, CY = 0, FOC = 800, DPR = 1;
+function resize() {
+  DPR = Math.min(window.devicePixelRatio || 1, 1.75);
+  W = cv.clientWidth || window.innerWidth; H = cv.clientHeight || window.innerHeight;
+  cv.width = Math.max(2, Math.round(W * DPR)); cv.height = Math.max(2, Math.round(H * DPR));
+  CX = cv.width / 2; CY = cv.height * .52;
+}
+window.addEventListener('resize', resize); resize();
+
+let eye = [0, 0, 120], VX = [1, 0, 0], VY = [0, 1, 0], VZ = [0, 0, 1], hz = 0, sunX = 0, sunY = 0;
+function setupCam(e, t, fov) {
+  eye = e;
+  FOC = (cv.height * .5) / Math.tan(fov * .5 * D2R);
+  VZ = norm3(sub3(e, t));
+  VX = norm3(cross3([0, 1, 0], VZ));
+  VY = cross3(VZ, VX);
+  const f = [-VZ[0], 0, -VZ[2]], fl = Math.hypot(f[0], f[2]) || 1;
+  hz = CY - FOC * (dot3([f[0] / fl, 0, f[2] / fl], VY) / -dot3([f[0] / fl, 0, f[2] / fl], VZ));
+  const d = [SUN[0] * 5000, SUN[1] * 5000, SUN[2] * 5000];
+  sunX = CX + FOC * dot3(d, VX) / -dot3(d, VZ);
+  sunY = CY - FOC * dot3(d, VY) / -dot3(d, VZ);
+}
+function proj(p) {
+  const d = sub3(p, eye), vz = -dot3(d, VZ);
+  return [CX + FOC * dot3(d, VX) / vz, CY - FOC * dot3(d, VY) / vz, vz];
+}
+
+const POOL = []; let pn = 0;
+const order = [];
+function q() { if (pn >= POOL.length) POOL.push({ p: new Float64Array(16), n: 0, col: '', z: 0 }); return POOL[pn++]; }
+function drawMesh(mesh, M) {
+  const mv = mesh.vm || (mesh.vm = new Float64Array(mesh.v.length * 3));
+  const V0 = mesh.v, N = V0.length;
+  if (M) for (let i = 0; i < N; i++) {
+    const p = V0[i];
+    mv[i * 3]     = M[0] * p[0] + M[1] * p[1] + M[2] * p[2] + M[12];
+    mv[i * 3 + 1] = M[4] * p[0] + M[5] * p[1] + M[6] * p[2] + M[13];
+    mv[i * 3 + 2] = M[8] * p[0] + M[9] * p[1] + M[10] * p[2] + M[14];
+  } else for (let i = 0; i < N; i++) { const p = V0[i]; mv[i * 3] = p[0]; mv[i * 3 + 1] = p[1]; mv[i * 3 + 2] = p[2]; }
+  const lut = LUT[mesh.mat], two = mesh.two, bias = mesh.bias || 0, spw = MATS[mesh.mat].sp;
+  const HX = SUN[0] - VZ[0], HY = SUN[1] - VZ[1], HZ = SUN[2] - VZ[2], HL = Math.hypot(HX, HY, HZ) || 1;
+  const F = mesh.f;
+  for (let fi = 0; fi < F.length; fi++) {
+    const idx = F[fi], m = idx.length;
+    let cx = 0, cy = 0, cz = 0;
+    for (let k = 0; k < m; k++) { const i = idx[k] * 3; cx += mv[i]; cy += mv[i + 1]; cz += mv[i + 2]; }
+    cx /= m; cy /= m; cz /= m;
+    const ex = cx - eye[0], ey = cy - eye[1], ez = cz - eye[2];
+    const vz = -(ex * VZ[0] + ey * VZ[1] + ez * VZ[2]);
+    if (vz < 1.2) continue;
+    const i0 = idx[0] * 3, i1 = idx[1] * 3, i2 = idx[2] * 3;
+    const ux = mv[i1] - mv[i0], uy = mv[i1 + 1] - mv[i0 + 1], uz = mv[i1 + 2] - mv[i0 + 2];
+    const wx = mv[i2] - mv[i0], wy = mv[i2 + 1] - mv[i0 + 1], wz = mv[i2 + 2] - mv[i0 + 2];
+    let nx = uy * wz - uz * wy, ny = uz * wx - ux * wz, nz = ux * wy - uy * wx;
+    const nl = Math.hypot(nx, ny, nz);
+    if (nl < 1e-9) continue;
+    nx /= nl; ny /= nl; nz /= nl;
+    if (nx * ex + ny * ey + nz * ez <= 0) { if (!two) continue; nx = -nx; ny = -ny; nz = -nz; }
+    /* 半球环境光：上方天空蓝、下方雪地反弹；阳光主光 */
+    const ndl = clamp(nx * SUN[0] + ny * SUN[1] + nz * SUN[2], 0, 1);
+    let sh = .30 + .70 * Math.pow(ndl, .85) + .10 * Math.max(0, ny) + .06 * Math.max(0, -ny);
+    if (spw) sh += spw * .35 * Math.pow(Math.max(0, (nx * HX + ny * HY + nz * HZ) / HL), 22);
+    const f = q();
+    for (let k = 0; k < m; k++) {
+      const i = idx[k] * 3;
+      const dx = mv[i] - eye[0], dy = mv[i + 1] - eye[1], dz = mv[i + 2] - eye[2];
+      const z2 = Math.max(.35, -(dx * VZ[0] + dy * VZ[1] + dz * VZ[2]));
+      f.p[k * 2] = CX + FOC * (dx * VX[0] + dy * VX[1] + dz * VX[2]) / z2;
+      f.p[k * 2 + 1] = CY - FOC * (dx * VY[0] + dy * VY[1] + dz * VY[2]) / z2;
+    }
+    /* 屏幕外剔除（含包围盒快速判定） */
+    let mnx=1e9,mxx=-1e9,mny=1e9,mxy=-1e9;
+    for (let k = 0; k < m; k++){
+      const vx=f.p[k*2], vy=f.p[k*2+1];
+      if(vx<mnx)mnx=vx; if(vx>mxx)mxx=vx; if(vy<mny)mny=vy; if(vy>mxy)mxy=vy;
+    }
+    if (mxx < -40 || mnx > cv.width + 40 || mxy < -40 || mny > cv.height + 40) continue;
+    f.n = m;
+    const fog = clamp(1 - Math.exp(-vz * .0040), 0, .95);
+    f.col = lut[((clamp(sh / 1.16, 0, 1) * (LST - 1)) | 0) * FST + ((fog * (FST - 1)) | 0)];
+    f.z = vz + bias;
+    order.push(f);
+  }
+}
+function flush() {
+  order.sort((a, b) => b.z - a.z);
+  ctx.lineJoin = 'round';
+  for (let i = 0; i < order.length; i++) {
+    const f = order[i], p = f.p;
+    ctx.beginPath(); ctx.moveTo(p[0], p[1]);
+    for (let k = 1; k < f.n; k++) ctx.lineTo(p[k * 2], p[k * 2 + 1]);
+    ctx.closePath();
+    ctx.fillStyle = f.col; ctx.fill();
+    ctx.strokeStyle = f.col; ctx.lineWidth = .8; ctx.stroke();
+  }
+  order.length = 0; pn = 0;
+}
+
+/* ======================= 天空 ======================= */
+function sky(t, white) {
+  const top = 'rgb(20,48,96)', mid = 'rgb(122,166,212)', hor = 'rgb(216,232,246)';
+  const hTop = hz - cv.height * 2.4;
+  let g = ctx.createLinearGradient(0, hTop, 0, hz);
+  g.addColorStop(0, top); g.addColorStop(.58, mid); g.addColorStop(1, hor);
+  ctx.fillStyle = hor; ctx.fillRect(0, 0, cv.width, cv.height);
+  ctx.fillStyle = g; ctx.fillRect(0, Math.min(cv.height, hTop), cv.width, Math.max(0, hz - hTop));
+  const r = cv.height * 1.0;
+  const sg = ctx.createRadialGradient(sunX, sunY, 0, sunX, sunY, r);
+  sg.addColorStop(0, 'rgba(255,252,238,.95)');
+  sg.addColorStop(.10, 'rgba(255,246,220,.45)');
+  sg.addColorStop(.38, 'rgba(255,238,210,.14)');
+  sg.addColorStop(1, 'rgba(255,240,220,0)');
+  ctx.fillStyle = sg; ctx.fillRect(sunX - r, sunY - r, r * 2, r * 2);
+  ctx.globalAlpha = .55;
+  for (let i = 0; i < 8; i++) {
+    const span = cv.height * 1.1;
+    let y = hz - cv.height * (.12 + i * .07) - ((t * (3.4 + i * 1.4) + i * 151) % span);
+    if (y > hz - 6 || y < -80) continue;
+    const w = cv.width * (.26 + (i % 4) * .08), h = cv.height * (.011 + .005 * (i % 3));
+    const x = ((i * 431 + t * (6 + i * 2.6)) % (cv.width + w * 2)) - w;
+    const cg = ctx.createLinearGradient(x, 0, x + w, 0);
+    const al = (.15 + .10 * Math.sin(t * .45 + i * 1.7)).toFixed(3);
+    cg.addColorStop(0, 'rgba(255,255,255,0)');
+    cg.addColorStop(.5, 'rgba(255,255,255,' + al + ')');
+    cg.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = cg;
+    ctx.beginPath(); ctx.ellipse(x + w / 2, y, w / 2, h, 0, 0, TAU); ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+  if (white > .002) { ctx.fillStyle = 'rgba(246,250,255,' + clamp(white, 0, 1) + ')'; ctx.fillRect(0, 0, cv.width, cv.height); }
+}
+
+/* ======================= 粒子 / 雪 ======================= */
+const PARTS = [];
+function burst(x, y, z, n, spd, up, life, size) {
+  for (let i = 0; i < n; i++) {
+    if (PARTS.length > 620) break;
+    const a = Math.random() * TAU;
+    PARTS.push({
+      x, y, z,
+      vx: Math.cos(a) * spd * Math.random(), vy: up * (.45 + Math.random()), vz: Math.sin(a) * spd * Math.random() * .8,
+      l: life * (.55 + Math.random() * .8), l0: life, s: size * (.45 + Math.random())
+    });
+  }
+}
+function stepParts(dt) {
+  for (let i = PARTS.length - 1; i >= 0; i--) {
+    const p = PARTS[i]; p.l -= dt;
+    if (p.l <= 0) { PARTS.splice(i, 1); continue; }
+    p.vy -= 15 * dt; p.vx *= .986; p.vz *= .986;
+    p.x += p.vx * dt; p.y += p.vy * dt; p.z += p.vz * dt;
+  }
+}
+function drawParts() {
+  ctx.fillStyle = '#ffffff';
+  for (const p of PARTS) {
+    const s = proj([p.x, p.y, p.z]);
+    if (s[2] < .5) continue;
+    const r = Math.max(.7, FOC * p.s / s[2]);
+    if (s[0] < -r || s[0] > cv.width + r || s[1] < -r || s[1] > cv.height + r) continue;
+    ctx.globalAlpha = clamp(p.l / p.l0, 0, 1) * .8;
+    ctx.beginPath(); ctx.arc(s[0], s[1], r, 0, TAU); ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+}
+const SNOW = [];
+for (let i = 0; i < 300; i++) SNOW.push({ x: Math.random(), y: Math.random(), z: .2 + Math.random() * .8, r: .55 + Math.random() * 1.8, v: .045 + Math.random() * .13, w: Math.random() * TAU });
+function drawSnow(dt, t, wind, heavy) {
+  ctx.fillStyle = '#ffffff';
+  for (const f of SNOW) {
+    f.y += f.v * f.z * dt * (1 + heavy * 2.4);
+    f.x += (Math.sin(t * .7 + f.w) * .010 + wind * .06) * dt * f.z;
+    if (f.y > 1.06) { f.y -= 1.14; f.x = Math.random(); }
+    if (f.x > 1.06) f.x -= 1.12; if (f.x < -.06) f.x += 1.12;
+    ctx.globalAlpha = (.20 + f.z * .48) * (1 - heavy * .5);
+    ctx.beginPath(); ctx.arc(f.x * cv.width, f.y * cv.height, f.r * f.z * DPR, 0, TAU); ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+}
+function streaks(a) {
+  if (a <= .01) return;
+  ctx.strokeStyle = '#fff'; ctx.lineCap = 'round';
+  for (let i = 0; i < 30; i++) {
+    const an = (i / 30) * TAU + Math.sin(i * 12.9) * .35;
+    const d = cv.height * (.18 + (i % 7) * .055);
+    const len = cv.height * (.05 + (i % 5) * .04) * a;
+    ctx.globalAlpha = .04 + (i % 4) * .04 * a;
+    ctx.lineWidth = (1 + (i % 3) * .9) * DPR;
+    ctx.beginPath();
+    ctx.moveTo(CX + Math.cos(an) * d, CY + Math.sin(an) * d);
+    ctx.lineTo(CX + Math.cos(an) * (d + len), CY + Math.sin(an) * (d + len));
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+}
+
+/* ======================= 姿态 ======================= */
+function pose(t) {
+  const T0 = 1.30;
+  let x, y, pitch = 0, crouch = 0, bank = 0, armA = 0, armB = 0, vsty = 0, air = 0;
+  if (t < T0) {
+    const u = clamp(t / T0, 0, 1), h = hillAt(HILL[0].x);
+    x = HILL[0].x; y = h.y;
+    pitch = Math.sin(u * 7.5) * .02;
+    crouch = .10 + .40 * smoothstep(.12, .86, u) + Math.sin(u * 15) * .014;
+    armA = lerp(-.55, -1.45, u); armB = lerp(-.40, -1.20, u);
+  } else if (t < T_LIP) {
+    const dt = t - 1.30, s = V0 * dt + .5 * ACC * dt * dt;
+    const x2 = sToX(s), h = hillAt(x2);
+    x = x2; y = h.y; pitch = -h.ang;
+    const u = dt / T_INRUN;
+    crouch = .46 + .14 * Math.sin(u * 3.4);
+    armA = -1.55 - .55 * u; armB = -1.32 - .45 * u;
+    bank = Math.sin(u * 6.5) * .055;
+  } else if (t < T_LAND) {
+    const tt = t - T_LIP, u = tt / LAND.t;
+    x = LIP.x + LAUNCH[0] * tt;
+    y = LIP.y + LAUNCH[1] * tt - .5 * G * tt * tt;
+    air = 1;
+    const vy = LAUNCH[1] - G * tt;
+    pitch = Math.atan2(vy, LAUNCH[0]) * .52 + 11 * D2R;
+    crouch = .04 + .20 * smoothstep(0, .16, u) * (1 - smoothstep(.6, 1, u));
+    vsty = smoothstep(0, .26, u);
+    armA = lerp(-1.95, -2.42, vsty); armB = lerp(-1.78, -2.22, vsty);
+    bank = .09 * Math.sin(tt * 1.25);
+  } else {
+    let ut = t - T_LAND;
+    const s = arcAtTime(ut);
+    const h = hillAt(sToX(s));
+    x = sToX(s); y = h.y; pitch = -h.ang;
+    crouch = .66 * (1 - smoothstep(0, .40, ut)) + .05;
+    armA = lerp(-.42, -.02, smoothstep(0, .55, ut)); armB = lerp(-.18, .30, smoothstep(0, .55, ut));
+    vsty = 1 - smoothstep(0, .30, ut);
+    bank = .07 * Math.sin(ut * 4.2);
+    air = 0;
+  }
+  return { x, y, pitch, crouch, bank, armA, armB, vsty, air };
+}
+/* 落地后：沿坡面下滑的时间→弧长映射（预积分，保证速度连续、无穿地） */
+const ARC = (() => {
+  const dt = 1 / 120, ts = [], ss = [];
+  let s = LAND.s, v = Math.sqrt(LAND.v2), tt = 0;
+  ts.push(0); ss.push(s);
+  while (tt < 7 && s < HILL.total - .5) {
+    const h = hillAt(sToX(s));
+    const dec = G * Math.sin(h.ang) + .55;
+    v = Math.sqrt(Math.max(0, v * v - 2 * dec * v * dt));
+    s += v * dt; tt += dt;
+    ts.push(tt); ss.push(s);
+  }
+  return { ts, ss, end: tt };
+})();
+function arcAtTime(ut) {
+  const { ts, ss } = ARC;
+  if (ut <= 0) return ss[0];
+  if (ut >= ts[ts.length - 1]) return ss[ss.length - 1];
+  let lo = 0, hi = ts.length - 1;
+  while (hi - lo > 1) { const m = (lo + hi) >> 1; if (ts[m] <= ut) lo = m; else hi = m; }
+  const f = (ut - ts[lo]) / (ts[hi] - ts[lo] || 1);
+  return lerp(ss[lo], ss[hi], f);
+}
+function penMatrix(P) {
+  return mMul(mT(P.x, P.y + P.crouch * .28, 0), mMul(mRZ(P.pitch), mMul(mRY(P.bank * .55), mS(1, 1 - P.crouch * .10, 1))));
+}
+function drawPenguin(P) {
+  const M = penMatrix(P);
+  for (const p of PEN.body) drawMesh(p.mesh, mMul(M, p.local));
+  for (const s of PEN.skis) {
+    const sp = s.side * (P.air ? 16 * D2R : 4 * D2R) * (0.35 + 0.65 * P.vsty + (P.air ? 0.4 : 0));
+    const lm = mMul(mT(0, .05, s.side * .30), mRY(sp));
+    drawMesh(s.mesh, mMul(M, lm));
+  }
+  for (const f of PEN.flips) {
+    const sw = f.side > 0 ? P.armA : P.armB, o = f.side;
+    const lm = mMul(mT(-.04, 1.32, o * .55), mMul(mRZ(sw), mRY(o * (.12 + P.vsty * .34))));
+    drawMesh(f.mesh, mMul(M, lm));
+  }
+  flush();
+}
+
+/* ======================= 相机（周期 Catmull-Rom） ======================= */
+/* 关键帧全部以 LIP / LAND 为锚点 + 偏移，随几何自动适配
+/* 相机关键帧
+   e  = 相机相对企鹅的固定偏移（米）。恒定小量 -> 企鹅天然在画面中心。
+   far= 远景权重：1=只看环境(企鹅交给安全框兜底)，0=贴身跟拍
+   企鹅高 1.9m：距离 15m 时约占屏高 7%，距离 9m 约占 12%。
+   保留 SAFE 兜底只处理极端宽高比。 */
+const KEYS = [
+  /* 全景：侧后方，交代雪山与整座跳台 */
+  { t: 0.0,            e: [  6, 26,  86], f: 52, far: 1.0 },
+  /* 推向出发台 */
+  { t: 1.30,           e: [ -6, 13,  50], f: 47, far: .55 },
+  /* 助滑：侧向贴身跟拍 */
+  { t: T_LIP - 2.4,    e: [-11,  4,  24], f: 45, far: .05 },
+  /* 逼近唇口：压低机位 */
+  { t: T_LIP - .40,    e: [ -6,  2,  15], f: 46, far: 0 },
+  /* 出坡：略仰，捕捉离台瞬间 */
+  { t: T_LIP + .12,    e: [  7, -2,  15], f: 47, far: 0 },
+  /* 腾空：拉开到能看清飞行姿态与下方坡面 */
+  { t: T_LIP + LAND.t * .45, e: [ 13, -4, 26], f: 48, far: 0 },
+  /* 临近落地 */
+  { t: T_LIP + LAND.t * .92, e: [ 12, -2, 21], f: 47, far: 0 },
+  /* 落地：贴近 */
+  { t: T_LAND + .14,   e: [  8,  1, 15], f: 45, far: 0 },
+  /* 滑出缓冲段 */
+  { t: T_LAND + 1.4,   e: [ 11,  4, 18], f: 45, far: 0 },
+  /* 收尾：升高拉远，回到全景 */
+  { t: T_OUT_END,      e: [  4, 20,  70], f: 50, far: .7 },
+  /* 与 t=0 完全一致 -> 无缝循环 */
+  { t: LOOP,           e: [  6, 26,  86], f: 52, far: 1.0 },
+];
+function crSpline(p0, p1, p2, p3, t) {
+  const t2 = t * t, t3 = t2 * t;
+  return .5 * ((2 * p1) + (-p0 + p2) * t + (2 * p0 - 5 * p1 + 4 * p2 - p3) * t2 + (-p0 + 3 * p1 - 3 * p2 + p3) * t3);
+}
+function camAt(t) {
+  const n = KEYS.length - 1;
+  let i = 0;
+  while (i < n - 1 && KEYS[i + 1].t <= t) i++;
+  const a = KEYS[i], b = KEYS[i + 1];
+  const u = clamp((t - a.t) / ((b.t - a.t) || 1), 0, 1);
+  const p0 = KEYS[(i - 1 + n) % n], p3 = KEYS[(i + 2) % n];
+  const e = [0, 0, 0];
+  for (let k = 0; k < 3; k++) e[k] = crSpline(p0.e[k], a.e[k], b.e[k], p3.e[k], u);
+  const f = clamp(crSpline(p0.f, a.f, b.f, p3.f, u), 30, 70);
+  const far = clamp(crSpline(p0.far, a.far, b.far, p3.far, u), 0, 1);
+  const P = pose(t);
+  /* 注视点：贴身时锁定企鹅；远景时把视线拉回跳台中段，交代整体 */
+  const gx = lerp(P.x, (HILL[0].x + LAND.p[0]) * .52, far);
+  const gy = lerp(P.y + 1.1, 2, far);
+  const g = [gx, gy, 0];
+  /* 相机 = 注视点 + 偏移。
+     高度三重保障：① 不低于脚下地形  ② 不低于注视点下方 8m  ③ 不低于跳台最低点+6m
+     这样无论参数怎么调，相机都不会埋进山体。 */
+  const cx = gx + e[0], cz = e[2];
+  const hMin = Math.min.apply(null, HILL.map(p => p.y));
+  const floor = Math.max(
+    terrainY(cx, cz) + (far > .3 ? 16 : 3.0),
+    gy - 10,
+    hMin + 8
+  );
+  const cy = Math.max(gy + e[1], floor);
+  const cam = [cx, cy, cz];
+  return { e, g, cam, f, far };
+}
+/* 地面钳制 + 安全框兜底：沿视线采样，避免穿地；限幅避免发散 */
+function followCam(t) {
+  const C = camAt(t), P = pose(t);
+  let e = C.cam.slice();
+  const lift = (p) => {
+    for (let i = 2; i <= 5; i++) {
+      const u = i / 5;
+      const sx = lerp(p[0], C.g[0], u), sz = lerp(p[2], C.g[2], u);
+      const lineY = p[1] * (1 - u) + C.g[1] * u;
+      const hMin = Math.min.apply(null, HILL.map(q => q.y));
+      const need = Math.max(terrainY(sx, sz) + 2.4, hMin + 6);
+      if (lineY < need) { p[1] += Math.min(14, (need - lineY) * 1.05); break; }
+    }
+    return p;
+  };
+  lift(e);
+  setupCam(e, C.g, C.f);
+  /* 安全框兜底：仅在贴身段启用。远景段注视点本就不在企鹅身上，
+     此时若还去追企鹅，相机会被平移到画面外甚至地下。 */
+  if (C.far < .30) {
+    const s = proj([P.x, P.y + 1.0, 0]);
+    const m = .80;
+    const mx = cv.width * .5 * m, my = cv.height * .5 * m;
+    const dx = s[0] < mx ? (mx - s[0]) : (s[0] > cv.width - mx ? (cv.width - mx - s[0]) : 0);
+    const dy = s[1] < my ? (my - s[1]) : (s[1] > cv.height - my ? (cv.height - my - s[1]) : 0);
+    if (dx || dy) {
+      const fwd = norm3(sub3(C.g, e));
+      const right = norm3(cross3([0, 1, 0], fwd));
+      const up = cross3(fwd, right);
+      const k = clamp(Math.hypot(dx, dy) / (cv.height * .35), 0, 1) * 1.05;
+      for (let i = 0; i < 3; i++) e[i] += (right[i] * dx + up[i] * dy) * k;
+      lift(e);
+      setupCam(e, C.g, C.f);
+    }
+  }
+  return e;
+}
+
+/* ======================= 主循环 ======================= */
+const t0 = performance.now();
+let last = t0, prevT = 0, faded = -1;
+function frame(now) {
+  const dt = Math.min(.05, (now - last) / 1000); last = now;
+  const t = ((now - t0) / 1000) % LOOP;
+
+  let white = 0;
+  if (t > T_CRS) white = smoothstep(T_CRS, LOOP - .06, t);
+  else if (t < .8) white = 1 - smoothstep(0, .8, t);
+
+  const P = pose(t);
+  followCam(t);
+
+  sky(t, white * .96);
+
+  pn = 0; order.length = 0;
+  for (const s of STATIC) drawMesh(s, null);
+  const gh = hillAt(P.x);
+  const gy = gh ? gh.y : terrainY(P.x, 0);
+  const hAbove = Math.max(0, P.y - gy);
+  {
+    const s = proj([P.x, gy + .1, 0]);
+    if (s[2] > .5) {
+      const rr = FOC * (1.6 + hAbove * .11) / s[2];
+      const al = clamp(.40 - hAbove * .014, .04, .40) * clamp(1 - hAbove / 110, .08, 1);
+      const rg = ctx.createRadialGradient(s[0], s[1], 0, s[0], s[1], rr);
+      rg.addColorStop(0, 'rgba(88,118,160,' + al.toFixed(3) + ')');
+      rg.addColorStop(1, 'rgba(88,118,160,0)');
+      ctx.fillStyle = rg;
+      ctx.beginPath(); ctx.ellipse(s[0], s[1], rr, rr * .32, 0, 0, TAU); ctx.fill();
+    }
+  }
+  flush();
+
+  drawPenguin(P);
+  drawParts();
+
+  streaks((t > 1.35 && t < T_LIP - .12) ? .95 : 0);
+  drawSnow(dt, t, (t > 1.25 && t < T_LIP) ? .6 : 0, white);
+
+  const vg = ctx.createRadialGradient(CX, CY, cv.height * .32, CX, CY, cv.height * .95);
+  vg.addColorStop(0, 'rgba(10,20,40,0)');
+  vg.addColorStop(1, 'rgba(8,16,34,.40)');
+  ctx.fillStyle = vg; ctx.fillRect(0, 0, cv.width, cv.height);
+  if (white > .002) { ctx.fillStyle = 'rgba(246,250,255,' + clamp(white, 0, 1) + ')'; ctx.fillRect(0, 0, cv.width, cv.height); }
+
+  /* 事件（跨帧检测） */
+  if (prevT < T_LIP && t >= T_LIP) burst(LIP.x, LIP.y, 0, 54, 6, 6.5, 1.7, .17);
+  if (prevT < T_LAND && t >= T_LAND) burst(LAND.p[0], LAND.p[1], 0, 150, 12, 10, 2.4, .32);
+  const since = t - T_LAND;
+  if (since > 0 && since < 1.9) {
+    const sx = sToX(arcAtTime(since));
+    const hh = hillAt(sx);
+    if (hh && Math.random() < .55) burst(sx, hh.y, (Math.random() - .5) * 9, 3, 3.4, 3.6, 1.2, .2);
+  }
+  if (t > 1.3 && t < T_LIP && Math.random() < .4) burst(P.x - 1.8, P.y + .12, (Math.random() - .5) * 2.6, 2, 2.6, 2.8, .85, .15);
+  stepParts(dt);
+  prevT = t;
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+<!--zc-home:start--><style>.zc-home-btn{position:fixed;top:16px;left:16px;z-index:2147483647;display:inline-flex;align-items:center;gap:6px;padding:8px 14px;font:500 13px/1.1 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Noto Sans SC",sans-serif;color:#111;background:rgba(255,255,255,.86);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);border:1px solid rgba(0,0,0,.08);border-radius:999px;text-decoration:none;box-shadow:0 2px 12px rgba(0,0,0,.2);transition:background .2s ease,transform .2s ease,box-shadow .2s ease}.zc-home-btn:hover{background:#fff;transform:translateY(-1px);box-shadow:0 4px 18px rgba(0,0,0,.26)}</style><a class="zc-home-btn" href="../">← 返回首页</a><!--zc-home:end-->
+</body>
+</html>
