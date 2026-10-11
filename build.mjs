@@ -94,6 +94,13 @@ const categories = [
     lede: "庞大的身躯踩在一根钢丝上,靠一根长长的平衡杆维持平衡,考的是重量感、平衡杆的配重反扣,以及钢丝受力下垂的张力曲线 —— 反差越大越见功力。下面按模型版本归档,缩略图为真实渲染效果,点击卡片查看可交互的在线页面。",
     versions: [
       ["gemini-3.8-flash", "Gemini 3.8 Flash", "Three.js 3D"],
+      ["nemotron-3-ultra", "Nemotron 3 Ultra", "Three.js 3D"],
+      ["tierflow-pro", "Tierflow-Pro", "Three.js 3D"],
+      ["mimo-2.6-flash", "MiMo 2.6 Flash", "Canvas 2D"],
+      ["deepseek-4.1-flash", "DeepSeek 4.1 Flash", "Canvas 2D"],
+      ["opus-4", "Claude Opus 4", "SVG 动画"],
+      ["glm-5.3-flash", "GLM 5.3 Flash", "SVG 动画"],
+      ["ling-3.1-flash", "Ling 3.1 Flash", "SVG 动画"],
     ].map(([slug, name, sub]) => ({ slug, name, sub })),
   },
   {

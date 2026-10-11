@@ -1,0 +1,499 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Elephant on a Wire</title>
+<style>
+  html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #06070f; }
+  #stage { position: fixed; inset: 0; display: block; }
+  #vignette {
+    position: fixed; inset: 0; pointer-events: none;
+    background: radial-gradient(ellipse at 50% 42%, transparent 42%, rgba(2,3,8,0.55) 100%);
+  }
+</style>
+<script type="importmap">
+{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }
+</script>
+</head>
+<body>
+<canvas id="stage"></canvas>
+<div id="vignette"></div>
+<script type="module">
+import * as THREE from 'three';
+
+/* ---------- renderer / scene / camera ---------- */
+const renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('stage'), antialias: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.05;
+
+const scene = new THREE.Scene();
+scene.fog = new THREE.FogExp2(0x0a1020, 0.011);
+
+const camera = new THREE.PerspectiveCamera(42, window.innerWidth / window.innerHeight, 0.1, 400);
+camera.position.set(0, 15, 30);
+
+/* ---------- night sky gradient + stars + moon ---------- */
+function makeSky() {
+  const c = document.createElement('canvas');
+  c.width = 16; c.height = 512;
+  const g = c.getContext('2d').createLinearGradient(0, 0, 0, 512);
+  g.addColorStop(0.00, '#04050e');
+  g.addColorStop(0.45, '#0a1226');
+  g.addColorStop(0.72, '#1a2747');
+  g.addColorStop(0.88, '#3c3355');
+  g.addColorStop(1.00, '#54364a');
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, 16, 512);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+scene.background = makeSky();
+
+const starGeo = new THREE.BufferGeometry();
+{
+  const n = 900, pos = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) {
+    const r = 170, th = Math.random() * Math.PI * 2, ph = Math.random() * Math.PI * 0.48;
+    pos[i*3]   = r * Math.sin(ph) * Math.cos(th);
+    pos[i*3+1] = r * Math.cos(ph) * 0.9 + 15;
+    pos[i*3+2] = r * Math.sin(ph) * Math.sin(th);
+  }
+  starGeo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+}
+const stars = new THREE.Points(starGeo, new THREE.PointsMaterial({
+  color: 0xcfe0ff, size: 0.7, sizeAttenuation: true, transparent: true, opacity: 0.85, fog: false
+}));
+scene.add(stars);
+
+const moon = new THREE.Mesh(
+  new THREE.SphereGeometry(6, 32, 32),
+  new THREE.MeshBasicMaterial({ color: 0xf5efe0, fog: false })
+);
+moon.position.set(-55, 62, -95);
+scene.add(moon);
+const moonGlow = new THREE.Sprite(new THREE.SpriteMaterial({
+  map: (() => {
+    const c = document.createElement('canvas'); c.width = c.height = 128;
+    const x = c.getContext('2d');
+    const rg = x.createRadialGradient(64, 64, 0, 64, 64, 64);
+    rg.addColorStop(0, 'rgba(220,225,255,0.55)');
+    rg.addColorStop(1, 'rgba(220,225,255,0)');
+    x.fillStyle = rg; x.fillRect(0, 0, 128, 128);
+    return new THREE.CanvasTexture(c);
+  })(),
+  transparent: true, depthWrite: false, fog: false
+}));
+moonGlow.scale.set(60, 60, 1);
+moonGlow.position.copy(moon.position);
+scene.add(moonGlow);
+
+/* ---------- lights ---------- */
+scene.add(new THREE.HemisphereLight(0x35406b, 0x0a0a12, 0.55));
+
+const moonLight = new THREE.DirectionalLight(0x9db4ff, 0.85);
+moonLight.position.set(-40, 55, -30);
+moonLight.castShadow = true;
+moonLight.shadow.mapSize.set(2048, 2048);
+moonLight.shadow.camera.left = -25; moonLight.shadow.camera.right = 25;
+moonLight.shadow.camera.top = 30;   moonLight.shadow.camera.bottom = -5;
+moonLight.shadow.bias = -0.0004;
+scene.add(moonLight);
+
+const spotL = new THREE.SpotLight(0xffc98a, 1350, 90, 0.24, 0.45, 1.6);
+spotL.position.set(-14, 0, 14);
+spotL.target.position.set(0, 13, 0);
+scene.add(spotL, spotL.target);
+
+const spotR = new THREE.SpotLight(0x8ab6ff, 500, 90, 0.26, 0.5, 1.6);
+spotR.position.set(16, 0, -10);
+spotR.target.position.set(0, 13.5, 0);
+scene.add(spotR, spotR.target);
+
+const rim = new THREE.DirectionalLight(0xff9a76, 0.55);
+rim.position.set(25, 8, 20);
+scene.add(rim);
+
+/* ---------- ground & distant world ---------- */
+const ground = new THREE.Mesh(
+  new THREE.CircleGeometry(220, 48),
+  new THREE.MeshStandardMaterial({ color: 0x0b0d16, roughness: 1 })
+);
+ground.rotation.x = -Math.PI / 2;
+ground.position.y = -0.02;
+ground.receiveShadow = true;
+scene.add(ground);
+
+const crowdMat = new THREE.MeshStandardMaterial({ color: 0x11131f, roughness: 1 });
+for (let i = 0; i < 90; i++) {
+  const a = Math.random() * Math.PI * 2;
+  const r = 34 + Math.random() * 26;
+  const h = 1.1 + Math.random() * 0.8;
+  const p = new THREE.Mesh(new THREE.CapsuleGeometry(0.42, h, 3, 6), crowdMat);
+  p.position.set(Math.cos(a) * r, h * 0.7, Math.sin(a) * r);
+  p.rotation.y = Math.random() * Math.PI;
+  p.scale.x = 0.8 + Math.random() * 0.4;
+  scene.add(p);
+}
+
+/* ---------- towers & sagging wire ---------- */
+const WIRE_Y = 14, WIRE_SPAN = 30;
+const towerMat = new THREE.MeshStandardMaterial({ color: 0x2a2233, roughness: 0.85, metalness: 0.15 });
+function tower(x) {
+  const g = new THREE.Group();
+  const body = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 1.5, WIRE_Y + 1.6, 10), towerMat);
+  body.position.y = (WIRE_Y + 1.6) / 2 - 0.8;
+  body.castShadow = true;
+  g.add(body);
+  for (let i = 1; i <= 3; i++) {
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(1.45 - i * 0.3, 0.09, 8, 20), towerMat);
+    ring.rotation.x = Math.PI / 2;
+    ring.position.y = (WIRE_Y + 1.6) * i / 4 - 0.8;
+    g.add(ring);
+  }
+  const cap = new THREE.Mesh(new THREE.SphereGeometry(0.7, 12, 12),
+    new THREE.MeshStandardMaterial({ color: 0x8f4a3a, roughness: 0.5, metalness: 0.4, emissive: 0x361408 }));
+  cap.position.y = WIRE_Y + 0.9;
+  g.add(cap);
+  g.position.x = x;
+  scene.add(g);
+  return g;
+}
+tower(-WIRE_SPAN / 2);
+tower(WIRE_SPAN / 2);
+
+const wireCurve = new THREE.QuadraticBezierCurve3(
+  new THREE.Vector3(-WIRE_SPAN / 2, WIRE_Y + 0.9, 0),
+  new THREE.Vector3(0, WIRE_Y - 0.55, 0),
+  new THREE.Vector3(WIRE_SPAN / 2, WIRE_Y + 0.9, 0)
+);
+const wire = new THREE.Mesh(
+  new THREE.TubeGeometry(wireCurve, 60, 0.045, 6),
+  new THREE.MeshStandardMaterial({ color: 0xb9c2d4, roughness: 0.35, metalness: 0.9 })
+);
+wire.castShadow = true;
+scene.add(wire);
+
+/* visible volumetric spotlight cones */
+function beam(x, z, color) {
+  const m = new THREE.Mesh(
+    new THREE.ConeGeometry(4.2, 20, 24, 1, true),
+    new THREE.MeshBasicMaterial({
+      color, transparent: true, opacity: 0.045, side: THREE.DoubleSide,
+      blending: THREE.AdditiveBlending, depthWrite: false, fog: false
+    })
+  );
+  m.position.set(x * 0.55, 10, z * 0.55);
+  m.lookAt(0, WIRE_Y + 1, 0);
+  m.rotateX(-Math.PI / 2);
+  scene.add(m);
+  return m;
+}
+const beams = [beam(-14, 14, 0xffc98a), beam(16, -10, 0x8ab6ff)];
+
+/* ---------- floating dust motes ---------- */
+const dustGeo = new THREE.BufferGeometry();
+{
+  const n = 240, pos = new Float32Array(n * 3), seed = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    pos[i*3] = (Math.random() - 0.5) * 36;
+    pos[i*3+1] = Math.random() * 20 + 2;
+    pos[i*3+2] = (Math.random() - 0.5) * 26;
+    seed[i] = Math.random() * 100;
+  }
+  dustGeo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  dustGeo.setAttribute('aSeed', new THREE.BufferAttribute(seed, 1));
+}
+const dust = new THREE.Points(dustGeo, new THREE.PointsMaterial({
+  color: 0xffd9a0, size: 0.09, transparent: true, opacity: 0.5,
+  blending: THREE.AdditiveBlending, depthWrite: false
+}));
+scene.add(dust);
+
+/* ---------- procedural elephant ---------- */
+const WIRE_CENTER_Y = WIRE_Y - 0.55;
+const skin  = new THREE.MeshStandardMaterial({ color: 0x99a0ad, roughness: 0.92 });
+const skin2 = new THREE.MeshStandardMaterial({ color: 0x878ea0, roughness: 0.95 });
+const inner = new THREE.MeshStandardMaterial({ color: 0xb08a92, roughness: 0.9 });
+const tuskMat = new THREE.MeshStandardMaterial({ color: 0xf2ead8, roughness: 0.35 });
+const eyeMat = new THREE.MeshStandardMaterial({ color: 0x14161c, roughness: 0.25 });
+const dark   = new THREE.MeshStandardMaterial({ color: 0x1a1c26, roughness: 0.4, metalness: 0.6 });
+
+function buildElephant() {
+  const root = new THREE.Group();               // sits on the wire
+  const rig = new THREE.Group();                // tilts around the contact point
+  root.add(rig);
+
+  const body = new THREE.Mesh(new THREE.SphereGeometry(1.9, 32, 24), skin);
+  body.scale.set(1.55, 1.12, 1.0);
+  body.position.set(-0.15, 3.15, 0);
+  body.castShadow = true;
+  rig.add(body);
+
+  const shoulder = new THREE.Mesh(new THREE.SphereGeometry(1.15, 24, 18), skin);
+  shoulder.position.set(-0.9, 3.9, 0);
+  shoulder.scale.set(1.1, 0.9, 0.92);
+  shoulder.castShadow = true;
+  rig.add(shoulder);
+
+  const head = new THREE.Group();
+  head.position.set(-2.25, 4.0, 0);
+  rig.add(head);
+
+  const skull = new THREE.Mesh(new THREE.SphereGeometry(1.05, 28, 22), skin);
+  skull.scale.set(1.0, 0.95, 0.9);
+  skull.castShadow = true;
+  head.add(skull);
+
+  const brow = new THREE.Mesh(new THREE.SphereGeometry(0.55, 18, 14), skin);
+  brow.position.set(-0.35, 0.35, 0);
+  brow.scale.set(0.8, 0.6, 1.0);
+  head.add(brow);
+
+  const ears = [];
+  for (const s of [-1, 1]) {
+    const ear = new THREE.Group();
+    ear.position.set(0.25, 0.25, s * 0.75);
+    const flap = new THREE.Mesh(new THREE.CylinderGeometry(0.95, 0.95, 0.06, 22), skin2);
+    flap.rotation.x = Math.PI / 2;
+    flap.scale.set(1.15, 1.25, 1);
+    flap.position.z = s * 0.03;
+    flap.castShadow = true;
+    ear.add(flap);
+    const innerF = new THREE.Mesh(new THREE.CylinderGeometry(0.62, 0.62, 0.02, 18), inner);
+    innerF.rotation.x = Math.PI / 2;
+    innerF.position.z = s * 0.075;
+    ear.add(innerF);
+    ear.rotation.y = s * 0.5;
+    head.add(ear);
+    ears.push(ear);
+
+    const eye = new THREE.Mesh(new THREE.SphereGeometry(0.11, 12, 12), eyeMat);
+    eye.position.set(-0.82, 0.18, s * 0.42);
+    head.add(eye);
+    const glint = new THREE.Mesh(new THREE.SphereGeometry(0.032, 8, 8),
+      new THREE.MeshBasicMaterial({ color: 0xffffff }));
+    glint.position.set(-0.9, 0.24, s * 0.46);
+    head.add(glint);
+
+    const tusk = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.12, 1.0, 8), tuskMat);
+    tusk.position.set(-0.7, -0.62, s * 0.34);
+    tusk.rotation.z = 0.9;
+    tusk.rotation.x = -s * 0.22;
+    tusk.castShadow = true;
+    head.add(tusk);
+  }
+
+  /* trunk: jointed chain held up, gripping the pole */
+  const trunkSegs = [];
+  let parent = head, tip = null;
+  for (let i = 0; i < 7; i++) {
+    const seg = new THREE.Group();
+    seg.position.set(i === 0 ? -0.75 : -0.62, i === 0 ? -0.25 : 0, 0);
+    const r0 = 0.30 - i * 0.026, r1 = 0.30 - (i + 1) * 0.026;
+    const mesh = new THREE.Mesh(new THREE.CylinderGeometry(r1, r0, 0.66, 12), skin);
+    mesh.rotation.z = Math.PI / 2;
+    mesh.position.x = -0.33;
+    mesh.castShadow = true;
+    seg.add(mesh);
+    const knuckle = new THREE.Mesh(new THREE.SphereGeometry(r1, 10, 10), skin);
+    knuckle.position.x = -0.66;
+    seg.add(knuckle);
+    parent.add(seg);
+    parent = seg;
+    trunkSegs.push(seg);
+    if (i === 6) tip = seg;
+  }
+  const grip = new THREE.Mesh(new THREE.TorusGeometry(0.14, 0.05, 8, 14), skin2);
+  grip.rotation.y = Math.PI / 2;
+  grip.position.x = -0.14;
+  tip.add(grip);
+
+  /* four legs */
+  const legs = [];
+  const legDefs = [[-0.95, 0.14], [-0.95, -0.14], [1.05, 0.14], [1.05, -0.14]];
+  for (const [lx, lz] of legDefs) {
+    const hip = new THREE.Group();
+    hip.position.set(lx, 2.6, lz);
+    const upper = new THREE.Mesh(new THREE.CapsuleGeometry(0.34, 1.15, 4, 10), skin2);
+    upper.position.y = -0.75;
+    upper.castShadow = true;
+    hip.add(upper);
+    const knee = new THREE.Group();
+    knee.position.y = -1.45;
+    hip.add(knee);
+    const lower = new THREE.Mesh(new THREE.CapsuleGeometry(0.26, 1.0, 4, 10), skin);
+    lower.position.y = -0.6;
+    lower.castShadow = true;
+    knee.add(lower);
+    const foot = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.46, 0.34, 14), skin2);
+    foot.position.y = -1.3;
+    foot.castShadow = true;
+    knee.add(foot);
+    const nail = new THREE.Mesh(new THREE.SphereGeometry(0.18, 10, 8), tuskMat);
+    nail.scale.set(1, 0.5, 1);
+    nail.position.set(-0.28, -1.34, 0);
+    knee.add(nail);
+    rig.add(hip);
+    legs.push({ hip, knee, phase: 0, side: Math.sign(lz) });
+  }
+
+  /* tail */
+  const tailSegs = [];
+  let tp = rig;
+  for (let i = 0; i < 5; i++) {
+    const t = new THREE.Group();
+    t.position.set(i === 0 ? 2.85 : 0.24, i === 0 ? 3.3 : -0.26, 0);
+    const m = new THREE.Mesh(new THREE.CapsuleGeometry(0.09 - i * 0.012, 0.24, 3, 8), skin2);
+    m.position.y = -0.14;
+    t.add(m);
+    tp.add(t);
+    tp = t;
+    tailSegs.push(t);
+  }
+  const tuft = new THREE.Mesh(new THREE.SphereGeometry(0.09, 8, 8), dark);
+  tuft.scale.set(0.7, 1.4, 0.7);
+  tuft.position.y = -0.34;
+  tailSegs[4].add(tuft);
+
+  /* balance pole, gripped by trunk tip */
+  const pole = new THREE.Group();
+  const bar = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 9.6, 10),
+    new THREE.MeshStandardMaterial({ color: 0xc9a15a, roughness: 0.5, metalness: 0.3 }));
+  bar.rotation.z = Math.PI / 2;
+  bar.castShadow = true;
+  pole.add(bar);
+  for (const s of [-1, 1]) {
+    const knob = new THREE.Mesh(new THREE.SphereGeometry(0.13, 10, 10),
+      new THREE.MeshStandardMaterial({ color: 0xd94f4f, roughness: 0.4, emissive: 0x511414 }));
+    knob.position.x = s * 4.8;
+    pole.add(knob);
+    const ribbon = new THREE.Mesh(new THREE.ConeGeometry(0.16, 0.55, 8),
+      new THREE.MeshStandardMaterial({ color: 0xe86a5a, roughness: 0.6 }));
+    ribbon.position.set(s * 4.62, -0.32, 0);
+    ribbon.rotation.x = Math.PI;
+    pole.add(ribbon);
+  }
+  pole.position.set(-3.1, 5.6, 0);
+  rig.add(pole);
+
+  root.position.y = WIRE_CENTER_Y;
+  scene.add(root);
+  return { root, rig, head, ears, trunkSegs, legs, tailSegs, pole, body };
+}
+const el = buildElephant();
+
+/* ---------- balance physics & animation ---------- */
+const clock = new THREE.Clock();
+let theta = 0, omega = 0;          // body roll angle / velocity
+let phi = 0, phiV = 0;             // balance-pole angle / velocity
+let gust = 0, gustTarget = 0, gustTimer = 0;
+let sway = 0;                      // smoothed wind
+
+function animate() {
+  requestAnimationFrame(animate);
+  const dt = Math.min(clock.getDelta(), 0.05);
+  const t = clock.elapsedTime;
+
+  /* gust scheduler */
+  gustTimer -= dt;
+  if (gustTimer <= 0) { gustTarget = (Math.random() - 0.5) * 1.6; gustTimer = 2 + Math.random() * 3.5; }
+  gust += (gustTarget - gust) * Math.min(1, dt * 1.2);
+  sway = Math.sin(t * 0.9) * 0.35 + Math.sin(t * 0.53 + 1.7) * 0.22 + Math.sin(t * 2.31) * 0.08;
+  const wind = sway + gust;
+
+  /* tilt dynamics: spring-damper driven by wind torque */
+  const K = 3.4, C = 1.15;
+  const alpha = -K * theta - C * omega + wind * 0.85;
+  omega += alpha * dt;
+  theta += omega * dt;
+
+  /* pole lags and over-counters */
+  const KP = 7.0, CP = 1.9;
+  const phiA = -KP * (phi + theta * 1.7) - CP * phiV;
+  phiV += phiA * dt;
+  phi += phiV * dt;
+
+  /* wire sag vibration */
+  const bob = Math.sin(t * 7.3) * 0.022 * (1 + Math.abs(gust) * 0.8)
+            + Math.sin(t * 11.7) * 0.01;
+
+  el.root.position.y = WIRE_CENTER_Y + 0.32 + bob;
+  el.root.position.x = Math.sin(theta) * 2.4 * 0.28;
+  el.rig.rotation.z = theta;
+  el.rig.rotation.x = Math.sin(t * 5.1) * 0.012;
+  el.pole.rotation.z = phi;
+  el.pole.position.y = 5.6 - Math.sin(phi) * 0.3;
+  el.head.rotation.z = -theta * 0.55;
+  el.head.rotation.y = Math.sin(t * 0.4) * 0.06;
+
+  /* trunk: idle sway + counter-balance response */
+  for (let i = 0; i < el.trunkSegs.length; i++) {
+    const s = el.trunkSegs[i];
+    const w = (i + 1) / el.trunkSegs.length;
+    s.rotation.z = -theta * (0.28 + w * 0.22)
+                 + Math.sin(t * 1.4 - i * 0.55) * 0.05 * w
+                 + Math.sin(t * 0.6 + i) * 0.03;
+  }
+
+  /* legs: tiny weight-shift steps, faster under strong wind */
+  const cadence = 1.6 + Math.abs(gust) * 0.9;
+  for (let i = 0; i < el.legs.length; i++) {
+    const L = el.legs[i];
+    const ph = t * cadence + L.phase + i * 1.9;
+    L.hip.rotation.z = Math.sin(ph) * 0.055 * (0.6 + Math.abs(wind) * 0.35);
+    L.knee.rotation.z = Math.sin(ph - 0.7) * 0.08 * (0.6 + Math.abs(wind) * 0.35);
+  }
+
+  /* ears flap, tail sways */
+  el.ears[0].rotation.y = -0.5 - Math.sin(t * 1.25) * 0.1 - Math.max(0, Math.sin(t * 0.31)) * 0.12;
+  el.ears[1].rotation.y =  0.5 + Math.sin(t * 1.25 + 0.4) * 0.1 - Math.max(0, Math.sin(t * 0.27 + 2)) * 0.12;
+  for (let i = 0; i < el.tailSegs.length; i++) {
+    el.tailSegs[i].rotation.z = Math.sin(t * 1.8 - i * 0.5) * 0.09 + theta * 0.25 * (i / 5);
+  }
+
+  /* dust drifts up through the beams */
+  {
+    const p = dust.geometry.attributes.position, sd = dust.geometry.attributes.aSeed;
+    for (let i = 0; i < p.count; i++) {
+      let y = p.getY(i) + dt * (0.25 + (sd.getX(i) % 1) * 0.4);
+      if (y > 21) y = 2;
+      p.setY(i, y);
+      p.setX(i, p.getX(i) + Math.sin(t * 0.7 + sd.getX(i)) * dt * 0.12);
+    }
+    p.needsUpdate = true;
+  }
+
+  /* twinkle & beam flicker */
+  stars.material.opacity = 0.75 + Math.sin(t * 2.1) * 0.08;
+  beams[0].material.opacity = 0.042 + Math.sin(t * 13.3) * 0.008 + Math.sin(t * 4.7) * 0.005;
+  beams[1].material.opacity = 0.038 + Math.sin(t * 11.1 + 2) * 0.007;
+
+  /* slow cinematic orbit */
+  const ang = Math.sin(t * 0.11) * 0.55 + 0.12;
+  const rad = 27 + Math.sin(t * 0.07) * 3.2;
+  camera.position.x = Math.sin(ang) * rad;
+  camera.position.z = Math.cos(ang) * rad;
+  camera.position.y = 14.6 + Math.sin(t * 0.09) * 1.4 + Math.sin(t * 0.023) * 1.2;
+  camera.lookAt(Math.sin(theta) * 0.7, 13.9 + bob * 2, 0);
+  camera.rotation.z += Math.sin(t * 0.13) * 0.004;
+
+  renderer.render(scene, camera);
+}
+animate();
+
+/* ---------- resize ---------- */
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+</script>
+<!--zc-home:start--><style>.zc-home-btn{position:fixed;top:16px;left:16px;z-index:2147483647;display:inline-flex;align-items:center;gap:6px;padding:8px 14px;font:500 13px/1.1 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Noto Sans SC",sans-serif;color:#111;background:rgba(255,255,255,.86);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);border:1px solid rgba(0,0,0,.08);border-radius:999px;text-decoration:none;box-shadow:0 2px 12px rgba(0,0,0,.2);transition:background .2s ease,transform .2s ease,box-shadow .2s ease}.zc-home-btn:hover{background:#fff;transform:translateY(-1px);box-shadow:0 4px 18px rgba(0,0,0,.26)}</style><a class="zc-home-btn" href="../">← 返回首页</a><!--zc-home:end-->
+</body>
+</html>

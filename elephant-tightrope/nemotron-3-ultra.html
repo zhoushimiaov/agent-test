@@ -1,0 +1,520 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>大象踩钢丝</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { overflow: hidden; background: #0a0f1a; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+    canvas { display: block; }
+    #credit { position: fixed; bottom: 12px; right: 12px; color: rgba(255,255,255,0.3); font-size: 11px; pointer-events: none; }
+  </style>
+</head>
+<body>
+  <div id="credit">nemotron-3-ultra</div>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://unpkg.com/three@0.165.0/build/three.module.js",
+      "three/addons/": "https://unpkg.com/three@0.165.0/examples/jsm/"
+    }
+  }
+  </script>
+  <script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+    // ========== 场景基础 ==========
+    const scene = new THREE.Scene();
+    scene.fog = new THREE.FogExp2(0x0a0f1a, 0.008);
+
+    const camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.1, 2000);
+    camera.position.set(0, 18, 55);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    renderer.setSize(innerWidth, innerHeight);
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.1;
+    document.body.appendChild(renderer.domElement);
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.05;
+    controls.enablePan = false;
+    controls.minDistance = 25;
+    controls.maxDistance = 120;
+    controls.maxPolarAngle = Math.PI / 2 - 0.05;
+    controls.autoRotate = true;
+    controls.autoRotateSpeed = 0.3;
+
+    // ========== 材质库 ==========
+    const mats = {
+      elephantBody: new THREE.MeshStandardMaterial({ color: 0x5a5f6b, roughness: 0.85, metalness: 0.05 }),
+      elephantDark: new THREE.MeshStandardMaterial({ color: 0x3d414a, roughness: 0.9, metalness: 0.02 }),
+      elephantLight: new THREE.MeshStandardMaterial({ color: 0x7a7f8c, roughness: 0.8, metalness: 0.05 }),
+      tusk: new THREE.MeshStandardMaterial({ color: 0xf5f0e8, roughness: 0.3, metalness: 0.1 }),
+      eye: new THREE.MeshStandardMaterial({ color: 0x1a1a2e, roughness: 0.1, metalness: 0.8 }),
+      pole: new THREE.MeshStandardMaterial({ color: 0x8b7355, roughness: 0.6, metalness: 0.2 }),
+      poleEnd: new THREE.MeshStandardMaterial({ color: 0xc9a86b, roughness: 0.4, metalness: 0.5 }),
+      wire: new THREE.MeshStandardMaterial({ color: 0x6b7280, roughness: 0.3, metalness: 0.8 }),
+      platform: new THREE.MeshStandardMaterial({ color: 0x2d3340, roughness: 0.7, metalness: 0.1 }),
+      ground: new THREE.MeshStandardMaterial({ color: 0x0d121a, roughness: 0.95, metalness: 0.01 }),
+    };
+
+    // ========== 程序化大象 ==========
+    function createElephant() {
+      const group = new THREE.Group();
+
+      // 身体
+      const bodyGeo = new THREE.CapsuleGeometry(3.2, 5.5, 8, 16);
+      const body = new THREE.Mesh(bodyGeo, mats.elephantBody);
+      body.position.y = 4.5;
+      body.castShadow = true;
+      body.receiveShadow = true;
+      group.add(body);
+
+      // 头部
+      const headGroup = new THREE.Group();
+      headGroup.position.set(0, 7.5, 6);
+
+      const headGeo = new THREE.SphereGeometry(2.8, 16, 16);
+      const head = new THREE.Mesh(headGeo, mats.elephantBody);
+      head.scale.set(1.1, 0.9, 1.3);
+      head.castShadow = true;
+      headGroup.add(head);
+
+      // 象鼻 - 多段曲线
+      const trunkCurve = new THREE.CatmullRomCurve3([
+        new THREE.Vector3(0, -0.5, 3.2),
+        new THREE.Vector3(0, -1.5, 4.5),
+        new THREE.Vector3(0, -2.8, 5.2),
+        new THREE.Vector3(0, -3.5, 5.0),
+      ]);
+      const trunkGeo = new THREE.TubeGeometry(trunkCurve, 20, 0.7, 8, false);
+      const trunk = new THREE.Mesh(trunkGeo, mats.elephantBody);
+      trunk.castShadow = true;
+      headGroup.add(trunk);
+      headGroup.userData.trunk = trunk;
+      headGroup.userData.trunkCurve = trunkCurve;
+
+      // 耳朵
+      const earGeo = new THREE.CircleGeometry(2.5, 16);
+      const earL = new THREE.Mesh(earGeo, mats.elephantDark);
+      earL.position.set(-2.8, 0.5, 0.5);
+      earL.rotation.y = -0.3;
+      earL.rotation.x = -0.2;
+      earL.castShadow = true;
+      headGroup.add(earL);
+      headGroup.userData.earL = earL;
+
+      const earR = new THREE.Mesh(earGeo, mats.elephantDark);
+      earR.position.set(2.8, 0.5, 0.5);
+      earR.rotation.y = 0.3;
+      earR.rotation.x = -0.2;
+      earR.scale.x = -1;
+      earR.castShadow = true;
+      headGroup.add(earR);
+      headGroup.userData.earR = earR;
+
+      // 獠牙
+      const tuskGeo = new THREE.ConeGeometry(0.35, 1.8, 8);
+      const tuskL = new THREE.Mesh(tuskGeo, mats.tusk);
+      tuskL.position.set(-0.9, -1.2, 2.8);
+      tuskL.rotation.x = 0.4;
+      tuskL.rotation.z = -0.15;
+      tuskL.castShadow = true;
+      headGroup.add(tuskL);
+
+      const tuskR = new THREE.Mesh(tuskGeo, mats.tusk);
+      tuskR.position.set(0.9, -1.2, 2.8);
+      tuskR.rotation.x = 0.4;
+      tuskR.rotation.z = 0.15;
+      tuskR.castShadow = true;
+      headGroup.add(tuskR);
+
+      // 眼睛
+      const eyeGeo = new THREE.SphereGeometry(0.35, 12, 12);
+      const eyeL = new THREE.Mesh(eyeGeo, mats.eye);
+      eyeL.position.set(-1.2, 0.8, 2.5);
+      eyeL.scale.set(1, 0.7, 0.5);
+      headGroup.add(eyeL);
+      headGroup.userData.eyeL = eyeL;
+
+      const eyeR = new THREE.Mesh(eyeGeo, mats.eye);
+      eyeR.position.set(1.2, 0.8, 2.5);
+      eyeR.scale.set(1, 0.7, 0.5);
+      headGroup.add(eyeR);
+      headGroup.userData.eyeR = eyeR;
+
+      group.add(headGroup);
+      group.userData.head = headGroup;
+
+      // 腿
+      const legGeo = new THREE.CapsuleGeometry(0.85, 4.5, 6, 12);
+      const legPositions = [
+        [-2.2, 2.25, -2.5], [2.2, 2.25, -2.5],
+        [-2.0, 2.25, 2.5], [2.0, 2.25, 2.5]
+      ];
+      group.userData.legs = [];
+      legPositions.forEach((pos, i) => {
+        const leg = new THREE.Mesh(legGeo, mats.elephantDark);
+        leg.position.set(...pos);
+        leg.castShadow = true;
+        leg.receiveShadow = true;
+        group.add(leg);
+        group.userData.legs.push(leg);
+      });
+
+      // 尾巴
+      const tailCurve = new THREE.CatmullRomCurve3([
+        new THREE.Vector3(0, 1.5, -3.5),
+        new THREE.Vector3(0, 0.5, -4.5),
+        new THREE.Vector3(0, -0.2, -5.0),
+      ]);
+      const tailGeo = new THREE.TubeGeometry(tailCurve, 10, 0.15, 6, false);
+      const tail = new THREE.Mesh(tailGeo, mats.elephantDark);
+      tail.castShadow = true;
+      group.add(tail);
+      group.userData.tail = tail;
+
+      return group;
+    }
+
+    // ========== 平衡杆 ==========
+    function createBalancePole() {
+      const group = new THREE.Group();
+
+      const poleGeo = new THREE.CylinderGeometry(0.18, 0.18, 22, 12);
+      const pole = new THREE.Mesh(poleGeo, mats.pole);
+      pole.rotation.z = Math.PI / 2;
+      pole.castShadow = true;
+      pole.receiveShadow = true;
+      group.add(pole);
+      group.userData.pole = pole;
+
+      // 两端配重球
+      const weightGeo = new THREE.SphereGeometry(1.1, 16, 16);
+      const weightL = new THREE.Mesh(weightGeo, mats.poleEnd);
+      weightL.position.set(-11, 0, 0);
+      weightL.castShadow = true;
+      group.add(weightL);
+
+      const weightR = new THREE.Mesh(weightGeo, mats.poleEnd);
+      weightR.position.set(11, 0, 0);
+      weightR.castShadow = true;
+      group.add(weightR);
+
+      // 杆上的细微装饰线
+      for (let i = -10; i <= 10; i += 2) {
+        if (i === 0) continue;
+        const ringGeo = new THREE.TorusGeometry(0.18, 0.03, 6, 16);
+        const ring = new THREE.Mesh(ringGeo, mats.poleEnd);
+        ring.position.set(i, 0, 0);
+        ring.rotation.x = Math.PI / 2;
+        group.add(ring);
+      }
+
+      return group;
+    }
+
+    // ========== 钢丝 ==========
+    function createWire() {
+      const group = new THREE.Group();
+
+      // 主钢丝
+      const wireGeo = new THREE.CylinderGeometry(0.08, 0.08, 120, 8);
+      const wire = new THREE.Mesh(wireGeo, mats.wire);
+      wire.rotation.z = Math.PI / 2;
+      wire.position.y = 8.5;
+      wire.castShadow = true;
+      wire.receiveShadow = true;
+      group.add(wire);
+      group.userData.wire = wire;
+
+      // 支撑立柱
+      const poleGeo = new THREE.CylinderGeometry(0.6, 0.8, 25, 10);
+      const poleMat = new THREE.MeshStandardMaterial({ color: 0x3a3f4a, roughness: 0.7, metalness: 0.3 });
+      const poleL = new THREE.Mesh(poleGeo, poleMat);
+      poleL.position.set(-60, -3.5, 0);
+      poleL.castShadow = true;
+      group.add(poleL);
+
+      const poleR = new THREE.Mesh(poleGeo, poleMat);
+      poleR.position.set(60, -3.5, 0);
+      poleR.castShadow = true;
+      group.add(poleR);
+
+      // 斜拉索
+      const cableMat = new THREE.MeshStandardMaterial({ color: 0x555a66, roughness: 0.4, metalness: 0.6 });
+      const cableGeo = new THREE.CylinderGeometry(0.04, 0.04, 1, 6);
+      const cablePositions = [
+        { pos: [-60, 8, 8], rot: [0, 0, -0.45], len: 16.5 },
+        { pos: [-60, 8, -8], rot: [0, 0, -0.45], len: 16.5 },
+        { pos: [60, 8, 8], rot: [0, 0, 0.45], len: 16.5 },
+        { pos: [60, 8, -8], rot: [0, 0, 0.45], len: 16.5 },
+      ];
+      cablePositions.forEach(cp => {
+        const cable = new THREE.Mesh(cableGeo, cableMat);
+        cable.position.set(...cp.pos);
+        cable.rotation.set(...cp.rot);
+        cable.scale.y = cp.len;
+        cable.castShadow = true;
+        group.add(cable);
+      });
+
+      return group;
+    }
+
+    // ========== 地面与背景 ==========
+    function createEnvironment() {
+      const group = new THREE.Group();
+
+      // 地面
+      const groundGeo = new THREE.PlaneGeometry(500, 500);
+      const ground = new THREE.Mesh(groundGeo, mats.ground);
+      ground.rotation.x = -Math.PI / 2;
+      ground.position.y = -5;
+      ground.receiveShadow = true;
+      group.add(ground);
+
+      // 远景山脉轮廓
+      const mountainMat = new THREE.MeshBasicMaterial({ color: 0x1a1f2e, transparent: true, opacity: 0.4, side: THREE.DoubleSide });
+      for (let i = 0; i < 12; i++) {
+        const h = 30 + Math.random() * 40;
+        const w = 40 + Math.random() * 60;
+        const mGeo = new THREE.ConeGeometry(w, h, 4);
+        const mountain = new THREE.Mesh(mGeo, mountainMat);
+        mountain.position.set(
+          (Math.random() - 0.5) * 300,
+          -5 + h / 2,
+          -100 - Math.random() * 150
+        );
+        mountain.rotation.y = Math.random() * Math.PI;
+        group.add(mountain);
+      }
+
+      // 星星/微光粒子
+      const starsGeo = new THREE.BufferGeometry();
+      const starsCount = 800;
+      const starsPos = new Float32Array(starsCount * 3);
+      const starsSize = new Float32Array(starsCount);
+      const starsAlpha = new Float32Array(starsCount);
+      for (let i = 0; i < starsCount; i++) {
+        starsPos[i * 3] = (Math.random() - 0.5) * 400;
+        starsPos[i * 3 + 1] = 10 + Math.random() * 80;
+        starsPos[i * 3 + 2] = -50 - Math.random() * 200;
+        starsSize[i] = 0.5 + Math.random() * 1.5;
+        starsAlpha[i] = 0.2 + Math.random() * 0.6;
+      }
+      starsGeo.setAttribute('position', new THREE.BufferAttribute(starsPos, 3));
+      starsGeo.setAttribute('size', new THREE.BufferAttribute(starsSize, 1));
+      starsGeo.setAttribute('alpha', new THREE.BufferAttribute(starsAlpha, 1));
+      const starsMat = new THREE.PointsMaterial({
+        color: 0xffffff, size: 1, transparent: true, opacity: 0.6,
+        vertexColors: false, sizeAttenuation: true
+      });
+      const stars = new THREE.Points(starsGeo, starsMat);
+      group.add(stars);
+      group.userData.stars = stars;
+
+      // 地面草丛剪影
+      const grassMat = new THREE.MeshBasicMaterial({ color: 0x151a24, transparent: true, opacity: 0.5, side: THREE.DoubleSide });
+      for (let i = 0; i < 200; i++) {
+        const h = 1 + Math.random() * 3;
+        const gGeo = new THREE.PlaneGeometry(0.3 + Math.random() * 0.4, h);
+        const grass = new THREE.Mesh(gGeo, grassMat);
+        grass.position.set(
+          (Math.random() - 0.5) * 200,
+          -5 + h / 2,
+          (Math.random() - 0.5) * 200
+        );
+        grass.rotation.y = Math.random() * Math.PI;
+        group.add(grass);
+      }
+
+      return group;
+    }
+
+    // ========== 灯光 ==========
+    function setupLights() {
+      // 环境光
+      const ambient = new THREE.AmbientLight(0x2a3040, 0.6);
+      scene.add(ambient);
+
+      // 主光源 - 月光
+      const moonLight = new THREE.DirectionalLight(0x8aa4c8, 1.8);
+      moonLight.position.set(30, 60, 20);
+      moonLight.castShadow = true;
+      moonLight.shadow.mapSize.set(2048, 2048);
+      moonLight.shadow.camera.near = 1;
+      moonLight.shadow.camera.far = 200;
+      moonLight.shadow.camera.left = -40;
+      moonLight.shadow.camera.right = 40;
+      moonLight.shadow.camera.top = 40;
+      moonLight.shadow.camera.bottom = -40;
+      moonLight.shadow.bias = -0.0005;
+      scene.add(moonLight);
+
+      // 补光 - 温暖侧光
+      const fillLight = new THREE.DirectionalLight(0x4a3c30, 0.5);
+      fillLight.position.set(-40, 20, -30);
+      scene.add(fillLight);
+
+      // 微弱边缘光
+      const rimLight = new THREE.DirectionalLight(0xffffff, 0.3);
+      rimLight.position.set(0, -10, -50);
+      scene.add(rimLight);
+
+      // 点光源在大象附近增加氛围
+      const pointLight = new THREE.PointLight(0xffd4a0, 0.4, 30, 2);
+      pointLight.position.set(0, 15, 0);
+      scene.add(pointLight);
+      scene.userData.pointLight = pointLight;
+    }
+
+    // ========== 组装场景 ==========
+    const elephant = createElephant();
+    elephant.position.y = 8.5; // 钢丝高度
+    scene.add(elephant);
+
+    const balancePole = createBalancePole();
+    balancePole.position.y = 15.5; // 大象背部上方
+    elephant.add(balancePole);
+    elephant.userData.pole = balancePole;
+
+    const wire = createWire();
+    scene.add(wire);
+
+    const environment = createEnvironment();
+    scene.add(environment);
+
+    setupLights();
+
+    // ========== 动画参数 ==========
+    const state = {
+      time: 0,
+      swayPhase: 0,
+      breathePhase: 0,
+      windPhase: 0,
+      cameraPhase: 0,
+    };
+
+    // ========== 动画循环 ==========
+    function animate() {
+      requestAnimationFrame(animate);
+      state.time += 1/60;
+      state.swayPhase += 0.012;
+      state.breathePhase += 0.025;
+      state.windPhase += 0.018;
+      state.cameraPhase += 0.0008;
+
+      const t = state.time;
+      const sway = Math.sin(state.swayPhase) * 0.06;
+      const swaySlow = Math.sin(state.swayPhase * 0.6) * 0.035;
+      const breathe = Math.sin(state.breathePhase) * 0.02;
+      const wind = Math.sin(state.windPhase) * 0.015;
+      const windSlow = Math.sin(state.windPhase * 0.7) * 0.01;
+
+      // 大象身体微微摇晃 (平衡动作)
+      elephant.rotation.z = sway + wind * 0.5;
+      elephant.rotation.x = swaySlow * 0.3 + windSlow * 0.2;
+
+      // 头部反向微调保持平衡
+      const head = elephant.userData.head;
+      head.rotation.z = -sway * 0.7 - wind * 0.3;
+      head.rotation.x = Math.sin(state.breathePhase * 0.5) * 0.03;
+      head.position.y = 7.5 + Math.sin(state.breathePhase) * 0.08;
+
+      // 象鼻自然摆动
+      if (head.userData.trunk) {
+        head.userData.trunk.rotation.z = sway * 0.3 + Math.sin(state.windPhase * 1.3) * 0.04;
+        head.userData.trunk.rotation.x = Math.sin(state.breathePhase * 0.7) * 0.03;
+      }
+
+      // 耳朵扇动
+      if (head.userData.earL && head.userData.earR) {
+        const earFlap = Math.sin(state.breathePhase * 1.5) * 0.15 + Math.sin(state.windPhase * 0.8) * 0.08;
+        head.userData.earL.rotation.z = -0.3 + earFlap;
+        head.userData.earR.rotation.z = 0.3 - earFlap;
+      }
+
+      // 眼睛眨动
+      if (head.userData.eyeL && head.userData.eyeR) {
+        const blink = Math.sin(state.time * 0.5) > 0.95 ? 0.1 : 1;
+        head.userData.eyeL.scale.y = blink * 0.7;
+        head.userData.eyeR.scale.y = blink * 0.7;
+      }
+
+      // 腿部微调
+      if (elephant.userData.legs) {
+        elephant.userData.legs.forEach((leg, i) => {
+          const phase = (i % 2 === 0) ? 0 : Math.PI;
+          leg.rotation.x = Math.sin(state.swayPhase * 1.2 + phase) * 0.02;
+          leg.rotation.z = Math.sin(state.swayPhase * 1.2 + phase) * 0.015;
+        });
+      }
+
+      // 尾巴摆动
+      if (elephant.userData.tail) {
+        elephant.userData.tail.rotation.z = Math.sin(state.windPhase * 0.9) * 0.12 + sway * 0.4;
+      }
+
+      // 平衡杆 - 关键道具，缓慢摆动配合平衡
+      const pole = elephant.userData.pole;
+      if (pole) {
+        pole.rotation.z = sway * 1.2 + wind * 0.8;
+        pole.rotation.x = Math.sin(state.swayPhase * 0.8) * 0.04;
+        pole.position.y = 15.5 + Math.sin(state.breathePhase) * 0.06;
+      }
+
+      // 钢丝微微晃动
+      if (wire.userData.wire) {
+        wire.userData.wire.rotation.z = sway * 0.3 + wind * 0.2;
+        // 钢丝顶点位移模拟
+        const positions = wire.userData.wire.geometry.attributes.position;
+        // 这里简单用整体旋转代替顶点动画，性能更好
+      }
+
+      // 星星闪烁
+      if (environment.userData.stars) {
+        const alphas = environment.userData.stars.geometry.attributes.alpha.array;
+        for (let i = 0; i < alphas.length; i++) {
+          alphas[i] = 0.2 + Math.sin(state.time * 0.8 + i * 0.1) * 0.3;
+        }
+        environment.userData.stars.geometry.attributes.alpha.needsUpdate = true;
+      }
+
+      // 点光源随呼吸脉动
+      if (scene.userData.pointLight) {
+        scene.userData.pointLight.intensity = 0.4 + Math.sin(state.breathePhase) * 0.15;
+      }
+
+      // 相机缓慢环绕
+      const camRadius = 55;
+      const camHeight = 18 + Math.sin(state.cameraPhase * 0.5) * 3;
+      camera.position.x = Math.sin(state.cameraPhase) * camRadius;
+      camera.position.z = Math.cos(state.cameraPhase) * camRadius;
+      camera.position.y = camHeight;
+      camera.lookAt(0, 12, 0);
+
+      controls.update();
+      renderer.render(scene, camera);
+    }
+
+    // ========== 响应式 ==========
+    window.addEventListener('resize', () => {
+      camera.aspect = innerWidth / innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(innerWidth, innerHeight);
+    });
+
+    // 开始
+    animate();
+  </script>
+<!--zc-home:start--><style>.zc-home-btn{position:fixed;top:16px;left:16px;z-index:2147483647;display:inline-flex;align-items:center;gap:6px;padding:8px 14px;font:500 13px/1.1 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Noto Sans SC",sans-serif;color:#111;background:rgba(255,255,255,.86);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);border:1px solid rgba(0,0,0,.08);border-radius:999px;text-decoration:none;box-shadow:0 2px 12px rgba(0,0,0,.2);transition:background .2s ease,transform .2s ease,box-shadow .2s ease}.zc-home-btn:hover{background:#fff;transform:translateY(-1px);box-shadow:0 4px 18px rgba(0,0,0,.26)}</style><a class="zc-home-btn" href="../">← 返回首页</a><!--zc-home:end-->
+</body>
+</html>

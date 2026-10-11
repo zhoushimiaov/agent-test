@@ -14,7 +14,7 @@
 | 水母漂浮 | `jellyfish-float/` | 半透明材质、柔体律动、水下光线 | 版本征集中 |
 | 企鹅滑雪跳台 | `penguin-ski-jump/` | 斜坡腾空落地的 3D 相机与阴影 | 版本征集中 |
 | 鲸鱼在城市上空游泳 | `whale-over-city/` | 超现实尺度 + 云层前后遮挡 | 版本征集中 |
-| 大象走钢丝 | `elephant-tightrope/` | 身躯 + 平衡杆 + 钢丝下垂张力 | 1 个版本 |
+| 大象走钢丝 | `elephant-tightrope/` | 身躯 + 平衡杆 + 钢丝下垂张力 | 8 个版本 |
 | 章鱼打架子鼓 | `octopus-drummer/` | 八腕到各鼓件的分配与协调 | 版本征集中 |
 | 犀牛绕地球 | `rhino-orbit/` | 轨道运动与天体尺度关系 | 10 个版本 · Jev 已评分 |
 | 狮子跳火圈 | `lion-fire-hoop/` | 抛物线 + 火圈粒子 + 落地时机 | 版本征集中 |
@@ -71,6 +71,20 @@
 犀牛绕地球使用一套该命题专属的评分维度 —— 犀牛造型 35 / 轨道运动 30 / 地球质感 20 / 场景氛围 15。按 `rhino-orbit/PROMPT.md` 的设计,这题**刻意不考写实尺度**(犀牛缩成小点会丢失细节、观感差),而是奖励抢眼、细节清晰的犀牛造型。由 `jev-score-rhino.mjs` 生成 `rhino-orbit/scores.json`,当前排行(满分 100):K3(86)> Gemini 3.8 Flash(84)> DeepSeek 4.1 Flash(83)> GLM-5.3 与 Ling 3.1 Flash(并列 77)> MiMo 2.6 Flash(76)> GLM 5.3 Flash(72)> Claude Opus 4.8 与 Qwen 3.8 Flash Next(并列 71)> Agnes 3.0 Flash(61)。靠前的版本几乎都胜在犀牛造型抢眼、细节清晰加上精致的地球与太空氛围(K3、DeepSeek、Gemini 的犀牛都做得又大又细);轨道运动项普遍偏弱 —— 多数版本把轨道画成清晰的倾斜椭圆,但很少表现出「近快远慢」的开普勒节奏。
 
 > 第二批(K3、DeepSeek 4.1 Flash、Ling 3.1 Flash、MiMo 2.6 Flash、GLM 5.3 Flash、Qwen 3.8 Flash Next)是题目更新后新跑的一轮;与第一批重名的模型(Opus 4.8、GLM-5.3、Gemini 3.8 Flash)保留原来的版本,未覆盖。
+
+### 🐘 大象走钢丝 (`elephant-tightrope/`)
+让模型实现「一头大象走钢丝」。现有 8 个模型版本,技术方案自选(Three.js 3D、Canvas 2D、SVG 动画),栏目页按模型版本归档,缩略图为真实渲染截图,暂未做 Jev 评分。
+
+| # | 版本 | 来源 / 说明 | 文件 |
+| --- | --- | --- | --- |
+| 01 | Gemini 3.8 Flash | Three.js 3D | `gemini-3.8-flash.html` |
+| 02 | Nemotron 3 Ultra | Three.js 3D | `nemotron-3-ultra.html` |
+| 03 | Tierflow-Pro | Three.js 3D | `tierflow-pro.html` |
+| 04 | MiMo 2.6 Flash | Canvas 2D | `mimo-2.6-flash.html` |
+| 05 | DeepSeek 4.1 Flash | Canvas 2D | `deepseek-4.1-flash.html` |
+| 06 | Claude Opus 4 | SVG 动画 | `opus-4.html` |
+| 07 | GLM 5.3 Flash | SVG 动画 | `glm-5.3-flash.html` |
+| 08 | Ling 3.1 Flash | SVG 动画 | `ling-3.1-flash.html` |
 
 ## 目录结构
 

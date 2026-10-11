@@ -1,0 +1,600 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>大象走钢丝 · Elephant on a Wire</title>
+<style>
+  html,body{margin:0;padding:0;height:100%;overflow:hidden;background:#241a33;overscroll-behavior:none;}
+  #scene{display:block;width:100vw;height:100vh;touch-action:none;}
+  .vignette{position:fixed;inset:0;pointer-events:none;
+    background:radial-gradient(ellipse at 50% 42%,rgba(0,0,0,0) 52%,rgba(24,12,34,.30) 100%);}
+  .grain{position:fixed;inset:0;pointer-events:none;opacity:.05;mix-blend-mode:overlay;
+    background-image:url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="180" height="180"><filter id="n"><feTurbulence type="fractalNoise" baseFrequency="0.85" numOctaves="2" stitchTiles="stitch"/><feColorMatrix type="saturate" values="0"/></filter><rect width="180" height="180" filter="url(%23n)" opacity="0.55"/></svg>');}
+</style>
+</head>
+<body>
+<canvas id="scene"></canvas>
+<div class="vignette"></div>
+<div class="grain"></div>
+<script>
+'use strict';
+/* ============================================================
+   大象走钢丝 —— single-file Canvas 2D animation
+   model: ling-3.1-flash
+   ============================================================ */
+const canvas = document.getElementById('scene');
+const ctx = canvas.getContext('2d');
+const TAU = Math.PI * 2;
+const clamp = (v,a,b)=> v<a?a : v>b?b : v;
+const lerp  = (a,b,k)=> a+(b-a)*k;
+const rand  = (a,b)=> b===undefined ? Math.random()*a : a+Math.random()*(b-a);
+
+let W=0, H=0, DPR=1;
+function resize(){
+  DPR = Math.min(window.devicePixelRatio||1, 2);
+  W = window.innerWidth; H = window.innerHeight;
+  canvas.width  = Math.round(W*DPR);
+  canvas.height = Math.round(H*DPR);
+}
+window.addEventListener('resize', resize);
+resize();
+
+/* ---------------- world ---------------- */
+const MAST_X = 560;          // mast positions ±560
+const WIRE_SAG = 20;         // catenary sag at center
+const WIRE_END_Y = -6;
+const TURN_X = 415;          // where the elephant turns around
+const SKIN = '#8f8b98', SKIN_D = '#6b6773', SKIN_L = '#a8a4b0';
+
+function catY(x){ const t=(x/MAST_X+1)/2; return WIRE_END_Y + 4*WIRE_SAG*t*(1-t); }
+function groundY(x){ return 262 + 7*Math.sin(x*0.004) + 4*Math.sin(x*0.011+2); }
+function wireY(x){
+  const tp=(x/MAST_X+1)/2;
+  const env=Math.sin(Math.PI*tp);                 // no vibration at the anchors
+  return catY(x) + env*( S.wireAmp*Math.sin(x*0.045 - S.t*16)
+                       + S.wind*1.2*Math.sin(x*0.008 - S.t*1.4) );
+}
+
+const S = {
+  t:0, wind:0.5, gustEnv:0, nextGust:4,
+  camX:-180, camY:130, wireAmp:0,
+  x:-200, dir:1, facing:1,
+  mode:'walk', modeT:0, turnT:0, turnFrom:1, flipped:false, shuffleT:0,
+  walkPhase:0, walkAmp:0,
+  lean:0, leanVel:0, poleAng:0, poleVel:0,
+  stNF:null, stNH:null, prevNF:null, prevNH:null,
+  blinkT:0, nextBlink:3,
+};
+
+const grassTufts=[], clouds=[], trees=[], birds=[], puffs=[], leaves=[];
+for(let i=0;i<48;i++){ const x=-1550+i*66+rand(-16,16); grassTufts.push({x, y:groundY(x), p:rand(TAU), h:rand(9,17)}); }
+for(let i=0;i<7;i++) clouds.push({x:rand(-1700,1700), y:rand(-300,-130), s:rand(0.6,1.5), p:rand(TAU), v:rand(4,9)});
+trees.push({x:-980,s:1.15},{x:-320,s:1},{x:260,s:1.25},{x:760,s:0.9},{x:1120,s:1.1});
+let nextBird = 5;
+
+/* ---------------- update ---------------- */
+function footState(phase, off, amp){
+  const s = ((phase+off)%1+1)%1;
+  const swing = s < 0.5;
+  const lift = swing ? 15*Math.sin(Math.PI*s/0.5)*(0.3+0.7*amp) : 0;
+  const fx = 17*Math.sin(TAU*s)*amp;
+  return {s, swing, lift, fx};
+}
+function puffAt(wx, wy, n){
+  for(let i=0;i<n;i++) puffs.push({x:wx+rand(-7,7), y:wy+rand(-3,1),
+    vx:rand(-16,16), vy:rand(-30,-8), r:rand(2.5,5), life:rand(0.5,0.95), t:0});
+}
+
+function update(dt){
+  /* wind + gusts */
+  if(S.t > S.nextGust){ S.gustEnv = 1; S.nextGust = S.t + rand(9,16); }
+  S.gustEnv = Math.max(0, S.gustEnv - dt*0.22);
+  const raw = 0.30 + 0.24*Math.sin(S.t*0.21) + 0.20*Math.sin(S.t*0.093+1.3) + 0.15*Math.sin(S.t*0.47+0.7);
+  S.wind = clamp(raw + S.gustEnv*1.15, 0, 1.6);
+  const wN = S.wind/1.6;
+
+  /* locomotion mode */
+  let speedTarget = 0;
+  if(S.mode==='walk'){
+    speedTarget = 46*(0.85 + 0.3*Math.sin(S.t*0.4));
+    if(S.shuffleT>0) speedTarget = 0;
+    S.x += S.dir*speedTarget*dt;
+    S.walkPhase += dt*(speedTarget/38 + (S.shuffleT>0?1.7:0));
+    S.walkAmp = lerp(S.walkAmp, S.shuffleT>0?0.35:1, 1-Math.exp(-dt*4));
+    if(S.shuffleT>0) S.shuffleT -= dt;
+    else if(Math.random()<dt*0.045 || (S.gustEnv>0.8 && Math.random()<dt*0.4)){
+      S.mode='pause'; S.modeT = rand(1.4,2.6);
+    }
+    if(Math.abs(S.x) > TURN_X){ S.mode='turn'; S.turnT=0; S.turnFrom=S.facing; S.flipped=false; }
+  }else if(S.mode==='pause'){
+    S.modeT -= dt;
+    S.walkPhase += dt*2.1;
+    S.walkAmp = lerp(S.walkAmp, 0.22, 1-Math.exp(-dt*4));
+    if(S.modeT<=0) S.mode='walk';
+  }else{ /* turn: a little hop-and-flip */
+    S.turnT += dt/1.15;
+    S.walkPhase += dt*6.5;
+    S.walkAmp = lerp(S.walkAmp, 0.4, 1-Math.exp(-dt*6));
+    if(S.turnT>=0.5 && !S.flipped){
+      S.dir *= -1; S.flipped = true;
+      puffAt(S.x, catY(S.x), 10);
+      S.wireAmp = Math.min(S.wireAmp+3, 7);
+    }
+    if(S.turnT>=1) S.mode='walk';
+  }
+  S.facing = S.mode==='turn' ? S.turnFrom*(S.turnT<0.5?1:-1) : S.dir;
+
+  /* feet + footfall events */
+  S.stNF = footState(S.walkPhase, 0,    S.walkAmp);
+  S.stNH = footState(S.walkPhase, 0.5,  S.walkAmp);
+  if(S.prevNF && S.prevNF.swing && !S.stNF.swing){
+    puffAt(S.x + ( 52+S.stNF.fx)*S.facing, wireY(S.x), 3);
+    S.wireAmp = Math.min(S.wireAmp+2.2, 7);
+  }
+  if(S.prevNH && S.prevNH.swing && !S.stNH.swing){
+    puffAt(S.x + (-52+S.stNH.fx)*S.facing, wireY(S.x), 3);
+    S.wireAmp = Math.min(S.wireAmp+2.2, 7);
+  }
+  S.prevNF = S.stNF; S.prevNH = S.stNH;
+  S.wireAmp *= Math.exp(-dt*2.6);
+
+  /* balance physics: body lean + counter pole */
+  const wander   = 0.10*Math.sin(S.t*0.8) + 0.06*Math.sin(S.t*1.63+2.1) + 0.04*Math.sin(S.t*3.1+0.5);
+  const windPush = (wN-0.5)*0.5*(0.4+S.gustEnv);
+  const leanAcc  = -2.4*S.lean - 1.4*S.leanVel + wander + windPush;
+  S.leanVel = clamp(S.leanVel + leanAcc*dt, -1.4, 1.4);
+  S.lean    = clamp(S.lean + S.leanVel*dt, -0.27, 0.27);
+  if(Math.abs(S.lean)>0.19 && S.mode==='walk' && S.shuffleT<=0) S.shuffleT = 0.5;
+  const poleTarget = -1.45*S.lean - 0.22*(wN-0.5);
+  const poleAcc    = -9*(S.poleAng - poleTarget) - 2.0*S.poleVel;
+  S.poleVel += poleAcc*dt;
+  S.poleAng  = clamp(S.poleAng + S.poleVel*dt, -0.45, 0.45);
+
+  /* camera follow */
+  S.camX = lerp(S.camX, S.x*0.92 + 70*S.dir, 1-Math.exp(-dt*1.6));
+  S.camY = lerp(S.camY, 130 + (catY(S.x)-14)*0.5, 1-Math.exp(-dt*1.2));
+
+  /* blink */
+  if(S.t > S.nextBlink){ S.blinkT = 0.13; S.nextBlink = S.t + rand(2.5,5.5); }
+  if(S.blinkT>0) S.blinkT -= dt;
+
+  /* birds */
+  if(S.t > nextBird){
+    nextBird = S.t + rand(7,14);
+    const l = S.camX*0.85, fromLeft = Math.random()<0.5;
+    birds.push({x: fromLeft? l-950 : l+950, y:rand(-260,-140), vx:(fromLeft?1:-1)*rand(45,75), p:rand(TAU)});
+  }
+  for(let i=birds.length-1;i>=0;i--){ const b=birds[i]; b.x+=b.vx*dt; if(Math.abs(b.x-S.camX*0.85)>1100) birds.splice(i,1); }
+
+  /* wind-blown leaves */
+  if(S.gustEnv>0.3 && Math.random()<dt*5*S.gustEnv){
+    leaves.push({x:S.camX+rand(-800,800), y:rand(-200,250), vx:rand(30,60)+S.wind*45, vy:rand(8,26),
+      rot:rand(TAU), vr:rand(-4,4), ph:rand(TAU), t:0, life:rand(2.5,4.5),
+      c:['#a8b06a','#c9a86a','#93a05e'][Math.floor(rand(3))]});
+  }
+  for(let i=leaves.length-1;i>=0;i--){ const l=leaves[i]; l.t+=dt; l.x+=l.vx*dt; l.y+=(l.vy+Math.sin(S.t*4+l.ph)*22)*dt; l.rot+=l.vr*dt;
+    if(l.t>l.life || l.x>S.camX+950) leaves.splice(i,1); }
+
+  /* dust puffs */
+  for(let i=puffs.length-1;i>=0;i--){ const p=puffs[i]; p.t+=dt; p.x+=p.vx*dt; p.y+=p.vy*dt; p.vy+=34*dt;
+    if(p.t>p.life) puffs.splice(i,1); }
+}
+
+/* ---------------- render ---------------- */
+function setCam(p){
+  const ys = clamp(p, 0.12, 1);
+  const s = Math.min(W/1500, H/820) * (1 + 0.015*Math.sin(S.t*0.07));
+  ctx.setTransform(DPR*s,0,0, DPR*s, DPR*(W/2 - S.camX*p*s), DPR*(H*0.60 - S.camY*ys*s));
+}
+function wrapLayerX(x, p, span){
+  const o = S.camX*p;
+  let v = (x - o) % span; if(v<0) v += span;
+  return v - span/2 + o;
+}
+
+function drawSky(){
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  const g = ctx.createLinearGradient(0,0,0,H);
+  g.addColorStop(0,'#7db4e8'); g.addColorStop(0.45,'#c3dcef');
+  g.addColorStop(0.72,'#ffe0ae'); g.addColorStop(1,'#ffc07e');
+  ctx.fillStyle = g; ctx.fillRect(0,0,W,H);
+}
+function drawCloud(x,y,s){
+  ctx.fillStyle = 'rgba(255,252,248,0.92)';
+  ctx.beginPath();
+  ctx.ellipse(x,       y,       52*s,20*s, 0,0,TAU);
+  ctx.ellipse(x-34*s,  y+6*s,   34*s,15*s, 0,0,TAU);
+  ctx.ellipse(x+36*s,  y+7*s,   36*s,16*s, 0,0,TAU);
+  ctx.ellipse(x+6*s,   y-12*s,  30*s,16*s, 0,0,TAU);
+  ctx.fill();
+  ctx.fillStyle = 'rgba(255,196,170,0.35)';
+  ctx.beginPath(); ctx.ellipse(x, y+12*s, 48*s, 10*s, 0,0,TAU); ctx.fill();
+}
+function drawSunAndClouds(){
+  setCam(0.06);
+  const sx=520, sy=-165;
+  const g = ctx.createRadialGradient(sx,sy,10, sx,sy,250);
+  g.addColorStop(0,'rgba(255,242,205,0.95)');
+  g.addColorStop(0.25,'rgba(255,216,150,0.5)');
+  g.addColorStop(1,'rgba(255,200,140,0)');
+  ctx.fillStyle = g; ctx.beginPath(); ctx.arc(sx,sy,250,0,TAU); ctx.fill();
+  ctx.fillStyle = '#fff7e0'; ctx.beginPath(); ctx.arc(sx,sy,30,0,TAU); ctx.fill();
+  for(const c of clouds)
+    drawCloud(wrapLayerX(c.x + S.t*c.v*(0.35+S.wind*0.8), 0.06, 3400), c.y, c.s);
+}
+function drawBalloon(){
+  setCam(0.12);
+  const bx = wrapLayerX(180 + S.t*4*(0.3+S.wind*0.5), 0.12, 3400);
+  const by = -215 + 8*Math.sin(S.t*0.5);
+  ctx.save(); ctx.translate(bx,by);
+  const g = ctx.createLinearGradient(0,-62,0,36);
+  g.addColorStop(0,'#e2725b'); g.addColorStop(1,'#c8503f');
+  ctx.fillStyle = g;
+  ctx.beginPath();
+  ctx.moveTo(0,-62);
+  ctx.bezierCurveTo( 38,-62, 46,-20, 40, 6);
+  ctx.bezierCurveTo( 36, 26, 16, 36,  0,36);
+  ctx.bezierCurveTo(-16, 36,-36, 26,-40, 6);
+  ctx.bezierCurveTo(-46,-20,-38,-62,  0,-62);
+  ctx.closePath(); ctx.fill();
+  ctx.save(); ctx.clip();
+  ctx.fillStyle = 'rgba(246,230,200,0.85)';
+  ctx.fillRect(-11,-62,9,100); ctx.fillRect(11,-62,9,100);
+  ctx.restore();
+  ctx.strokeStyle = '#6a4a34'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(-12,28); ctx.lineTo(-8,46); ctx.moveTo(12,28); ctx.lineTo(8,46); ctx.stroke();
+  ctx.fillStyle = '#8a6242'; ctx.fillRect(-11,44,22,14);
+  ctx.fillStyle = 'rgba(0,0,0,0.15)'; ctx.fillRect(-11,44,22,3);
+  ctx.restore();
+}
+function drawHills(layer){
+  ctx.beginPath();
+  ctx.moveTo(-2600,460);
+  for(let x=-2600;x<=2600;x+=40){
+    const y = layer===1 ? 118 + 48*Math.sin(x*0.0024+2) + 22*Math.sin(x*0.0061)
+                        : 172 + 38*Math.sin(x*0.0038+5) + 16*Math.sin(x*0.009+1);
+    ctx.lineTo(x,y);
+  }
+  ctx.lineTo(2600,460); ctx.closePath();
+  ctx.fillStyle = layer===1 ? '#bccfae' : '#9db98b';
+  ctx.fill();
+}
+function drawPennant(x,y,dir,len){
+  const w = S.wind;
+  const tipY = y + 6*Math.sin(S.t*7+x)*(0.3+w*0.7) - 2*w;
+  const midY = y + 4*Math.sin(S.t*9+x*2)*(0.3+w*0.7);
+  ctx.fillStyle = '#e0574a';
+  ctx.beginPath();
+  ctx.moveTo(x,y);
+  ctx.quadraticCurveTo(x+dir*len*0.5, midY, x+dir*len, tipY);
+  ctx.quadraticCurveTo(x+dir*len*0.5, y+len*0.26, x, y+len*0.3);
+  ctx.closePath(); ctx.fill();
+}
+function drawTent(x,y){
+  ctx.save(); ctx.translate(x,y);
+  ctx.fillStyle = '#e8e0cd';
+  ctx.beginPath(); ctx.moveTo(-52,0); ctx.lineTo(52,0); ctx.lineTo(38,-52); ctx.lineTo(-38,-52); ctx.closePath(); ctx.fill();
+  ctx.save(); ctx.clip();
+  ctx.fillStyle = '#d95f50';
+  for(let i=-3;i<=3;i++) ctx.fillRect(i*16-6,-56,8,58);
+  ctx.restore();
+  ctx.fillStyle = '#d95f50';
+  ctx.beginPath(); ctx.moveTo(-44,-52); ctx.lineTo(0,-92); ctx.lineTo(44,-52); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = 'rgba(246,230,200,0.9)';
+  ctx.beginPath(); ctx.moveTo(-14,-52); ctx.lineTo(0,-92); ctx.lineTo(14,-52); ctx.closePath(); ctx.fill();
+  ctx.strokeStyle = '#5a4632'; ctx.lineWidth = 2.5;
+  ctx.beginPath(); ctx.moveTo(0,-92); ctx.lineTo(0,-112); ctx.stroke();
+  drawPennant(0,-112,1,16);
+  ctx.restore();
+}
+function drawTree(x,y,s){
+  ctx.save(); ctx.translate(x,y); ctx.scale(s,s);
+  ctx.fillStyle = '#6a4c36'; ctx.fillRect(-4,-34,8,34);
+  ctx.fillStyle = '#5f7d47';
+  ctx.beginPath(); ctx.arc(0,-52,26,0,TAU); ctx.arc(-18,-38,18,0,TAU); ctx.arc(18,-40,19,0,TAU); ctx.fill();
+  ctx.fillStyle = '#6d8c52'; ctx.beginPath(); ctx.arc(-6,-58,14,0,TAU); ctx.fill();
+  ctx.restore();
+}
+function drawBirds(){
+  setCam(0.85);
+  ctx.strokeStyle = 'rgba(60,52,68,0.65)'; ctx.lineWidth = 2.2; ctx.lineCap = 'round';
+  for(const b of birds){
+    const flap = Math.sin(S.t*9+b.p)*3.5;
+    ctx.beginPath();
+    ctx.moveTo(b.x-7,b.y);
+    ctx.quadraticCurveTo(b.x-3.5, b.y-4-flap, b.x, b.y);
+    ctx.quadraticCurveTo(b.x+3.5, b.y-4-flap, b.x+7, b.y);
+    ctx.stroke();
+  }
+}
+function drawShadow(x,y,rx,ry,a){
+  const g = ctx.createRadialGradient(x,y,2, x,y,rx);
+  g.addColorStop(0,'rgba(35,45,28,'+a+')');
+  g.addColorStop(1,'rgba(35,45,28,0)');
+  ctx.fillStyle = g;
+  ctx.beginPath(); ctx.ellipse(x,y,rx,ry,0,0,TAU); ctx.fill();
+}
+function drawMast(m){
+  const x = m*MAST_X, base = groundY(x);
+  const g = ctx.createLinearGradient(x-9,0,x+9,0);
+  g.addColorStop(0,'#9a7452'); g.addColorStop(0.5,'#7a5a3c'); g.addColorStop(1,'#54392a');
+  ctx.fillStyle = g;
+  ctx.beginPath();
+  ctx.moveTo(x-9,base); ctx.lineTo(x-5.5,-8); ctx.lineTo(x+5.5,-8); ctx.lineTo(x+9,base);
+  ctx.closePath(); ctx.fill();
+  ctx.fillStyle = '#4a3325'; ctx.fillRect(x-11,-14,22,7);
+  ctx.fillStyle = '#2f2a33'; ctx.beginPath(); ctx.arc(x,-6,3,0,TAU); ctx.fill();
+  ctx.strokeStyle = '#5a4632'; ctx.lineWidth = 3; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(x,-14); ctx.lineTo(x,-74); ctx.stroke();
+  drawPennant(x,-74, m===1?1:-1, 54);
+}
+function drawWire(){
+  ctx.lineCap = 'round';
+  ctx.strokeStyle = '#2f2a33'; ctx.lineWidth = 3.6;
+  ctx.beginPath();
+  for(let x=-MAST_X;x<=MAST_X;x+=6){ const y=wireY(x); if(x===-MAST_X) ctx.moveTo(x,y); else ctx.lineTo(x,y); }
+  ctx.stroke();
+  ctx.strokeStyle = 'rgba(190,180,200,0.45)'; ctx.lineWidth = 1.2;
+  ctx.beginPath();
+  for(let x=-MAST_X;x<=MAST_X;x+=6){ const y=wireY(x)-1.3; if(x===-MAST_X) ctx.moveTo(x,y); else ctx.lineTo(x,y); }
+  ctx.stroke();
+}
+
+function earPath(){
+  ctx.beginPath();
+  ctx.moveTo(0,0);
+  ctx.bezierCurveTo(-34,-14,-52,-2,-46,28);
+  ctx.bezierCurveTo(-42,48,-16,52,-2,36);
+  ctx.bezierCurveTo(6,26,6,10,0,0);
+  ctx.closePath();
+}
+function drawLeg(hx, off, far, bob){
+  const st = far ? footState(S.walkPhase, off, S.walkAmp) : (off===0 ? S.stNF : S.stNH);
+  const hy = -64 + bob;
+  const fx = hx + st.fx, fy = -st.lift;
+  const dx = fx-hx, dy = fy-hy;
+  const dd = Math.max(Math.hypot(dx,dy), 0.001);
+  const mx = (hx+fx)/2, my = (hy+fy)/2, bend = 11;
+  const kx = mx + (dy/dd)*bend, ky = my + (-dx/dd)*bend;   // knee bends forward
+  ctx.lineCap = 'round';
+  ctx.strokeStyle = far ? SKIN_D : SKIN;
+  ctx.lineWidth = far ? 15 : 17.5;
+  ctx.beginPath(); ctx.moveTo(hx,hy); ctx.quadraticCurveTo(kx,ky,fx,fy-2); ctx.stroke();
+  if(!far){
+    ctx.strokeStyle = 'rgba(40,36,52,0.16)'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(hx-6,hy+18); ctx.quadraticCurveTo(hx,hy+24,hx+6,hy+18); ctx.stroke();
+  }
+  ctx.fillStyle = far ? '#c9c2b7' : '#f0eadd';
+  ctx.beginPath(); ctx.ellipse(fx+2, fy-3, 9.5, 5.5, 0, 0, TAU); ctx.fill();
+  if(!far){
+    ctx.fillStyle = '#e6dfd2';
+    for(let n=-1;n<=1;n++){
+      ctx.beginPath(); ctx.ellipse(fx+2+n*5.5, fy+0.5, 2.6, 1.9, 0, 0, TAU); ctx.fill();
+    }
+  }
+}
+
+function drawElephant(){
+  const t = S.t, wN = S.wind/1.6;
+  const wy = wireY(S.x);
+  const hop = S.mode==='turn' ? 34*Math.sin(Math.PI*S.turnT) : 0;
+  const pitch = 0.025*Math.sin(TAU*S.walkPhase)*S.walkAmp;
+  const rot = S.lean*0.5 + pitch + (S.mode==='turn' ? 0.12*Math.sin(TAU*S.turnT)*S.turnFrom : 0);
+  const bob = 3*Math.sin(TAU*2*S.walkPhase + 0.5)*S.walkAmp;
+  const breathe = 1 + 0.012*Math.sin(t*1.3);
+
+  ctx.save();
+  ctx.translate(S.x, wy - hop);
+  ctx.rotate(rot);
+  ctx.scale(S.facing, 1);
+
+  /* tail */
+  const tailSway = 6*Math.sin(t*1.7)*(0.4+wN) + S.leanVel*8;
+  ctx.lineCap = 'round';
+  ctx.strokeStyle = '#77737f'; ctx.lineWidth = 8;
+  ctx.beginPath(); ctx.moveTo(-88,-118+bob);
+  ctx.quadraticCurveTo(-104,-100+bob, -100+tailSway*0.3, -72+bob); ctx.stroke();
+  ctx.strokeStyle = '#5d5966'; ctx.lineWidth = 5;
+  ctx.beginPath(); ctx.moveTo(-100+tailSway*0.3,-72+bob);
+  ctx.quadraticCurveTo(-98+tailSway*0.6,-58+bob, -96+tailSway, -50+bob); ctx.stroke();
+  ctx.fillStyle = '#453f3a';
+  ctx.beginPath(); ctx.ellipse(-96+tailSway, -46+bob, 5, 9, 0.3, 0, TAU); ctx.fill();
+
+  /* far ear */
+  const farFlap = 0.08*Math.sin(t*1.5+1) + wN*0.15*Math.sin(t*3.0);
+  ctx.save();
+  ctx.translate(58,-132+bob); ctx.rotate(-0.15+farFlap); ctx.scale(0.85,0.85);
+  ctx.fillStyle = SKIN_D; earPath(); ctx.fill();
+  ctx.restore();
+
+  /* far legs (lateral-sequence gait: FH .75, FF .25) */
+  drawLeg(-52, 0.75, true, bob);
+  drawLeg( 52, 0.25, true, bob);
+
+  /* body */
+  ctx.save();
+  ctx.translate(0,bob);
+  ctx.translate(0,-95); ctx.scale(1,breathe); ctx.translate(0,95);
+  const bg = ctx.createLinearGradient(0,-160,0,-40);
+  bg.addColorStop(0,SKIN_L); bg.addColorStop(0.55,SKIN); bg.addColorStop(1,'#77737f');
+  ctx.fillStyle = bg;
+  ctx.beginPath();
+  ctx.moveTo(-92,-78);
+  ctx.bezierCurveTo(-100,-118,-62,-152,-8,-154);
+  ctx.bezierCurveTo( 30,-156, 74,-150, 92,-118);
+  ctx.bezierCurveTo(104,-100, 100,-86,  88,-76);
+  ctx.bezierCurveTo( 60,-56, -30,-54, -92,-78);
+  ctx.closePath(); ctx.fill();
+  ctx.strokeStyle = 'rgba(40,36,52,0.22)'; ctx.lineWidth = 6;
+  ctx.beginPath(); ctx.moveTo(-70,-66); ctx.quadraticCurveTo(-10,-50,70,-70); ctx.stroke();
+  ctx.strokeStyle = 'rgba(255,250,255,0.16)'; ctx.lineWidth = 5;
+  ctx.beginPath(); ctx.moveTo(-60,-140); ctx.quadraticCurveTo(0,-152,60,-138); ctx.stroke();
+  ctx.restore();
+
+  /* trunk, raised to hold the pole */
+  const sway1 = (4+wN*8)*Math.sin(t*1.9)*(0.5+wN);
+  const sway2 = (3+wN*6)*Math.sin(t*2.4+1.2)*(0.5+wN);
+  const G = { x: 168+sway1, y: -134+sway2+bob };   // grip point
+  ctx.lineCap = 'round';
+  ctx.strokeStyle = SKIN;
+  ctx.lineWidth = 17;
+  ctx.beginPath(); ctx.moveTo(112,-136+bob);
+  ctx.quadraticCurveTo(138+sway1*0.4, -150+bob+sway2*0.3, 156+sway1*0.75, -146+bob+sway2*0.6);
+  ctx.stroke();
+  ctx.lineWidth = 13;
+  ctx.beginPath(); ctx.moveTo(156+sway1*0.75, -146+bob+sway2*0.6);
+  ctx.quadraticCurveTo(166+sway1*0.9, -140+bob+sway2*0.85, G.x, G.y);
+  ctx.stroke();
+  ctx.strokeStyle = 'rgba(40,36,52,0.2)'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(126,-144+bob); ctx.quadraticCurveTo(128,-137+bob,126,-130+bob); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(141,-148+bob); ctx.quadraticCurveTo(143,-141+bob,141,-134+bob); ctx.stroke();
+
+  /* head (gentle counter-rotation stays steadier than the body) */
+  ctx.save();
+  ctx.translate(80,-108+bob); ctx.rotate(-S.lean*0.22); ctx.translate(-80,108-bob);
+  const hg = ctx.createRadialGradient(72,-136+bob,8, 86,-116+bob,52);
+  hg.addColorStop(0,SKIN_L); hg.addColorStop(1,'#86828e');
+  ctx.fillStyle = hg;
+  ctx.beginPath(); ctx.arc(86,-116+bob,44,0,TAU); ctx.fill();
+  ctx.fillStyle = 'rgba(255,252,255,0.14)';
+  ctx.beginPath(); ctx.ellipse(76,-140+bob,20,10,-0.3,0,TAU); ctx.fill();
+  ctx.strokeStyle = 'rgba(60,54,66,0.5)'; ctx.lineWidth = 2.5;
+  ctx.beginPath(); ctx.moveTo(92,-134+bob); ctx.quadraticCurveTo(102,-138+bob,112,-133+bob); ctx.stroke();
+  const eyeRy = S.blinkT>0 ? 0.8 : 4.6;
+  ctx.fillStyle = '#2c2622';
+  ctx.beginPath(); ctx.ellipse(102,-118+bob,4.6,eyeRy,0,0,TAU); ctx.fill();
+  if(S.blinkT<=0){
+    ctx.fillStyle = 'rgba(255,255,255,0.85)';
+    ctx.beginPath(); ctx.arc(103.4,-119.4+bob,1.5,0,TAU); ctx.fill();
+  }
+  ctx.fillStyle = 'rgba(224,150,140,0.26)';
+  ctx.beginPath(); ctx.ellipse(98,-102+bob,9,5.5,0,0,TAU); ctx.fill();
+  ctx.restore();
+
+  /* the balancing pole, held by the trunk */
+  const poleAng = S.poleAng + 0.04*Math.sin(t*1.7)*(0.3+wN);
+  ctx.save();
+  ctx.translate(G.x, G.y); ctx.rotate(poleAng);
+  ctx.strokeStyle = '#7d5a38'; ctx.lineWidth = 9.5; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(-178,1.6); ctx.lineTo(178,1.6); ctx.stroke();
+  const pg = ctx.createLinearGradient(0,-4,0,4);
+  pg.addColorStop(0,'#d9b57e'); pg.addColorStop(0.5,'#c79a5e'); pg.addColorStop(1,'#a87c48');
+  ctx.strokeStyle = pg; ctx.lineWidth = 7;
+  ctx.beginPath(); ctx.moveTo(-178,0); ctx.lineTo(178,0); ctx.stroke();
+  for(const e of [-178,178]){
+    ctx.fillStyle = '#8a6a42'; ctx.beginPath(); ctx.arc(e,0,10,0,TAU); ctx.fill();
+    ctx.fillStyle = 'rgba(255,240,210,0.45)'; ctx.beginPath(); ctx.arc(e-3,-3,3.2,0,TAU); ctx.fill();
+  }
+  ctx.fillStyle = '#7d5a38'; ctx.fillRect(-6,-5,12,10);
+  ctx.restore();
+
+  /* trunk tip gripping the pole */
+  ctx.fillStyle = SKIN;
+  ctx.beginPath(); ctx.arc(G.x, G.y, 9, 0, TAU); ctx.fill();
+  ctx.strokeStyle = SKIN; ctx.lineWidth = 8; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(G.x-2,G.y+3); ctx.quadraticCurveTo(G.x-9,G.y+9,G.x-16,G.y+7); ctx.stroke();
+
+  /* near ear */
+  const nearFlap = 0.10*Math.sin(t*1.4) + (wN*0.22 + Math.abs(S.leanVel)*0.35)*Math.sin(t*3.2);
+  ctx.save();
+  ctx.translate(64,-136+bob); ctx.rotate(-0.05+nearFlap);
+  ctx.fillStyle = SKIN; earPath(); ctx.fill();
+  ctx.save(); ctx.translate(6,10); ctx.scale(0.66,0.66);
+  ctx.fillStyle = '#d9a39c'; earPath(); ctx.fill();
+  ctx.restore();
+  ctx.restore();
+
+  /* near legs (NF 0, NH .5) */
+  drawLeg(-52, 0.5, false, bob);
+  drawLeg( 52, 0,   false, bob);
+
+  ctx.restore();
+}
+
+function drawGroundScene(){
+  setCam(1);
+  /* ground */
+  const gg = ctx.createLinearGradient(0,230,0,640);
+  gg.addColorStop(0,'#8aa661'); gg.addColorStop(1,'#4e6a3c');
+  ctx.fillStyle = gg;
+  ctx.beginPath(); ctx.moveTo(-2600,660);
+  for(let x=-2600;x<=2600;x+=40) ctx.lineTo(x, groundY(x));
+  ctx.lineTo(2600,660); ctx.closePath(); ctx.fill();
+  /* sawdust arena */
+  ctx.fillStyle = 'rgba(214,178,128,0.5)';
+  ctx.beginPath(); ctx.ellipse(0,284,610,34,0,0,TAU); ctx.fill();
+  ctx.fillStyle = '#e6c795';
+  ctx.beginPath(); ctx.ellipse(0,277,585,26,0,0,TAU); ctx.fill();
+  ctx.fillStyle = '#efd3a3';
+  ctx.beginPath(); ctx.ellipse(0,275,520,18,0,0,TAU); ctx.fill();
+  /* shadows */
+  drawShadow(S.x-60, groundY(S.x-60)+7, 130, 16, 0.30);
+  drawShadow(-MAST_X-40, groundY(-MAST_X-40)+6, 60, 10, 0.22);
+  drawShadow( MAST_X-40, groundY( MAST_X-40)+6, 60, 10, 0.22);
+  /* grass */
+  const wN = S.wind/1.6;
+  ctx.strokeStyle = '#6d8a4f'; ctx.lineWidth = 2; ctx.lineCap = 'round';
+  ctx.beginPath();
+  for(const g of grassTufts){
+    const sway = (2+wN*7)*Math.sin(S.t*2.2+g.p)*(0.4+0.6*wN);
+    for(let b=-1;b<=1;b++){
+      ctx.moveTo(g.x+b*3, g.y);
+      ctx.quadraticCurveTo(g.x+b*3+sway*0.4, g.y-g.h*0.6, g.x+b*3+sway, g.y-g.h);
+    }
+  }
+  ctx.stroke();
+  /* guy wires */
+  ctx.strokeStyle = 'rgba(70,60,72,0.35)'; ctx.lineWidth = 2;
+  for(const m of [-1,1]) for(const a of [-170,170]){
+    const ax = m*MAST_X + a;
+    ctx.beginPath(); ctx.moveTo(m*MAST_X,-10); ctx.lineTo(ax, groundY(ax)+2); ctx.stroke();
+  }
+  drawMast(-1); drawMast(1);
+  drawWire();
+  drawElephant();
+  /* dust puffs */
+  for(const p of puffs){
+    const a = (1-p.t/p.life)*0.5;
+    ctx.fillStyle = 'rgba(224,204,170,'+a.toFixed(3)+')';
+    ctx.beginPath(); ctx.arc(p.x, p.y, p.r*(1+p.t*2.2), 0, TAU); ctx.fill();
+  }
+  /* leaves */
+  for(const l of leaves){
+    ctx.save(); ctx.translate(l.x, l.y); ctx.rotate(l.rot);
+    ctx.globalAlpha = clamp(1.2 - l.t/l.life, 0, 1);
+    ctx.fillStyle = l.c;
+    ctx.beginPath(); ctx.ellipse(0,0,5,2.6,0,0,TAU); ctx.fill();
+    ctx.restore();
+  }
+  ctx.globalAlpha = 1;
+}
+
+function render(){
+  drawSky();
+  drawSunAndClouds();
+  drawBalloon();
+  setCam(0.3);  drawHills(1);
+  setCam(0.45); drawHills(2);
+  setCam(0.55); drawTent(-830, 262 + S.camY*0.45);
+  setCam(0.7);
+  for(const tr of trees) drawTree(tr.x, groundY(tr.x) + S.camY*0.3, tr.s);
+  drawBirds();
+  drawGroundScene();
+}
+
+/* ---------------- main loop ---------------- */
+let last = performance.now();
+function frame(now){
+  let dt = (now-last)/1000; last = now;
+  dt = Math.min(dt, 0.05);
+  S.t += dt;
+  update(dt);
+  render();
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+<!--zc-home:start--><style>.zc-home-btn{position:fixed;top:16px;left:16px;z-index:2147483647;display:inline-flex;align-items:center;gap:6px;padding:8px 14px;font:500 13px/1.1 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Noto Sans SC",sans-serif;color:#111;background:rgba(255,255,255,.86);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);border:1px solid rgba(0,0,0,.08);border-radius:999px;text-decoration:none;box-shadow:0 2px 12px rgba(0,0,0,.2);transition:background .2s ease,transform .2s ease,box-shadow .2s ease}.zc-home-btn:hover{background:#fff;transform:translateY(-1px);box-shadow:0 4px 18px rgba(0,0,0,.26)}</style><a class="zc-home-btn" href="../">← 返回首页</a><!--zc-home:end-->
+</body>
+</html>

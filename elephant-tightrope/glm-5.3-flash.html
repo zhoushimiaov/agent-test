@@ -1,0 +1,621 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>大象走钢丝 · The Elephant on the Wire</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🐘</text></svg>">
+<style>
+  html,body{margin:0;padding:0;width:100%;height:100%;overflow:hidden;background:#0a0c28;}
+  svg{display:block;width:100vw;height:100vh;}
+</style>
+</head>
+<body>
+<svg id="stage" viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="skyG" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0a0c28"/>
+      <stop offset=".32" stop-color="#1d1442"/>
+      <stop offset=".55" stop-color="#432663"/>
+      <stop offset=".72" stop-color="#7c3f68"/>
+      <stop offset=".86" stop-color="#c76a52"/>
+      <stop offset=".97" stop-color="#f29a55"/>
+    </linearGradient>
+    <radialGradient id="horizonG" cx=".5" cy=".5" r=".5">
+      <stop offset="0" stop-color="#ff9d5c" stop-opacity=".55"/>
+      <stop offset="1" stop-color="#ff9d5c" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="moonGlow" cx=".5" cy=".5" r=".5">
+      <stop offset="0" stop-color="#ffe9c0" stop-opacity=".38"/>
+      <stop offset=".55" stop-color="#ffe9c0" stop-opacity=".12"/>
+      <stop offset="1" stop-color="#ffe9c0" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="bodyG" gradientUnits="userSpaceOnUse" x1="0" y1="-210" x2="0" y2="6">
+      <stop offset="0" stop-color="#b4bee4"/>
+      <stop offset=".5" stop-color="#828cba"/>
+      <stop offset="1" stop-color="#5a639c"/>
+    </linearGradient>
+    <linearGradient id="earG" gradientUnits="userSpaceOnUse" x1="0" y1="-156" x2="0" y2="-64">
+      <stop offset="0" stop-color="#767fb4"/>
+      <stop offset="1" stop-color="#49528c"/>
+    </linearGradient>
+    <linearGradient id="groundG" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#181030"/>
+      <stop offset="1" stop-color="#070510"/>
+    </linearGradient>
+    <linearGradient id="beamG" x1="0" y1="1" x2="0" y2="0">
+      <stop offset="0" stop-color="#cfd6ff" stop-opacity=".55"/>
+      <stop offset="1" stop-color="#cfd6ff" stop-opacity="0"/>
+    </linearGradient>
+    <radialGradient id="vigG" cx=".5" cy=".46" r=".75">
+      <stop offset="0" stop-color="#040312" stop-opacity="0"/>
+      <stop offset=".62" stop-color="#040312" stop-opacity="0"/>
+      <stop offset="1" stop-color="#040312" stop-opacity=".6"/>
+    </radialGradient>
+    <linearGradient id="topShade" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#040312" stop-opacity=".4"/>
+      <stop offset="1" stop-color="#040312" stop-opacity="0"/>
+    </linearGradient>
+    <radialGradient id="spotG" cx=".5" cy=".5" r=".5">
+      <stop offset="0" stop-color="#fff4dd" stop-opacity=".10"/>
+      <stop offset="1" stop-color="#fff4dd" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <!-- ======================= SKY ======================= -->
+  <g id="Lsky">
+    <rect x="-80" y="-60" width="1760" height="1000" fill="url(#skyG)"/>
+    <g id="starsG"></g>
+    <circle cx="1210" cy="140" r="170" fill="url(#moonGlow)"/>
+    <circle cx="1210" cy="140" r="54" fill="#ffeccc"/>
+    <circle cx="1192" cy="124" r="9" fill="#ecd3a2" opacity=".55"/>
+    <circle cx="1226" cy="158" r="7" fill="#ecd3a2" opacity=".5"/>
+    <circle cx="1214" cy="146" r="4.5" fill="#ecd3a2" opacity=".45"/>
+    <g id="cloudsG"></g>
+    <g id="birdsG"></g>
+  </g>
+
+  <!-- ======================= MIDGROUND ======================= -->
+  <g id="Lmid">
+    <ellipse cx="800" cy="762" rx="980" ry="170" fill="url(#horizonG)"/>
+    <path d="M-80,742 Q200,700 420,736 Q640,768 900,730 Q1150,700 1300,742 Q1450,772 1680,726 L1680,940 L-80,940 Z" fill="#1a1236" opacity=".92"/>
+    <path d="M-80,768 Q260,738 520,764 Q780,786 1050,760 Q1330,736 1680,768 L1680,940 L-80,940 Z" fill="#120c24"/>
+
+    <!-- searchlight beams -->
+    <path id="beam1" d="M300,445 L150,-515 L450,-515 Z" fill="url(#beamG)" opacity=".11" style="mix-blend-mode:screen"/>
+    <path id="beam2" d="M300,445 L110,-560 L230,-560 Z" fill="url(#beamG)" opacity=".08" style="mix-blend-mode:screen"/>
+
+    <!-- circus tent -->
+    <g id="tent">
+      <line x1="300" y1="432" x2="300" y2="396" stroke="#443162" stroke-width="3"/>
+      <path id="tentFlag" d="M300,396 L340,404 L300,413 Z" fill="#d94f4f"/>
+      <path d="M300,432 C272,472 234,540 212,594 Q300,624 388,594 C366,540 328,472 300,432 Z" fill="#2b1d47"/>
+      <path d="M300,432 L236,592 Q252,600 268,603 Z" fill="#241738"/>
+      <path d="M300,432 L364,592 Q348,600 332,603 Z" fill="#241738"/>
+      <path d="M300,434 L286,604 L314,604 Z" fill="#3a2a5e"/>
+      <rect x="214" y="598" width="174" height="166" fill="#221636"/>
+      <rect x="244" y="598" width="18" height="166" fill="#1b1130" opacity=".8"/>
+      <rect x="344" y="598" width="18" height="166" fill="#1b1130" opacity=".8"/>
+      <path d="M280,762 L320,762 L309,668 L291,668 Z" fill="#ffb45e" opacity=".28"/>
+      <path id="entranceGlow" d="M288,762 L312,762 L305,690 L295,690 Z" fill="#ffd27a" opacity=".4"/>
+      <path d="M212,598 L388,598 L388,606 L377,620 L366,606 L355,620 L344,606 L333,620 L322,606 L311,620 L300,606 L289,620 L278,606 L267,620 L256,606 L245,620 L234,606 L223,620 L212,606 Z" fill="#332252"/>
+      <g id="tentLights"></g>
+    </g>
+
+    <!-- ferris wheel -->
+    <g id="ferris">
+      <path d="M1425,590 L1362,774 M1425,590 L1488,774" stroke="#221741" stroke-width="11" stroke-linecap="round" fill="none"/>
+      <line x1="1392" y1="700" x2="1458" y2="700" stroke="#221741" stroke-width="6"/>
+      <g id="wheelG">
+        <circle cx="0" cy="0" r="110" stroke="#2b1d47" stroke-width="7" fill="none"/>
+        <circle cx="0" cy="0" r="97" stroke="#2b1d47" stroke-width="2.5" fill="none" opacity=".55"/>
+        <g id="spokesG"></g>
+        <circle cx="0" cy="0" r="11" fill="#2b1d47"/>
+        <circle cx="0" cy="0" r="4" fill="#d9a54f"/>
+        <circle id="beacon" cx="0" cy="-110" r="4" fill="#ff6a6a"/>
+        <g id="rimLights"></g>
+      </g>
+      <g id="gondolasG"></g>
+    </g>
+
+    <!-- bunting -->
+    <path d="M-20,520 Q110,560 250,284" stroke="#7a68a0" stroke-width="2" fill="none" opacity=".6"/>
+    <path d="M1350,284 Q1510,585 1620,540" stroke="#7a68a0" stroke-width="2" fill="none" opacity=".6"/>
+    <g id="buntFlags"></g>
+  </g>
+
+  <!-- ======================= MAIN ======================= -->
+  <g id="Lmain">
+    <line x1="250" y1="470" x2="128" y2="778" stroke="#6b5a85" stroke-width="2" opacity=".3"/>
+    <line x1="1350" y1="470" x2="1472" y2="778" stroke="#6b5a85" stroke-width="2" opacity=".3"/>
+    <circle cx="128" cy="778" r="4" fill="#221741"/>
+    <circle cx="1472" cy="778" r="4" fill="#221741"/>
+
+    <!-- tightrope poles -->
+    <g id="poleL">
+      <rect x="244" y="286" width="12" height="494" fill="#3a2a4a"/>
+      <rect x="247" y="286" width="2.5" height="494" fill="#8a76a8" opacity=".3"/>
+      <rect x="236" y="322" width="28" height="5" rx="2.5" fill="#33244a"/>
+      <rect x="236" y="348" width="28" height="5" rx="2.5" fill="#33244a"/>
+      <rect x="236" y="374" width="28" height="5" rx="2.5" fill="#33244a"/>
+      <circle cx="250" cy="283" r="8.5" fill="#d9a54f"/>
+      <path id="penL" d="M258,272 L298,281 L258,291 Z" fill="#e05a5a"/>
+    </g>
+    <g id="poleR">
+      <rect x="1344" y="286" width="12" height="494" fill="#3a2a4a"/>
+      <rect x="1347" y="286" width="2.5" height="494" fill="#8a76a8" opacity=".3"/>
+      <rect x="1336" y="322" width="28" height="5" rx="2.5" fill="#33244a"/>
+      <rect x="1336" y="348" width="28" height="5" rx="2.5" fill="#33244a"/>
+      <rect x="1336" y="374" width="28" height="5" rx="2.5" fill="#33244a"/>
+      <circle cx="1350" cy="283" r="8.5" fill="#d9a54f"/>
+      <path id="penR" d="M1342,272 L1302,281 L1342,291 Z" fill="#4fb8a8"/>
+    </g>
+
+    <!-- the wire -->
+    <path id="wireGlow" stroke="#aab4ff" stroke-width="7" fill="none" opacity=".14" stroke-linecap="round"/>
+    <path id="wire" stroke="#dfe3f8" stroke-width="3" fill="none" stroke-linecap="round"/>
+    <path id="wireHi" stroke="#ffffff" stroke-width="1" fill="none" opacity=".3" transform="translate(0,-1.2)"/>
+
+    <ellipse cx="800" cy="400" rx="340" ry="230" fill="url(#spotG)"/>
+
+    <!-- balance pole -->
+    <g id="poleG">
+      <path id="bpole" stroke="#a8763f" stroke-width="7" fill="none" stroke-linecap="round"/>
+      <path id="bpoleHi" stroke="#dca96a" stroke-width="2.2" fill="none" stroke-linecap="round" opacity=".8" transform="translate(0,-1.8)"/>
+      <circle id="knobL" r="5.5" fill="#7c5330"/>
+      <circle id="knobR" r="5.5" fill="#7c5330"/>
+      <g id="tasL"><line y2="20" stroke="#efe6c8" stroke-width="2"/><rect x="-4.5" y="18" width="9" height="3.4" fill="#f0c46a"/><path d="M-4,21 L4,21 L2.5,38 L-2.5,38 Z" fill="#d94f5a"/></g>
+      <g id="tasR"><line y2="20" stroke="#efe6c8" stroke-width="2"/><rect x="-4.5" y="18" width="9" height="3.4" fill="#f0c46a"/><path d="M-4,21 L4,21 L2.5,38 L-2.5,38 Z" fill="#d94f5a"/></g>
+    </g>
+
+    <!-- elephant -->
+    <g id="elephant">
+      <g id="legFR"><rect x="-42" y="-70" width="23" height="66" rx="8" fill="#4e568e"/><ellipse cx="-30.5" cy="-9" rx="14" ry="9" fill="#4e568e"/></g>
+      <g id="legFF"><rect x="12" y="-70" width="23" height="66" rx="8" fill="#4e568e"/><ellipse cx="23.5" cy="-9" rx="14" ry="9" fill="#4e568e"/></g>
+      <g id="tail">
+        <path d="M-104,-84 Q-124,-58 -114,-30" stroke="#6a74ac" stroke-width="7" fill="none" stroke-linecap="round"/>
+        <path d="M-114,-30 l-8,-3 M-114,-30 l-9,2 M-114,-30 l-7,7" stroke="#3a4170" stroke-width="2.5" stroke-linecap="round"/>
+      </g>
+      <g id="body">
+        <circle cx="-58" cy="-78" r="50" fill="url(#bodyG)"/>
+        <ellipse cx="-8" cy="-82" rx="84" ry="56" fill="url(#bodyG)"/>
+        <circle cx="34" cy="-100" r="42" fill="url(#bodyG)"/>
+        <circle cx="66" cy="-118" r="36" fill="url(#bodyG)"/>
+        <ellipse cx="-12" cy="-46" rx="62" ry="22" fill="#525b93" opacity=".35"/>
+        <path d="M-100,-92 Q-20,-150 40,-146" stroke="#ffc793" stroke-width="3.5" fill="none" opacity=".26" stroke-linecap="round"/>
+      </g>
+      <g id="blanket">
+        <path d="M-68,-116 Q-30,-132 10,-116 L4,-72 Q-28,-62 -58,-74 Z" fill="#c34a48" stroke="#f0c46a" stroke-width="2.5"/>
+        <circle cx="-29" cy="-95" r="8" fill="#f0c46a"/>
+        <circle cx="-29" cy="-95" r="3.5" fill="#a03a38"/>
+        <path d="M-56,-76 l3,9 l4,-8 Z M-46,-73 l3,9 l4,-8 Z M-36,-71 l3,9 l4,-8 Z M-26,-70 l3,9 l4,-8 Z M-16,-70 l3,9 l4,-8 Z M-6,-71 l3,9 l4,-8 Z" fill="#f0c46a"/>
+      </g>
+      <g id="ear">
+        <path d="M50,-138 C18,-156 -8,-136 2,-98 C10,-70 42,-68 56,-94 C64,-110 62,-126 50,-138 Z" fill="url(#earG)"/>
+        <path d="M46,-132 C22,-144 4,-128 10,-100 C16,-80 38,-80 48,-98 C54,-110 52,-122 46,-132 Z" fill="#454e85" opacity=".85"/>
+      </g>
+      <g id="eyeG">
+        <ellipse id="eyeW" cx="78" cy="-126" rx="6" ry="5.4" fill="#f6f3ea"/>
+        <circle id="pupil" cx="79" cy="-126" r="2.5" fill="#232746"/>
+        <ellipse id="lid" cx="78" cy="-126" rx="7.2" ry="0" fill="#5d679e"/>
+      </g>
+      <path id="trunk" fill="url(#bodyG)"/>
+      <circle id="trunkTip" r="5.5" fill="#6a74ac"/>
+      <g id="legNR">
+        <rect x="-61" y="-74" width="26" height="72" rx="9" fill="url(#bodyG)"/>
+        <ellipse cx="-48" cy="-9" rx="16" ry="9" fill="url(#bodyG)"/>
+        <rect x="-44" y="-11" width="6" height="9" rx="3" fill="#ded6c2"/>
+        <rect x="-37" y="-10" width="6" height="8" rx="3" fill="#ded6c2"/>
+        <rect x="-30" y="-10" width="5.5" height="7" rx="2.7" fill="#ded6c2"/>
+      </g>
+      <g id="legNF">
+        <rect x="32" y="-74" width="26" height="72" rx="9" fill="url(#bodyG)"/>
+        <ellipse cx="45" cy="-9" rx="16" ry="9" fill="url(#bodyG)"/>
+        <rect x="49" y="-11" width="6" height="9" rx="3" fill="#ded6c2"/>
+        <rect x="55" y="-10" width="6" height="8" rx="3" fill="#ded6c2"/>
+        <rect x="61" y="-10" width="5.5" height="7" rx="2.7" fill="#ded6c2"/>
+      </g>
+      <circle id="sw0" r="2.6" fill="#d6e9ff" opacity="0"/>
+      <circle id="sw1" r="3.1" fill="#d6e9ff" opacity="0"/>
+      <circle id="sw2" r="3.6" fill="#d6e9ff" opacity="0"/>
+    </g>
+
+    <g id="streaksG"></g>
+  </g>
+
+  <!-- ======================= FOREGROUND ======================= -->
+  <g id="Lfg">
+    <g id="grass1" transform="translate(60,900)"><path d="M-14,0 L-8,-26 L-1,0 Z M-4,0 L2,-36 L10,0 Z M8,0 L16,-46 L24,0 Z M22,0 L30,-28 L38,0 Z M36,0 L44,-20 L50,0 Z" fill="#06040f"/></g>
+    <g id="grass2" transform="translate(210,900) scale(.7)"><path d="M-14,0 L-8,-26 L-1,0 Z M-4,0 L2,-36 L10,0 Z M8,0 L16,-46 L24,0 Z M22,0 L30,-28 L38,0 Z M36,0 L44,-20 L50,0 Z" fill="#06040f"/></g>
+    <g id="grass3" transform="translate(1400,900) scale(.85)"><path d="M-14,0 L-8,-26 L-1,0 Z M-4,0 L2,-36 L10,0 Z M8,0 L16,-46 L24,0 Z M22,0 L30,-28 L38,0 Z M36,0 L44,-20 L50,0 Z" fill="#06040f"/></g>
+    <g id="grass4" transform="translate(1520,900)"><path d="M-14,0 L-8,-26 L-1,0 Z M-4,0 L2,-36 L10,0 Z M8,0 L16,-46 L24,0 Z M22,0 L30,-28 L38,0 Z M36,0 L44,-20 L50,0 Z" fill="#06040f"/></g>
+    <g id="firefliesG"></g>
+  </g>
+
+  <g>
+    <rect x="0" y="0" width="1600" height="900" fill="url(#vigG)"/>
+    <rect x="0" y="0" width="1600" height="240" fill="url(#topShade)"/>
+  </g>
+</svg>
+
+<script>
+(function(){
+  'use strict';
+  var TAU = Math.PI * 2, RAD = Math.PI / 180;
+  var $ = function(id){ return document.getElementById(id); };
+  var NS = 'http://www.w3.org/2000/svg';
+  function mk(tag, attrs, parent){
+    var e = document.createElementNS(NS, tag);
+    for(var k in attrs) e.setAttribute(k, attrs[k]);
+    if(parent) parent.appendChild(e);
+    return e;
+  }
+  function rng(seed){
+    return function(){
+      seed |= 0; seed = seed + 0x6D2B79F5 | 0;
+      var t = Math.imul(seed ^ seed >>> 15, 1 | seed);
+      t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+      return ((t ^ t >>> 14) >>> 0) / 4294967296;
+    };
+  }
+  function mod(a, m){ return ((a % m) + m) % m; }
+  function clamp(v, a, b){ return v < a ? a : (v > b ? b : v); }
+
+  /* ---------------- static builders ---------------- */
+  var R = rng(20261011);
+
+  // stars
+  var stars = [], starsG = $('starsG');
+  var starCols = ['#ffffff', '#ffeecb', '#cfd8ff'];
+  for(var i = 0; i < 110; i++){
+    var e = mk('circle', {cx: (-60 + R() * 1720).toFixed(1), cy: (-20 + R() * 620).toFixed(1),
+      r: (0.5 + R() * 1.5).toFixed(2), fill: starCols[i % 3]}, starsG);
+    stars.push({e: e, ph: R() * TAU, f: 0.5 + R() * 1.6});
+  }
+
+  // clouds
+  var clouds = [], cloudsG = $('cloudsG');
+  var cloudParts = [[0,0,70,26],[-55,10,45,20],[58,8,50,22],[18,-16,44,19]];
+  for(i = 0; i < 4; i++){
+    var g = mk('g', {}, cloudsG);
+    var s = 0.85 + R() * 0.7, op = 0.09 + R() * 0.07;
+    for(var j = 0; j < cloudParts.length; j++){
+      var cp = cloudParts[j];
+      mk('ellipse', {cx: cp[0], cy: cp[1], rx: cp[2], ry: cp[3], fill: '#c9c8ee', opacity: op}, g);
+    }
+    clouds.push({g: g, x0: R() * 2200, y: 90 + R() * 300, s: s, off: R() * 2200});
+  }
+
+  // birds
+  var birds = [], birdsG = $('birdsG');
+  for(i = 0; i < 3; i++){
+    var b = mk('path', {d: 'M-8,0 Q-4,-6 0,0 Q4,-6 8,0', stroke: '#2a2050',
+      'stroke-width': 2.2, fill: 'none', 'stroke-linecap': 'round', opacity: .55}, birdsG);
+    birds.push({e: b, x0: R() * 1900, y: 120 + R() * 180, ph: R() * TAU});
+  }
+
+  // searchlight beams handled per-frame (beam1/beam2)
+
+  // tent string lights
+  var tentLights = [], tentLightsG = $('tentLights');
+  var tlPos = [[216,596],[238,604],[262,611],[286,616],[314,616],[338,611],[362,604],[384,596]];
+  for(i = 0; i < tlPos.length; i++){
+    mk('circle', {cx: tlPos[i][0], cy: tlPos[i][1], r: 7, fill: '#ffd27a', opacity: .12}, tentLightsG);
+    var tl = mk('circle', {cx: tlPos[i][0], cy: tlPos[i][1], r: 3, fill: '#ffd27a'}, tentLightsG);
+    tentLights.push({e: tl, ph: i * 0.8});
+  }
+
+  // ferris wheel
+  var spokesG = $('spokesG');
+  for(i = 0; i < 8; i++){
+    var a = i * TAU / 8;
+    mk('line', {x1: 0, y1: 0, x2: 104 * Math.sin(a), y2: -104 * Math.cos(a),
+      stroke: '#2b1d47', 'stroke-width': 3.5, opacity: .8}, spokesG);
+  }
+  var rimLights = [], rimLightsG = $('rimLights');
+  for(i = 0; i < 12; i++){
+    a = i * TAU / 12;
+    var rl = mk('circle', {cx: 110 * Math.sin(a), cy: -110 * Math.cos(a), r: 2.6,
+      fill: i % 2 ? '#ffd27a' : '#9fd8ff'}, rimLightsG);
+    rimLights.push({e: rl, ph: i * 0.55});
+  }
+  var gondolas = [], gondolasG = $('gondolasG');
+  var cabCols = ['#2f2050', '#34255a', '#2f2050', '#3a2866', '#2f2050', '#34255a', '#2f2050', '#3a2866'];
+  var dotCols = ['#ffd27a', '#7ad0c0', '#ff8a7a', '#9fd8ff'];
+  for(i = 0; i < 8; i++){
+    var gg = mk('g', {}, gondolasG);
+    mk('line', {x1: 0, y1: 0, x2: 0, y2: 11, stroke: '#221741', 'stroke-width': 2}, gg);
+    mk('circle', {cx: 0, cy: 17.5, r: 7.5, fill: cabCols[i]}, gg);
+    mk('circle', {cx: 0, cy: 11.5, r: 2.5, fill: dotCols[i % 4]}, gg);
+    gondolas.push(gg);
+  }
+
+  // bunting flags
+  function quadPt(p0, c, p1, u){
+    var v = 1 - u;
+    return [v * v * p0[0] + 2 * v * u * c[0] + u * u * p1[0],
+            v * v * p0[1] + 2 * v * u * c[1] + u * u * p1[1]];
+  }
+  var buntFlags = [], buntFlagsG = $('buntFlags');
+  var flagCols = ['#e05a5a', '#f0b452', '#58b8a0'];
+  var leftStr = [[-20, 520], [110, 560], [250, 284]];
+  var rightStr = [[1350, 284], [1510, 585], [1620, 540]];
+  for(i = 0; i < 6; i++){
+    var u = 0.12 + i * 0.14;
+    var pt = quadPt(leftStr[0], leftStr[1], leftStr[2], u);
+    var f = mk('path', {d: 'M0,0 L15,2.5 L5.5,19 Z', fill: flagCols[i % 3]}, buntFlagsG);
+    buntFlags.push({e: f, x: pt[0], y: pt[1], ph: i * 1.05});
+  }
+  for(i = 0; i < 6; i++){
+    u = 0.1 + i * 0.15;
+    pt = quadPt(rightStr[0], rightStr[1], rightStr[2], u);
+    f = mk('path', {d: 'M0,0 L-15,2.5 L-5.5,19 Z', fill: flagCols[(i + 1) % 3]}, buntFlagsG);
+    buntFlags.push({e: f, x: pt[0], y: pt[1], ph: i * 1.3 + 2});
+  }
+
+  // wind streaks
+  var streaks = [], streaksG = $('streaksG');
+  for(i = 0; i < 14; i++){
+    var st = mk('line', {stroke: '#cbd2f0', 'stroke-width': 1.5, 'stroke-linecap': 'round', opacity: 0}, streaksG);
+    streaks.push({e: st, x0: i * 137 + 40, y: 240 + R() * 480, len: 40 + R() * 55, o: 0.5 + R() * 0.5});
+  }
+
+  // fireflies
+  var flies = [], firefliesG = $('firefliesG');
+  for(i = 0; i < 9; i++){
+    var halo = mk('circle', {r: 6, fill: '#ffe9a8', opacity: .1}, firefliesG);
+    var fl = mk('circle', {r: 2.1, fill: '#ffe9a8'}, firefliesG);
+    flies.push({e: fl, h: halo, x0: 100 + R() * 1400, y0: 560 + R() * 210,
+      p1: 0.05 + R() * 0.06, p2: 0.04 + R() * 0.05, ph: R() * TAU, ph2: R() * TAU});
+  }
+
+  /* ---------------- element refs ---------------- */
+  var elLsky = $('Lsky'), elLmid = $('Lmid'), elLmain = $('Lmain'), elLfg = $('Lfg');
+  var elWire = $('wire'), elWireGlow = $('wireGlow'), elWireHi = $('wireHi');
+  var elPoleG = $('poleG'), elBpole = $('bpole'), elBpoleHi = $('bpoleHi');
+  var elKnobL = $('knobL'), elKnobR = $('knobR'), elTasL = $('tasL'), elTasR = $('tasR');
+  var elEle = $('elephant'), elEar = $('ear'), elTail = $('tail');
+  var elTrunk = $('trunk'), elTrunkTip = $('trunkTip');
+  var elEyeW = $('eyeW'), elPupil = $('pupil'), elLid = $('lid');
+  var elLegNF = $('legNF'), elLegNR = $('legNR'), elLegFF = $('legFF'), elLegFR = $('legFR');
+  var elPenL = $('penL'), elPenR = $('penR'), elTentFlag = $('tentFlag');
+  var elWheelG = $('wheelG'), elBeacon = $('beacon');
+  var elBeam1 = $('beam1'), elBeam2 = $('beam2');
+  var elEntrance = $('entranceGlow');
+  var sw = [$('sw0'), $('sw1'), $('sw2')];
+  var grass = [$('grass1'), $('grass2'), $('grass3'), $('grass4')];
+
+  /* ---------------- oscillators (damped springs) ---------------- */
+  function spr(o, target, k, c, dt){
+    o.v += (k * (target - o.a) - c * o.v) * dt;
+    o.a += o.v * dt;
+  }
+  var steer = {a: 0, v: 0};   // body lean (deg)
+  var pole  = {a: 0, v: 0};   // balance pole angle (deg)
+  var tas   = {a: 0, v: 0};   // tassel swing (deg)
+  var sway  = {a: 0, v: 0};   // lateral slide (px)
+  var bnc   = {a: 0, v: 0};   // bounce (px)
+  var tail  = {a: 0, v: 0};   // tail swing (deg)
+
+  /* ---------------- trunk sampler ---------------- */
+  function cubic(p0, p1, p2, p3, u){
+    var v = 1 - u;
+    var a = v * v * v, b = 3 * v * v * u, c = 3 * v * u * u, d = u * u * u;
+    return [a * p0[0] + b * p1[0] + c * p2[0] + d * p3[0],
+            a * p0[1] + b * p1[1] + c * p2[1] + d * p3[1]];
+  }
+  function trunkPath(B, C1, C2, T){
+    var n = 26, L = [], Rt = [], prev = cubic(B, C1, C2, T, 0);
+    for(var i = 0; i <= n; i++){
+      var uu = i / n;
+      var q = cubic(B, C1, C2, T, uu);
+      var q2 = cubic(B, C1, C2, T, Math.min(1, uu + 0.012));
+      var dx = q2[0] - prev[0], dy = q2[1] - prev[1];
+      if(i === n){ dx = q[0] - prev[0]; dy = q[1] - prev[1]; }
+      var m = Math.hypot(dx, dy) || 1;
+      var nx = -dy / m, ny = dx / m;
+      var hw = 7.5 - 3.4 * uu;
+      L.push((q[0] + nx * hw).toFixed(1) + ',' + (q[1] + ny * hw).toFixed(1));
+      Rt.push((q[0] - nx * hw).toFixed(1) + ',' + (q[1] - ny * hw).toFixed(1));
+      prev = q;
+    }
+    return 'M' + L.join('L') + 'L' + Rt.reverse().join('L') + 'Z';
+  }
+
+  /* ---------------- main loop ---------------- */
+  var t0 = performance.now(), tPrev = 0;
+
+  function tick(now){
+    var t = (now - t0) / 1000;
+    var dt = clamp(t - tPrev, 0.001, 0.05);
+    tPrev = t;
+
+    /* ---- wind: calm / main gust (peak ~5.3s) / mild gust (~16.8s) ---- */
+    var p = mod(t, 24) / 24;
+    function win(a, b){ return clamp((p - a) / (b - a), 0, 1); }
+    var g1 = Math.pow(Math.sin(Math.PI * win(0.06, 0.38)), 1.4);
+    var g2 = 0.45 * Math.pow(Math.sin(Math.PI * win(0.55, 0.85)), 2);
+    var w = 0.12 + Math.min(1.15, g1 + g2);
+
+    /* ---- physics ---- */
+    spr(steer, 6.5 * w, 24, 5.5, dt);                       // pushed downwind
+    spr(pole, -steer.a * 1.7 - w * 7, 17, 3.2, dt);         // pole whips counter
+    spr(tas, -pole.a * 1.25 - steer.a * 0.4, 38, 5, dt);
+    spr(sway, 9 * w, 20, 6, dt);
+    spr(bnc, 4 * w, 30, 7, dt);
+    spr(tail, -steer.a * 0.8 + 4 * Math.sin(TAU * t / 3.3), 30, 6, dt);
+
+    var thDeg = steer.a + 1.05 * Math.sin(TAU * t / 6.4) + 0.6 * Math.sin(TAU * t / 4.1 + 1.7);
+    var th = thDeg * RAD;
+    var bob = 2.4 * Math.sin(TAU * t / 5.2) + bnc.a + (0.9 + 5.5 * w) * Math.sin(TAU * 2.7 * t + 1.3) * 0.7;
+    var contactY = 326 + bob;
+    var c = Math.cos(th), s = Math.sin(th);
+    function ew(lx, ly){   // elephant-local -> world
+      return [800 + sway.a + (lx * c - ly * s) * 1.35,
+              contactY + (lx * s + ly * c) * 1.35];
+    }
+
+    /* ---- elephant ---- */
+    elEle.setAttribute('transform',
+      'translate(' + (800 + sway.a).toFixed(1) + ',' + contactY.toFixed(1) +
+      ') rotate(' + thDeg.toFixed(2) + ') scale(1.35)');
+
+    // ear flap
+    var earA = 2.6 * Math.sin(TAU * t / 2.7) + 15 * w * Math.sin(TAU * 2.1 * t);
+    elEar.setAttribute('transform', 'rotate(' + earA.toFixed(2) + ' 48 -140)');
+
+    // tail
+    elTail.setAttribute('transform', 'rotate(' + (tail.a + 2 * Math.sin(TAU * t / 2.3)).toFixed(2) + ' -104 -84)');
+
+    // legs: subtle weight shift
+    elLegNF.setAttribute('transform', 'rotate(' + (1.5 * Math.sin(TAU * t / 5.2 + 2.1)).toFixed(2) + ' 45 -4)');
+    elLegNR.setAttribute('transform', 'rotate(' + (1.5 * Math.sin(TAU * t / 5.2)).toFixed(2) + ' -48 -4)');
+    elLegFF.setAttribute('transform', 'rotate(' + (1.0 * Math.sin(TAU * t / 5.2 + 4.2)).toFixed(2) + ' 23.5 -4)');
+    elLegFR.setAttribute('transform', 'rotate(' + (1.0 * Math.sin(TAU * t / 5.2 + 2.1)).toFixed(2) + ' -30.5 -4)');
+
+    // eye: fear during gust + occasional blink
+    elEyeW.setAttribute('ry', (5.4 + 1.5 * w).toFixed(2));
+    elPupil.setAttribute('cx', (79 + steer.a * 0.12 - 2.5 * w).toFixed(2));
+    elPupil.setAttribute('cy', (-126 - 2.2 * w + steer.a * 0.06).toFixed(2));
+    elPupil.setAttribute('r', Math.max(1.2, 2.5 - 1.1 * w).toFixed(2));
+    var bp = mod(t, 3.9);
+    var blink = bp < 0.14 ? Math.sin(Math.PI * bp / 0.14) : 0;
+    blink *= (1 - clamp(w, 0, 1));   // too scared to blink
+    elLid.setAttribute('ry', (7.5 * blink).toFixed(2));
+
+    // trunk: grip the pole; droops & jitters with effort
+    var jx = 2.2 * w * Math.sin(TAU * 3.1 * t);
+    var jy = 1.5 * w * Math.sin(TAU * 2.3 * t + 1);
+    var gripLocal = [58 + jx, -196 + w * 6 + jy];
+    var T = gripLocal;
+    elTrunk.setAttribute('d', trunkPath([94, -102], [118, -142], [106, -190], T));
+    elTrunkTip.setAttribute('cx', T[0].toFixed(1));
+    elTrunkTip.setAttribute('cy', T[1].toFixed(1));
+
+    /* ---- balance pole ---- */
+    var gripW = ew(gripLocal[0], gripLocal[1]);
+    var poleFrame = thDeg + pole.a;
+    var dEnd = 8 + Math.abs(pole.a) * 0.55 + w * 7;
+    elPoleG.setAttribute('transform',
+      'translate(' + gripW[0].toFixed(1) + ',' + gripW[1].toFixed(1) + ') rotate(' + poleFrame.toFixed(2) + ')');
+    var pd = 'M-192,' + dEnd.toFixed(1) + ' Q0,' + (-9 - dEnd * 0.35).toFixed(1) + ' 192,' + dEnd.toFixed(1);
+    elBpole.setAttribute('d', pd);
+    elBpoleHi.setAttribute('d', pd);
+    elKnobL.setAttribute('cx', -192); elKnobL.setAttribute('cy', dEnd);
+    elKnobR.setAttribute('cx', 192);  elKnobR.setAttribute('cy', dEnd);
+    var tasLocal = tas.a - poleFrame;
+    elTasL.setAttribute('transform', 'translate(-192,' + dEnd.toFixed(1) + ') rotate(' + tasLocal.toFixed(1) + ')');
+    elTasR.setAttribute('transform', 'translate(192,' + dEnd.toFixed(1) + ') rotate(' + tasLocal.toFixed(1) + ')');
+
+    /* ---- wire follows the elephant's contact point ---- */
+    var wy = (2 * contactY - 284).toFixed(1);
+    var wd = 'M250,284 Q800,' + wy + ' 1350,284';
+    elWire.setAttribute('d', wd);
+    elWireGlow.setAttribute('d', wd);
+    elWireHi.setAttribute('d', wd);
+
+    /* ---- sweat drops during peak gust ---- */
+    for(var i = 0; i < 3; i++){
+      var li = (p - 0.19) / 0.16 - i * 0.21;
+      if(li > 0 && li < 1 && g1 > 0.4){
+        sw[i].setAttribute('opacity', ((1 - li) * 0.9).toFixed(2));
+        sw[i].setAttribute('cx', (62 - 34 * li).toFixed(1));
+        sw[i].setAttribute('cy', (-158 - 64 * li + 118 * li * li).toFixed(1));
+      } else {
+        sw[i].setAttribute('opacity', 0);
+      }
+    }
+
+    /* ---- wind streaks ---- */
+    for(i = 0; i < streaks.length; i++){
+      var st = streaks[i];
+      var x = mod(st.x0 + (90 + 560 * w) * t, 1900) - 150;
+      st.e.setAttribute('x1', x.toFixed(1));
+      st.e.setAttribute('y1', st.y);
+      st.e.setAttribute('x2', (x + st.len * (0.5 + w)).toFixed(1));
+      st.e.setAttribute('y2', st.y + 2);
+      st.e.setAttribute('opacity', (0.04 + 0.25 * w * st.o).toFixed(3));
+    }
+
+    /* ---- sky & ambience ---- */
+    for(i = 0; i < stars.length; i++){
+      var s2 = stars[i];
+      s2.e.setAttribute('opacity', (0.3 + 0.6 * (0.5 + 0.5 * Math.sin(s2.f * t + s2.ph))).toFixed(2));
+    }
+    for(i = 0; i < clouds.length; i++){
+      var cl = clouds[i];
+      var cx = mod(cl.x0 + (8 + 55 * w) * t + cl.off, 2200) - 350;
+      cl.g.setAttribute('transform', 'translate(' + cx.toFixed(1) + ',' + cl.y + ') scale(' + cl.s + ')');
+    }
+    for(i = 0; i < birds.length; i++){
+      var bd = birds[i];
+      var bx = mod(bd.x0 + 26 * t, 1900) - 100;
+      var by = bd.y + 14 * Math.sin(TAU * t / 5 + bd.ph);
+      var flap = 0.35 + 0.65 * Math.abs(Math.sin(t * 6 + bd.ph));
+      bd.e.setAttribute('transform', 'translate(' + bx.toFixed(1) + ',' + by.toFixed(1) + ') scale(1,' + flap.toFixed(2) + ')');
+    }
+    elBeam1.setAttribute('transform', 'rotate(' + (-16 + 20 * Math.sin(TAU * t / 11)).toFixed(2) + ' 300 445)');
+    elBeam2.setAttribute('transform', 'rotate(' + (14 + 17 * Math.sin(TAU * t / 13 + 2.1)).toFixed(2) + ' 300 445)');
+    elEntrance.setAttribute('opacity', (0.34 + 0.08 * Math.sin(TAU * t / 3.7)).toFixed(2));
+    elTentFlag.setAttribute('transform', 'rotate(' + ((3 + 9 * w) * Math.sin(TAU * 1.7 * t + 0.5)).toFixed(1) + ' 300 396)');
+    elPenL.setAttribute('transform', 'rotate(' + ((3 + 12 * w) * Math.sin(TAU * 2.3 * t)).toFixed(1) + ' 258 281)');
+    elPenR.setAttribute('transform', 'rotate(' + ((3 + 12 * w) * Math.sin(TAU * 2.3 * t + 1.4)).toFixed(1) + ' 1342 281)');
+    for(i = 0; i < buntFlags.length; i++){
+      var bf = buntFlags[i];
+      bf.e.setAttribute('transform', 'translate(' + bf.x + ',' + bf.y + ') rotate(' +
+        ((2 + 10 * w) * Math.sin(TAU * 1.9 * t + bf.ph)).toFixed(1) + ')');
+    }
+    for(i = 0; i < tentLights.length; i++){
+      tentLights[i].e.setAttribute('opacity', (0.55 + 0.45 * Math.sin(t * 2 + tentLights[i].ph)).toFixed(2));
+    }
+
+    /* ---- ferris wheel ---- */
+    var wheelDeg = mod(t * 360 / 46, 360);
+    elWheelG.setAttribute('transform', 'translate(1425,590) rotate(' + wheelDeg.toFixed(2) + ')');
+    elBeacon.setAttribute('opacity', (0.35 + 0.65 * (0.5 + 0.5 * Math.sin(TAU * t / 1.8))).toFixed(2));
+    for(i = 0; i < rimLights.length; i++){
+      rimLights[i].e.setAttribute('opacity', (0.45 + 0.55 * (0.5 + 0.5 * Math.sin(t * 1.6 + rimLights[i].ph))).toFixed(2));
+    }
+    for(i = 0; i < gondolas.length; i++){
+      var ga = wheelDeg * RAD + i * TAU / 8;
+      gondolas[i].setAttribute('transform',
+        'translate(' + (1425 + 110 * Math.sin(ga)).toFixed(1) + ',' + (590 - 110 * Math.cos(ga)).toFixed(1) + ')');
+    }
+
+    /* ---- fireflies ---- */
+    for(i = 0; i < flies.length; i++){
+      var ff = flies[i];
+      var fx = ff.x0 + 30 * Math.sin(TAU * ff.p1 * t + ff.ph);
+      var fy = ff.y0 + 22 * Math.sin(TAU * ff.p2 * t + ff.ph2);
+      var fo = 0.25 + 0.55 * (0.5 + 0.5 * Math.sin(t * 1.7 + ff.ph * 3));
+      ff.e.setAttribute('cx', fx.toFixed(1)); ff.e.setAttribute('cy', fy.toFixed(1));
+      ff.e.setAttribute('opacity', fo.toFixed(2));
+      ff.h.setAttribute('cx', fx.toFixed(1)); ff.h.setAttribute('cy', fy.toFixed(1));
+      ff.h.setAttribute('opacity', (fo * 0.25).toFixed(2));
+    }
+
+    /* ---- grass sway ---- */
+    for(i = 0; i < grass.length; i++){
+      var base = [[18, 0], [12.6, 0], [15.3, 0], [18, 0]][i];
+      grass[i].setAttribute('transform', grass[i].getAttribute('transform').split(' ').slice(0, 2).join(' ') +
+        ' rotate(' + ((1.5 + 4 * w) * Math.sin(TAU * 0.9 * t + i * 1.7)).toFixed(2) + ' ' + base[0] + ' ' + base[1] + ')');
+    }
+
+    /* ---- camera: slow dolly + drift, layered parallax ---- */
+    var pan = 10 * Math.sin(TAU * t / 47);
+    var zoom = 1 + 0.05 * (0.5 - 0.5 * Math.cos(TAU * t / 67));
+    function layer(el, f){
+      var sl = 1 + (zoom - 1) * f;
+      el.setAttribute('transform',
+        'translate(800 450) scale(' + sl.toFixed(4) + ') translate(-800 -450) translate(' + (-pan * f).toFixed(1) + ' 0)');
+    }
+    layer(elLsky, 0.25); layer(elLmid, 0.55); layer(elLmain, 1); layer(elLfg, 1.4);
+
+    requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+})();
+</script>
+<!--zc-home:start--><style>.zc-home-btn{position:fixed;top:16px;left:16px;z-index:2147483647;display:inline-flex;align-items:center;gap:6px;padding:8px 14px;font:500 13px/1.1 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Noto Sans SC",sans-serif;color:#111;background:rgba(255,255,255,.86);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);border:1px solid rgba(0,0,0,.08);border-radius:999px;text-decoration:none;box-shadow:0 2px 12px rgba(0,0,0,.2);transition:background .2s ease,transform .2s ease,box-shadow .2s ease}.zc-home-btn:hover{background:#fff;transform:translateY(-1px);box-shadow:0 4px 18px rgba(0,0,0,.26)}</style><a class="zc-home-btn" href="../">← 返回首页</a><!--zc-home:end-->
+</body>
+</html>

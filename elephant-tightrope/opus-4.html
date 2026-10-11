@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>钢丝上的大象</title>
+<style>
+  html,body{margin:0;height:100%;background:#070a16;overflow:hidden;}
+  #stage{position:fixed;inset:0;}
+  svg{position:absolute;inset:0;width:100%;height:100%;display:block;}
+  #vignette{position:fixed;inset:0;pointer-events:none;
+    background:radial-gradient(ellipse 70% 60% at 50% 44%,
+       rgba(0,0,0,0) 55%, rgba(5,6,16,0.42) 85%, rgba(3,4,12,0.72) 100%);}
+</style>
+</head>
+<body>
+<div id="stage">
+  <svg id="scene" viewBox="0 0 1280 820" preserveAspectRatio="xMidYMid slice">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%"  stop-color="#1b2b55"/>
+      <stop offset="34%" stop-color="#394a86"/>
+      <stop offset="60%" stop-color="#8f6ea0"/>
+      <stop offset="80%" stop-color="#e58f6f"/>
+      <stop offset="100%" stop-color="#f6c67e"/>
+    </linearGradient>
+    <radialGradient id="sunGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%"  stop-color="#fff4d6" stop-opacity="1"/>
+      <stop offset="22%" stop-color="#ffdf9b" stop-opacity="0.95"/>
+      <stop offset="55%" stop-color="#ffb86b" stop-opacity="0.45"/>
+      <stop offset="100%" stop-color="#ffb86b" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="sunDisk" cx="50%" cy="42%" r="60%">
+      <stop offset="0%" stop-color="#fff7e3"/>
+      <stop offset="70%" stop-color="#ffe3a6"/>
+      <stop offset="100%" stop-color="#ffcf86"/>
+    </radialGradient>
+    <linearGradient id="haze" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%"  stop-color="#f6c67e" stop-opacity="0"/>
+      <stop offset="55%" stop-color="#d9a98f" stop-opacity="0.55"/>
+      <stop offset="100%" stop-color="#5b5a84" stop-opacity="0.9"/>
+    </linearGradient>
+    <linearGradient id="ground" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#4a4a74" stop-opacity="0.85"/>
+      <stop offset="100%" stop-color="#20203e"/>
+    </linearGradient>
+    <linearGradient id="eleBody" x1="0" y1="0" x2="0.25" y2="1">
+      <stop offset="0%"  stop-color="#9aa0b4"/>
+      <stop offset="45%" stop-color="#767d95"/>
+      <stop offset="100%" stop-color="#4e546b"/>
+    </linearGradient>
+    <linearGradient id="eleRim" x1="0" y1="0" x2="1" y2="0.3">
+      <stop offset="0%" stop-color="#ffd9a0" stop-opacity="0.9"/>
+      <stop offset="30%" stop-color="#ffd9a0" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="pole" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#c69a62"/>
+      <stop offset="50%" stop-color="#8a5f36"/>
+      <stop offset="100%" stop-color="#5c3f23"/>
+    </linearGradient>
+    <radialGradient id="spot" cx="50%" cy="0%" r="80%">
+      <stop offset="0%" stop-color="#fff4d6" stop-opacity="0.22"/>
+      <stop offset="100%" stop-color="#fff4d6" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="soft" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="6"/>
+    </filter>
+    <filter id="blurBig" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="22"/>
+    </filter>
+    <filter id="eleShadow" x="-40%" y="-40%" width="180%" height="200%">
+      <feDropShadow dx="0" dy="16" stdDeviation="14" flood-color="#1a1026" flood-opacity="0.45"/>
+    </filter>
+  </defs>
+  <g id="cam">
+    <!-- sky -->
+    <rect x="-80" y="-80" width="1440" height="980" fill="url(#sky)"/>
+    <!-- sun -->
+    <circle cx="360" cy="250" r="300" fill="url(#sunGlow)"/>
+    <circle cx="360" cy="250" r="86" fill="url(#sunDisk)"/>
+    <!-- drifting clouds (far) -->
+    <g id="clouds" opacity="0.9"></g>
+    <!-- soft spotlight beam from above -->
+    <polygon points="560,-80 720,-80 980,560 300,560" fill="url(#spot)"/>
+    <!-- depth haze + distant ground -->
+    <rect x="-80" y="470" width="1440" height="430" fill="url(#haze)"/>
+    <path d="M-80,700 Q 300,660 640,686 T 1360,700 L1360,900 L-80,900 Z" fill="url(#ground)"/>
+    <g id="crowd" opacity="0.55"></g>
+    <!-- support posts -->
+    <g stroke="#2c2740" stroke-width="2">
+      <path d="M118,300 L104,900 L150,900 L128,300 Z" fill="#3a3352"/>
+      <path d="M1162,300 L1176,900 L1130,900 L1152,300 Z" fill="#342e4c"/>
+    </g>
+    <circle cx="123" cy="300" r="7" fill="#241f36"/>
+    <circle cx="1157" cy="300" r="7" fill="#241f36"/>
+    <!-- top pennants -->
+    <path id="flagL" d="M123,286 q 42,-6 42,12 q 0,18 -42,10 Z" fill="#e2614e"/>
+    <path id="flagR" d="M1157,286 q -42,-6 -42,12 q 0,18 42,10 Z" fill="#f0b24c"/>
+    <!-- the wire -->
+    <path id="wire" fill="none" stroke="#20141c" stroke-width="3" stroke-linecap="round"/>
+    <path id="wireHi" fill="none" stroke="#ffe6b8" stroke-width="1" stroke-linecap="round" opacity="0.5"/>
+    <!-- elephant + balance pole -->
+    <g id="ele">
+      <g id="eleTilt" filter="url(#eleShadow)">
+        <!-- tail -->
+        <g id="tail">
+          <path d="M168,-232 q 34,20 30,66 q -4,34 10,54"
+                fill="none" stroke="#565c73" stroke-width="12" stroke-linecap="round"/>
+          <path d="M205,-108 q 8,20 -2,34 q -14,-4 -16,-20 q 0,-14 18,-14 Z" fill="#3f4458"/>
+        </g>
+        <!-- far legs (darker) -->
+        <g fill="#565c73">
+          <rect x="40" y="-134" width="34" height="138" rx="15"/>
+          <rect x="-50" y="-134" width="34" height="138" rx="15"/>
+        </g>
+        <!-- body -->
+        <ellipse cx="6" cy="-206" rx="168" ry="120" fill="url(#eleBody)"/>
+        <ellipse cx="20" cy="-150" rx="150" ry="82" fill="#4a5067" opacity="0.5"/>
+        <!-- near legs (lighter) -->
+        <g fill="url(#eleBody)">
+          <rect x="18" y="-128" width="36" height="132" rx="16"/>
+          <rect x="-76" y="-128" width="36" height="132" rx="16"/>
+        </g>
+        <!-- feet pads -->
+        <g fill="#3a3f54">
+          <ellipse cx="36" cy="-2" rx="24" ry="11"/>
+          <ellipse cx="-58" cy="-2" rx="24" ry="11"/>
+          <ellipse cx="57" cy="-3" rx="20" ry="9" opacity="0.8"/>
+          <ellipse cx="-33" cy="-3" rx="20" ry="9" opacity="0.8"/>
+        </g>
+        <g fill="#d9d2c4" opacity="0.85">
+          <circle cx="26" cy="2" r="3"/><circle cx="40" cy="3" r="3"/><circle cx="52" cy="2" r="3"/>
+          <circle cx="-68" cy="2" r="3"/><circle cx="-54" cy="3" r="3"/><circle cx="-42" cy="2" r="3"/>
+        </g>
+        <!-- head group -->
+        <g id="head">
+          <!-- ear -->
+          <g id="ear">
+            <path d="M-96,-284 q -92,-6 -96,96 q -4,86 92,70 q 20,-70 20,-110 q 0,-44 -16,-56 Z"
+                  fill="#6a7088"/>
+            <path d="M-104,-262 q -66,2 -66,78 q 0,56 64,50 q 14,-56 14,-82 q 0,-36 -12,-46 Z"
+                  fill="#4d5368"/>
+          </g>
+          <!-- head -->
+          <ellipse cx="-150" cy="-182" rx="96" ry="92" fill="url(#eleBody)"/>
+          <ellipse cx="-150" cy="-250" rx="60" ry="46" fill="url(#eleBody)"/>
+          <!-- eye -->
+          <ellipse cx="-200" cy="-184" rx="11" ry="12" fill="#2a2436"/>
+          <circle cx="-203" cy="-188" r="3.4" fill="#fff" opacity="0.85"/>
+          <path d="M-214,-200 q 14,-9 28,-2" fill="none" stroke="#3a3344" stroke-width="2.4" stroke-linecap="round"/>
+          <!-- tusk -->
+          <path d="M-214,-118 q -16,20 -8,44 q 10,-2 14,-14 q 4,-20 -6,-30 Z" fill="#efe9d6"/>
+          <!-- trunk -->
+          <g id="trunk">
+            <path d="M-214,-156
+                     C -270,-150 -290,-108 -258,-72
+                     Q -244,-54 -226,-68
+                     C -212,-80 -210,-120 -186,-150 Z"
+                  fill="url(#eleBody)"/>
+            <path d="M-250,-96 q 10,10 24,10" fill="none" stroke="#3f4458" stroke-width="2.2" opacity="0.55"/>
+            <path d="M-258,-120 q 8,10 22,12" fill="none" stroke="#3f4458" stroke-width="2.2" opacity="0.45"/>
+          </g>
+        </g>
+        <!-- rim light -->
+        <ellipse cx="-182" cy="-210" rx="70" ry="96" fill="url(#eleRim)" opacity="0.55"/>
+        <!-- balance pole -->
+        <g id="poleG">
+          <path id="poleBar" d="M-470,-74 Q -230,-92 165,-66" fill="none"
+                stroke="url(#pole)" stroke-width="11" stroke-linecap="round"/>
+          <circle cx="-470" cy="-74" r="18" fill="#6b4a2a" stroke="#3f2b17" stroke-width="3"/>
+          <circle cx="165"  cy="-66" r="18" fill="#6b4a2a" stroke="#3f2b17" stroke-width="3"/>
+          <circle cx="-476" cy="-80" r="6" fill="#caa070" opacity="0.8"/>
+          <circle cx="159"  cy="-72" r="6" fill="#caa070" opacity="0.8"/>
+        </g>
+        <!-- trunk tip wrapping the pole -->
+        <path id="grip" d="M-252,-86 q 32,-6 42,16 q 6,18 -14,22 q -28,4 -36,-16 q -4,-16 8,-22 Z"
+              fill="#5a6075"/>
+      </g>
+    </g>
+    <!-- birds -->
+    <g id="birds" fill="none" stroke="#2a2238" stroke-width="2.4" stroke-linecap="round"></g>
+  </g>
+  </svg>
+</div>
+<div id="vignette"></div>
+<script>
+const SVGNS = "http://www.w3.org/2000/svg";
+const $ = id => document.getElementById(id);
+const el = (n, a) => { const e = document.createElementNS(SVGNS, n);
+  for (const k in a) e.setAttribute(k, a[k]); return e; };
+
+// ---- clouds ----
+const cloudsG = $("clouds");
+const clouds = [];
+function makeCloud(x, y, s, op){
+  const g = el("g", {});
+  const parts = [[0,0,46,30],[40,8,38,26],[-38,10,34,24],[6,-14,34,26],[78,14,26,20]];
+  for (const [dx,dy,rx,ry] of parts)
+    g.appendChild(el("ellipse", {cx:dx, cy:dy, rx:rx, ry:ry, fill:"#fdeede", opacity:op}));
+  g.setAttribute("filter","url(#soft)");
+  cloudsG.appendChild(g);
+  return {g, x, y, s, scale:s};
+}
+[[200,150,1.1,0.75],[640,110,0.8,0.55],[1000,200,1.0,0.7],
+ [430,250,0.6,0.4],[860,170,0.75,0.5]].forEach(([x,y,sc,op])=>{
+  const c = makeCloud(x,y,sc,op); c.vx = 0.07+Math.random()*0.08; clouds.push(c);
+});
+
+// ---- distant crowd ----
+const crowd = $("crowd");
+for (let i=0;i<120;i++){
+  const x = 60 + Math.random()*1160;
+  const y = 672 + Math.random()*26;
+  const h = 6 + Math.random()*7;
+  crowd.appendChild(el("rect",{x:x, y:y-h, width:3.2, height:h, rx:1.6,
+     fill: Math.random()<0.5? "#2b2742":"#39314e"}));
+  crowd.appendChild(el("circle",{cx:x+1.6, cy:y-h, r:2.1, fill:"#2b2742"}));
+}
+
+// ---- birds ----
+const birdsG = $("birds");
+const birds = [];
+for (let i=0;i<4;i++){
+  const b = el("path",{d:"M0,0 q 7,-7 14,0 q 7,-7 14,0"});
+  birdsG.appendChild(b);
+  birds.push({e:b, x:Math.random()*1280, y:120+Math.random()*160,
+    s:0.5+Math.random()*0.6, vx:0.35+Math.random()*0.3, ph:Math.random()*6});
+}
+// ---- animation ----
+const cam=$("cam"), ele=$("ele"), eleTilt=$("eleTilt"), poleG=$("poleG"),
+      trunk=$("trunk"), ear=$("ear"), tail=$("tail"),
+      wire=$("wire"), wireHi=$("wireHi"), flagL=$("flagL"), flagR=$("flagR");
+const PL=[123,300], PR=[1157,300], XC=640;
+const S=0.94, CX=640, CY=430;
+
+function frame(now){
+  const t = now/1000;
+  // gust/wind envelope (slow swelling breeze)
+  const gust = 0.6 + 0.4*Math.sin(t*0.33) + 0.25*Math.sin(t*0.9+1.2);
+
+  // balance sway of the whole figure about the feet
+  const bodyA = (2.6*Math.sin(0.55*t) + 1.3*Math.sin(1.27*t+1.1)
+               + 0.6*Math.sin(2.6*t) ) * gust;
+  // pole counter-rotates harder than the body (active balancing)
+  const poleLocal = -1.7*bodyA + 2.4*Math.sin(0.95*t+0.4)*gust;
+
+  // wire sag + gentle bob under the weight
+  const wireY = 470 + 6*Math.sin(0.8*t) + 2.2*Math.sin(1.9*t);
+  const dipC = (300 + wireY)/2 + 8;
+  const d = `M123,300 Q ${(123+XC)/2},${dipC} ${XC},${wireY} `
+          + `Q ${(1157+XC)/2},${dipC} 1157,300`;
+  wire.setAttribute("d", d);
+  wireHi.setAttribute("d", d);
+
+  const dx = 4*Math.sin(0.4*t);
+  ele.setAttribute("transform", `translate(${XC+dx},${wireY}) scale(${S})`);
+  eleTilt.setAttribute("transform", `rotate(${bodyA},0,0)`);
+  poleG.setAttribute("transform", `rotate(${poleLocal},-230,-70)`);
+  trunk.setAttribute("transform",
+     `rotate(${2.4*Math.sin(0.9*t+0.5)+0.5*bodyA},-224,-150)`);
+  ear.setAttribute("transform",
+     `rotate(${3.5+3.5*Math.sin(1.5*t)+1.4*gust},-120,-284)`);
+  tail.setAttribute("transform",
+     `rotate(${7*Math.sin(1.05*t+2)*gust},168,-240)`);
+
+  // flags flutter with the breeze
+  const fl = 0.78 + 0.14*Math.sin(t*4+gust);
+  flagL.setAttribute("transform", `translate(123,286) scale(1,${fl}) translate(-123,-286)`);
+  flagR.setAttribute("transform", `translate(1157,286) scale(1,${0.78+0.14*Math.sin(t*4+1)}) translate(-1157,-286)`);
+
+  // camera breathing
+  const cs = 1.015 + 0.02*Math.sin(0.22*t);
+  const ctx = 9*Math.sin(0.15*t), cty = 6*Math.sin(0.19*t+1);
+  cam.setAttribute("transform",
+     `translate(${ctx},${cty}) translate(${CX},${CY}) scale(${cs}) translate(${-CX},${-CY})`);
+
+  // clouds drift
+  for (const c of clouds){
+    c.x += c.vx*(0.6+gust*0.5);
+    if (c.x > 1360) c.x = -140;
+    c.g.setAttribute("transform", `translate(${c.x},${c.y}) scale(${c.scale})`);
+  }
+  // birds glide
+  for (const b of birds){
+    b.x += b.vx*(0.8+gust*0.6);
+    if (b.x > 1340) { b.x = -60; b.y = 110+Math.random()*170; }
+    const by = b.y + 7*Math.sin(t*1.4+b.ph);
+    b.e.setAttribute("transform", `translate(${b.x},${by}) scale(${b.s})`);
+  }
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+<!--zc-home:start--><style>.zc-home-btn{position:fixed;top:16px;left:16px;z-index:2147483647;display:inline-flex;align-items:center;gap:6px;padding:8px 14px;font:500 13px/1.1 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Noto Sans SC",sans-serif;color:#111;background:rgba(255,255,255,.86);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);border:1px solid rgba(0,0,0,.08);border-radius:999px;text-decoration:none;box-shadow:0 2px 12px rgba(0,0,0,.2);transition:background .2s ease,transform .2s ease,box-shadow .2s ease}.zc-home-btn:hover{background:#fff;transform:translateY(-1px);box-shadow:0 4px 18px rgba(0,0,0,.26)}</style><a class="zc-home-btn" href="../">← 返回首页</a><!--zc-home:end-->
+</body>
+</html>
