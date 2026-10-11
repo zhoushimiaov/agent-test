@@ -161,6 +161,12 @@ const categories = [
 // nested one level deeper. See STATUS.md for the roadmap.
 const ZOO = { slug: "zoo", name: "Zoo Test", base: "", categories };
 
+// Jev scoring Worker endpoint (see worker/). The playground POSTs the user's
+// rendered HTML here to get a TypeSafe Jev score. Until the Worker is deployed
+// this stays a placeholder; set it to the deployed URL, then `node build.mjs`.
+// Empty string ("") hides the scoring UI entirely.
+const JEV_ENDPOINT = "https://zoo-jev.REPLACE-SUBDOMAIN.workers.dev";
+
 // ---- preset prompts (for the in-browser "测试你的大模型" playground) ----
 // Each category archives its model-facing prompt in <slug>/PROMPT.md inside a
 // ```text``` block; pelican-bicycle predates that convention, so it carries an
@@ -459,6 +465,25 @@ ${FONTS}
       <iframe id="pg-frame" class="pg-frame" sandbox="allow-scripts" title="模型输出预览"></iframe>
       <details class="pg-raw"><summary>原始输出 / 日志</summary><pre id="pg-rawtext"></pre></details>
     </div>
+${JEV_ENDPOINT ? `
+    <div class="pg-card pg-jev" id="pg-jev">
+      <div class="pg-pane-h"><span>Jev 评分 Scoring</span>
+        <span class="tag">TypeSafe · System One</span>
+      </div>
+      <p class="pg-sec">跑出结果后,可用 <strong>TypeSafe Jev</strong> 按本站同一套评审规则给它打分(满分 100)。可用本站的免费额度(<strong>每人 3 次</strong>),也可以填你自己的 Jev Key(不计次)。评分在服务端进行:把渲染截图的中立描述 + 源代码一起交给 Jev。</p>
+      <div class="pg-row">
+        <label class="chk"><input type="radio" name="pg-jevmode" id="pg-jev-ours" value="ours" checked> 用本站额度(每人 3 次)</label>
+        <label class="chk"><input type="radio" name="pg-jevmode" id="pg-jev-own" value="own"> 用我自己的 Jev Key</label>
+      </div>
+      <label class="f" id="pg-jevkey-wrap" style="display:none"><span>你的 Jev Key</span>
+        <input id="pg-jevkey" type="password" placeholder="apikey_..." autocomplete="off" spellcheck="false">
+      </label>
+      <div class="pg-actions">
+        <button id="pg-score" type="button" class="btn-primary" disabled>★ 用 Jev 评分</button>
+        <span id="pg-jev-status" class="pg-status"></span>
+      </div>
+      <div id="pg-jev-result" class="pg-jev-result" hidden></div>
+    </div>` : ""}
   </main>
 
   <footer>
@@ -469,6 +494,7 @@ ${FONTS}
   </footer>
 
   <script id="zoo-prompts" type="application/json">${promptsJson}</script>
+  <script>window.ZOO_JEV_ENDPOINT=${JSON.stringify(JEV_ENDPOINT)};</script>
   <script src="playground.js"></script>
 </body>
 </html>

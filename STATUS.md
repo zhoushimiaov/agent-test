@@ -27,6 +27,14 @@
 - 支持「下载 HTML」「新标签打开」(blob 隔离来源)。
 - 逻辑在手写的 `playground/playground.js`;生成页只负责骨架 + 内嵌预设提示词 JSON(无需额外 fetch,可离线)。
 
+### 新功能:playground 的 Jev 评分(代码已就绪,待部署)
+用户跑完可对结果做 TypeSafe Jev 评分,按本站同一套 per-栏目评审规则打分(满分 100)。
+- 纯静态站**做不到**「用我们的 key、每人限 3 次」(内嵌 key 必泄露、localStorage 计数可绕),且 TypeSafe 对浏览器有 451/CORS 封锁 → 用一个 **Cloudflare Worker**(`worker/`):Jev key 作 secret,**KV 按来访 IP+日期**计免费配额(默认 3),代转发绕开封锁。用户也可填**自己的** Jev key(不计配额)。
+- Jev 是纯文本评审 → Worker 用 **Cloudflare Browser Rendering 截图**(方案 b)+ **视觉模型生成中立描述**,连同**源代码**(方案 c)一起喂给 Jev。`USE_SCREENSHOT=0` 时退化为只用代码(免费版可跑);`=1` 启用截图(需 Workers 付费版 + 视觉模型 key)。
+- 前端:`build.mjs` 顶部 `JEV_ENDPOINT`(置空则隐藏整个评分 UI)注入页面;`playground.js` 的 `scoreWithJev()` POST 到 Worker 并复用排行榜的分数/维度条样式渲染。
+- 评审规则是单一事实源 `worker/src/rubrics.js`(移植 4 个现有栏目的 task/维度/criteria + 其余栏目与自定义题的通用 4 维兜底)。
+- **部署与密钥见 `worker/README.md`。本助手无 CF 凭据、未部署;需用户 `wrangler deploy` + 设 secret + 填回 `JEV_ENDPOINT`。先轮换暴露过的 TypeSafe key 再配。**
+
 ### 安全模型(硬约束,勿破坏)
 - API Key 只存浏览器 `localStorage`(用户勾选「记住」才存),只发往用户自己填的接口,**绝不经过本站 / 任何服务器 / CF**。提供「忘记密钥」。
 - 模型产出 HTML 一律进沙箱 iframe,不授予 same-origin。
@@ -46,6 +54,7 @@
 ## 四、路线图(分步骤)
 
 - [x] **Step 0** 平台骨架 + 测试你的大模型 MVP(本次)。
+- [~] **Step 0.5** playground 的 Jev 评分:Worker + KV 配额 + 截图/视觉描述(方案 b+c)**代码已就绪**,待用户部署 Cloudflare Worker 并填回 `JEV_ENDPOINT`。
 - [ ] **Step 1** playground 增强:`/models` 拉取模型下拉;temperature / max_tokens 等参数;把用户产出与该栏目已归档缩略图并排对比;一次跑多题。
 - [ ] **Step 2** 自定义卡通 icon:当前首屏用放大 emoji(鹈鹕=火烈鸟)。待有生图额度(OpenAI 或其他服务商 key)后生成 1:1 定制插画替换,并给各栏目设 `cover:`。
 - [ ] **Step 3** 补齐 4 个占位栏目(企鹅 / 鲸鱼 / 章鱼 / 狮子)的模型版本与评分。

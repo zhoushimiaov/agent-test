@@ -11,6 +11,10 @@
     remember: $("pg-remember"), forget: $("pg-forget"), preset: $("pg-preset"),
     text: $("pg-text"), run: $("pg-run"), stop: $("pg-stop"), status: $("pg-status"),
     frame: $("pg-frame"), raw: $("pg-rawtext"), dl: $("pg-dl"), open: $("pg-open"),
+    // Jev scoring (present only when a Worker endpoint is configured)
+    jevCard: $("pg-jev"), score: $("pg-score"), jevStatus: $("pg-jev-status"),
+    jevResult: $("pg-jev-result"), jevKey: $("pg-jevkey"), jevKeyWrap: $("pg-jevkey-wrap"),
+    jevOwn: $("pg-jev-own"), jevOurs: $("pg-jev-ours"),
   };
   const prompts = JSON.parse($("zoo-prompts").textContent || "[]");
 
@@ -69,6 +73,12 @@
     lastHtml = html;
     el.frame.srcdoc = html;
     el.dl.disabled = el.open.disabled = false;
+    if (el.score) {
+      el.score.disabled = false;
+      el.jevResult.hidden = true;
+      el.jevResult.innerHTML = "";
+      setJevStatus("", "");
+    }
   }
   function currentSlug() {
     const v = el.preset.value;
@@ -172,6 +182,58 @@
     el.stop.disabled = !on;
   }
 
+  // ---- Jev scoring (via the Worker; see worker/) ----
+  const JEV = (window.ZOO_JEV_ENDPOINT || "").replace(/\/+$/, "");
+  function setJevStatus(msg, kind) {
+    if (!el.jevStatus) return;
+    el.jevStatus.textContent = msg || "";
+    el.jevStatus.className = "pg-status" + (kind ? " " + kind : "");
+  }
+  function tier(f) { return f >= 0.8 ? "hi" : f < 0.5 ? "lo" : "mid"; }
+  function renderScore(s) {
+    const cls = s.total >= 85 ? " hi" : s.total < 50 ? " lo" : "";
+    const bars = Object.keys(s.dimLabels).map((k) => {
+      const v = Math.round((s.dims[k]?.frac || 0) * 100);
+      const t = tier(s.dims[k]?.frac || 0);
+      return `<div class="d"><div class="dh"><span>${s.dimLabels[k]}</span><em class="${t}">${v}</em></div>`
+        + `<div class="tr"><div class="fl ${t}" style="width:${v}%"></div></div></div>`;
+    }).join("");
+    const quota = s.usedOurKey && s.remaining != null
+      ? `<span class="pg-quota">本站额度剩 ${s.remaining} 次</span>` : "";
+    const vis = s.hadScreenshot ? "截图描述 + 代码" : "仅代码";
+    el.jevResult.innerHTML =
+      `<div class="pg-score-top"><span class="score${cls}"><b>${s.total}</b><span class="j">Jev</span></span>`
+      + `<span class="pg-score-meta">判定模型 <b>${s.jev || "jev"}</b> · 依据:${vis}</span>${quota}</div>`
+      + `<div class="dims">${bars}</div>`;
+    el.jevResult.hidden = false;
+  }
+  async function scoreWithJev() {
+    if (!lastHtml) return setJevStatus("请先运行并渲染出结果。", "err");
+    if (!JEV) return setJevStatus("本站未配置 Jev 评分服务。", "err");
+    const own = el.jevOwn && el.jevOwn.checked;
+    const jevKey = own ? el.jevKey.value.trim() : "";
+    if (own && !jevKey) return setJevStatus("请填入你自己的 Jev Key。", "err");
+    const v = el.preset.value;
+    const slug = v === "__custom" ? "" : prompts[Number(v)].slug;
+    el.score.disabled = true;
+    setJevStatus("评分中…(服务端渲染 + 判定,约需十几秒)", "");
+    try {
+      const res = await fetch(JEV + "/score", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ slug, prompt: el.text.value.trim(), code: lastHtml, jevKey }),
+      });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(j.error || `HTTP ${res.status}`);
+      renderScore(j);
+      setJevStatus("评分完成 ✓", "ok");
+    } catch (err) {
+      setJevStatus((err instanceof TypeError ? "无法连接评分服务(网络或 CORS):" : "评分失败:") + (err.message || err), "err");
+    } finally {
+      el.score.disabled = false;
+    }
+  }
+
   // ---- wire up ----
   loadCfg();
   initPrompts();
@@ -186,4 +248,10 @@
     el.eye.textContent = show ? "隐藏" : "显示";
   });
   ["base", "model"].forEach((k) => el[k].addEventListener("change", saveCfg));
+  if (el.score) {
+    el.score.addEventListener("click", scoreWithJev);
+    const toggleKey = () => { el.jevKeyWrap.style.display = el.jevOwn.checked ? "" : "none"; };
+    el.jevOwn.addEventListener("change", toggleKey);
+    el.jevOurs.addEventListener("change", toggleKey);
+  }
 })();
