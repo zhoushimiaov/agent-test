@@ -43,34 +43,6 @@
       "rank": 1
     },
     {
-      "slug": "gemini-3.8-flash-25s",
-      "total": 87,
-      "dims": {
-        "translucency": {
-          "score": 2.55,
-          "confidence": 0.54,
-          "frac": 0.85
-        },
-        "tentacles": {
-          "score": 2.66,
-          "confidence": 0.64,
-          "frac": 0.887
-        },
-        "light": {
-          "score": 2.63,
-          "confidence": 0.63,
-          "frac": 0.877
-        },
-        "beauty": {
-          "score": 2.59,
-          "confidence": 0.58,
-          "frac": 0.863
-        }
-      },
-      "jev": "jev-1.13.0",
-      "rank": 2
-    },
-    {
       "slug": "deepseek-4.1-flash",
       "total": 86,
       "dims": {
@@ -96,7 +68,7 @@
         }
       },
       "jev": "jev-1.13.0",
-      "rank": 3
+      "rank": 2
     },
     {
       "slug": "gemini-3.8-flash",
@@ -124,7 +96,7 @@
         }
       },
       "jev": "jev-1.13.0",
-      "rank": 4
+      "rank": 3
     },
     {
       "slug": "ling-3.1-flash",
@@ -152,7 +124,7 @@
         }
       },
       "jev": "jev-1.13.0",
-      "rank": 5
+      "rank": 4
     },
     {
       "slug": "tierflow-pro",
@@ -180,7 +152,7 @@
         }
       },
       "jev": "jev-1.13.0",
-      "rank": 6
+      "rank": 5
     },
     {
       "slug": "muse-spark",
@@ -208,7 +180,7 @@
         }
       },
       "jev": "jev-1.13.0",
-      "rank": 7
+      "rank": 6
     },
     {
       "slug": "gemini-3.8-flash-bioluminescent",
@@ -236,7 +208,7 @@
         }
       },
       "jev": "jev-1.13.0",
-      "rank": 8
+      "rank": 7
     },
     {
       "slug": "glm-5.3-flash",
@@ -264,7 +236,7 @@
         }
       },
       "jev": "jev-1.13.0",
-      "rank": 9
+      "rank": 8
     },
     {
       "slug": "gpt6-luna",
@@ -292,10 +264,10 @@
         }
       },
       "jev": "jev-1.13.0",
-      "rank": 10
+      "rank": 9
     },
     {
-      "slug": "opus-4",
+      "slug": "opus-4.8",
       "total": 47,
       "dims": {
         "translucency": {
@@ -320,7 +292,7 @@
         }
       },
       "jev": "jev-1.13.0",
-      "rank": 11
+      "rank": 10
     }
   ]
 }
