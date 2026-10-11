@@ -1,0 +1,700 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>犀牛公转地球 · Rhino Orbiting Earth</title>
+<style>
+  html,body{margin:0;padding:0;height:100%;background:#03040a;overflow:hidden}
+  canvas{display:block}
+  #boot{position:fixed;inset:0;z-index:9;display:grid;place-items:center;background:#03040a;
+        color:#8ea3d8;letter-spacing:.44em;text-indent:.44em;text-align:center;
+        font:500 12px/2.2 ui-sans-serif,system-ui,"PingFang SC","Microsoft YaHei",sans-serif;
+        transition:opacity .9s ease}
+  #boot.hide{opacity:0;pointer-events:none}
+</style>
+</head>
+<body>
+<div id="boot">GENERATING&nbsp;PLANET…</div>
+<script src="https://cdn.jsdelivr.net/npm/three@0.155.0/build/three.min.js"></script>
+<script>
+(function () {
+'use strict';
+var boot = document.getElementById('boot');
+if (!window.THREE) { boot.textContent = 'Three.js CDN 加载失败 · 请联网后重试'; return; }
+var THREE = window.THREE;
+
+/* ============================================================
+   0. 工具：确定性随机 + 3D 值噪声（用于生成星球贴图）
+   ============================================================ */
+var _seed = 20261010;
+function rnd() { _seed = (_seed * 1664525 + 1013904223) >>> 0; return _seed / 4294967296; }
+function lerp(a, b, t) { return a + (b - a) * t; }
+function clamp(v, a, b) { return v < a ? a : v > b ? b : v; }
+function smoothstep(e0, e1, x) { var t = clamp((x - e0) / (e1 - e0), 0, 1); return t * t * (3 - 2 * t); }
+
+/* 置换表值噪声：比逐次哈希快数倍，且无浮点精度陷阱 */
+var PERM = (function () {
+  var p = new Uint8Array(256), i, j, t, s = 987654321;
+  for (i = 0; i < 256; i++) p[i] = i;
+  for (i = 255; i > 0; i--) {
+    s = (Math.imul(s, 1664525) + 1013904223) >>> 0;
+    j = s % (i + 1);
+    t = p[i]; p[i] = p[j]; p[j] = t;
+  }
+  var q = new Uint8Array(512);
+  for (i = 0; i < 512; i++) q[i] = p[i & 255];
+  return q;
+})();
+
+function vnoise(x, y, z) {
+  var i = Math.floor(x), j = Math.floor(y), k = Math.floor(z);
+  var fx = x - i, fy = y - j, fz = z - k;
+  i &= 255; j &= 255; k &= 255;
+  var u = fx * fx * (3 - 2 * fx), v = fy * fy * (3 - 2 * fy), w = fz * fz * (3 - 2 * fz);
+  var a = PERM[i] + j, b = PERM[i + 1] + j;
+  var p00 = PERM[a], p10 = PERM[b], p01 = PERM[a + 1], p11 = PERM[b + 1];
+  var c000 = PERM[p00 + k], c100 = PERM[p10 + k], c010 = PERM[p01 + k], c110 = PERM[p11 + k];
+  var c001 = PERM[p00 + k + 1], c101 = PERM[p10 + k + 1], c011 = PERM[p01 + k + 1], c111 = PERM[p11 + k + 1];
+  var x00 = lerp(c000, c100, u), x10 = lerp(c010, c110, u);
+  var x01 = lerp(c001, c101, u), x11 = lerp(c011, c111, u);
+  return lerp(lerp(x00, x10, v), lerp(x01, x11, v), w) / 255;
+}
+function fbm(x, y, z, oct) {
+  var a = 0.5, f = 1, s = 0, n = 0;
+  for (var o = 0; o < oct; o++) { s += a * vnoise(x * f, y * f, z * f); n += a; a *= 0.5; f *= 2.03; }
+  return s / n;
+}
+
+/* ============================================================
+   1. 渲染器 / 场景 / 相机
+   ============================================================ */
+var renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+if ('outputColorSpace' in renderer) renderer.outputColorSpace = THREE.SRGBColorSpace;
+document.body.appendChild(renderer.domElement);
+
+var scene = new THREE.Scene();
+var camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 1, 20000);
+camera.layers.enable(1);              // layer 1 = 地球系统
+
+var WORLD_UP = new THREE.Vector3(0, 1, 0);
+var EARTH_R = 100;                    // 地球半径
+var ORBIT_R = 280;                    // 公转轨道半径
+var ORBIT_N = new THREE.Vector3(0.14, 1, 0.08).normalize();   // 轨道平面法线（略带倾斜）
+
+/* 轨道平面正交基 */
+var B_U = new THREE.Vector3(1, 0, 0).projectOnPlane(ORBIT_N).normalize();
+var B_V = new THREE.Vector3().crossVectors(ORBIT_N, B_U).normalize();
+
+/* ============================================================
+   2. 深空背景：渐变天球 + 星云 + 闪烁星空
+   ============================================================ */
+(function buildBackdrop() {
+  var geo = new THREE.SphereGeometry(6000, 32, 24);
+  var mat = new THREE.ShaderMaterial({
+    side: THREE.BackSide, depthWrite: false,
+    uniforms: {
+      cTop: { value: new THREE.Color(0x111a3e) },
+      cMid: { value: new THREE.Color(0x070a1c) },
+      cBot: { value: new THREE.Color(0x03040c) }
+    },
+    vertexShader: 'varying vec3 vP; void main(){ vP = normalize(position); gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.0); }',
+    fragmentShader: [
+      'uniform vec3 cTop; uniform vec3 cMid; uniform vec3 cBot; varying vec3 vP;',
+      'void main(){',
+      '  float h = vP.y;',
+      '  vec3 c = mix(cBot, cMid, smoothstep(-0.55, 0.12, h));',
+      '  c = mix(c, cTop, smoothstep(0.05, 0.95, h));',
+      '  gl_FragColor = vec4(c, 1.0);',
+      '}'
+    ].join('\n')
+  });
+  scene.add(new THREE.Mesh(geo, mat));
+
+  /* 星云贴片 */
+  var nc = document.createElement('canvas'); nc.width = nc.height = 256;
+  var nx = nc.getContext('2d');
+  var g = nx.createRadialGradient(128, 128, 0, 128, 128, 128);
+  g.addColorStop(0.0, 'rgba(255,255,255,0.95)');
+  g.addColorStop(0.35, 'rgba(255,255,255,0.34)');
+  g.addColorStop(0.72, 'rgba(255,255,255,0.07)');
+  g.addColorStop(1.0, 'rgba(255,255,255,0)');
+  nx.fillStyle = g; nx.fillRect(0, 0, 256, 256);
+  var ntex = new THREE.CanvasTexture(nc);
+  ntex.colorSpace = THREE.SRGBColorSpace;
+  var neb = [
+    { p: [-2600, 900, -2200], s: 5200, c: 0x5a3fae, o: 0.30 },
+    { p: [2800, -700, -1400], s: 4400, c: 0x1d6f96, o: 0.26 },
+    { p: [900, 1500, 3000], s: 6000, c: 0x8a2f63, o: 0.20 }
+  ];
+  neb.forEach(function (n) {
+    var sp = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: ntex, color: n.c, transparent: true, opacity: n.o,
+      blending: THREE.AdditiveBlending, depthWrite: false
+    }));
+    sp.position.set(n.p[0], n.p[1], n.p[2]);
+    sp.scale.set(n.s, n.s, 1);
+    scene.add(sp);
+  });
+})();
+
+var starMat;
+(function buildStars() {
+  var N = 2800;
+  var pos = new Float32Array(N * 3), col = new Float32Array(N * 3),
+      siz = new Float32Array(N), pha = new Float32Array(N);
+  var pal = [[1, 1, 1], [0.74, 0.84, 1], [1, 0.87, 0.70], [0.86, 0.92, 1], [1, 0.76, 0.62]];
+  for (var i = 0; i < N; i++) {
+    var r = 1100 + Math.pow(rnd(), 0.62) * 2600;
+    var u = rnd() * 2 - 1, th = rnd() * Math.PI * 2, s = Math.sqrt(1 - u * u);
+    pos[i * 3] = r * s * Math.cos(th);
+    pos[i * 3 + 1] = r * u;
+    pos[i * 3 + 2] = r * s * Math.sin(th);
+    var c = pal[(rnd() * pal.length) | 0], b = 0.45 + rnd() * 0.55;
+    col[i * 3] = c[0] * b; col[i * 3 + 1] = c[1] * b; col[i * 3 + 2] = c[2] * b;
+    siz[i] = rnd() < 0.055 ? 6 + rnd() * 7 : 1.4 + rnd() * 3.0;
+    pha[i] = rnd();
+  }
+  var geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  geo.setAttribute('aCol', new THREE.BufferAttribute(col, 3));
+  geo.setAttribute('aSize', new THREE.BufferAttribute(siz, 1));
+  geo.setAttribute('aPhase', new THREE.BufferAttribute(pha, 1));
+  starMat = new THREE.ShaderMaterial({
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+    uniforms: { uTime: { value: 0 }, uPR: { value: renderer.getPixelRatio() } },
+    vertexShader: [
+      'attribute vec3 aCol; attribute float aSize; attribute float aPhase;',
+      'uniform float uTime; uniform float uPR;',
+      'varying vec3 vCol; varying float vTw;',
+      'void main(){',
+      '  vCol = aCol;',
+      '  vTw = 0.5 + 0.5 * sin(uTime * 1.9 + aPhase * 6.2831);',
+      '  vec4 mv = modelViewMatrix * vec4(position, 1.0);',
+      '  gl_PointSize = max(1.0, aSize * uPR * (300.0 / max(1.0, -mv.z)));',
+      '  gl_Position = projectionMatrix * mv;',
+      '}'
+    ].join('\n'),
+    fragmentShader: [
+      'varying vec3 vCol; varying float vTw;',
+      'void main(){',
+      '  vec2 d = gl_PointCoord - 0.5;',
+      '  float r = length(d);',
+      '  float a = smoothstep(0.5, 0.02, r);',
+      '  a *= a;',
+      '  float k = 0.42 + 0.58 * vTw;',
+      '  gl_FragColor = vec4(vCol * k * 1.25, a * k);',
+      '}'
+    ].join('\n')
+  });
+  var pts = new THREE.Points(geo, starMat);
+  pts.frustumCulled = false;
+  scene.add(pts);
+})();
+
+/* ============================================================
+   3. 地球：程序化大陆 / 海洋 / 极冠 / 云层 / 大气辉光
+   ============================================================ */
+function buildEarthMaps() {
+  var W = 1024, H = 512;
+  var cvCol = document.createElement('canvas'); cvCol.width = W; cvCol.height = H;
+  var cvRgh = document.createElement('canvas'); cvRgh.width = W; cvRgh.height = H;
+  var cvBmp = document.createElement('canvas'); cvBmp.width = W; cvBmp.height = H;
+  var cx = cvCol.getContext('2d'), rx = cvRgh.getContext('2d'), bx = cvBmp.getContext('2d');
+  var iCol = cx.createImageData(W, H), dCol = iCol.data;
+  var iRgh = rx.createImageData(W, H), dRgh = iRgh.data;
+  var iBmp = bx.createImageData(W, H), dBmp = iBmp.data;
+
+  var DEEP = [12, 40, 104], OCEAN = [26, 86, 176], SHALLOW = [62, 158, 214],
+      SAND = [226, 210, 164], LOW = [80, 156, 78], FOREST = [40, 112, 60],
+      DESERT = [200, 172, 108], ROCK = [160, 152, 136], SNOW = [246, 250, 255];
+
+  function mix3(a, b, t) { return [lerp(a[0], b[0], t), lerp(a[1], b[1], t), lerp(a[2], b[2], t)]; }
+
+  for (var y = 0; y < H; y++) {
+    var lat = (0.5 - (y + 0.5) / H) * Math.PI;      // +PI/2 北极
+    var cl = Math.cos(lat), sl = Math.sin(lat);
+    var alat = Math.abs(lat);
+    for (var x = 0; x < W; x++) {
+      var lon = ((x + 0.5) / W) * Math.PI * 2;
+      var px = cl * Math.cos(lon), py = sl, pz = cl * Math.sin(lon);
+
+      /* 域扭曲 fbm —— 让大陆边缘更有海岸线感 */
+      var wx = fbm(px * 1.6 + 4.1, py * 1.6 + 9.3, pz * 1.6 + 1.7, 4) - 0.5;
+      var h = fbm(px * 2.05 + wx * 0.9 + 13.0, py * 2.05 + wx * 0.9 + 5.0, pz * 2.05 + wx * 0.9 + 21.0, 6);
+      h += 0.10 * (fbm(px * 6.0, py * 6.0, pz * 6.0, 3) - 0.5);
+
+      /* 极地冰盖（边缘加噪声抖动） */
+      var iceEdge = 1.34 + 0.12 * (fbm(px * 3.0, py * 3.0, pz * 3.0, 3) - 0.5) * 2.0;
+      var ice = smoothstep(iceEdge, iceEdge + 0.18, alat);
+
+      var land = h > 0.540;
+      var e = clamp((h - 0.540) / 0.26, 0, 1);          // 陆地高程 0..1
+      var col;
+
+      if (!land) {
+        var sh = smoothstep(0.48, 0.540, h);             // 近岸浅水
+        col = mix3(DEEP, OCEAN, smoothstep(0.30, 0.50, h));
+        col = mix3(col, SHALLOW, sh * 0.85);
+      } else {
+        var sub = smoothstep(-0.34, 0.22, lat) * (1 - smoothstep(0.22, 0.46, lat)); // 副热带沙漠带
+        var dry = clamp(sub * 0.85 + (fbm(px * 5.5 + 30, py * 5.5, pz * 5.5, 3) - 0.5) * 1.1, 0, 1);
+        col = mix3(LOW, FOREST, clamp(e * 1.4 + (h - 0.5) * 2.0, 0, 1));
+        col = mix3(col, DESERT, dry * 0.8);
+        col = mix3(col, SAND, (1 - smoothstep(0.0, 0.055, e)) * 0.9);   // 海岸沙滩
+        col = mix3(col, ROCK, smoothstep(0.45, 0.9, e));
+        col = mix3(col, SNOW, smoothstep(0.87, 1.0, e) * 0.85);
+      }
+      col = mix3(col, SNOW, ice);
+
+      var i4 = (y * W + x) * 4;
+      dCol[i4] = col[0]; dCol[i4 + 1] = col[1]; dCol[i4 + 2] = col[2]; dCol[i4 + 3] = 255;
+
+      /* 粗糙度：海洋光滑（有高光），陆地粗糙 */
+      var rg = land ? (0.80 + e * 0.16) : lerp(0.22, 0.42, smoothstep(0.28, 0.50, h));
+      rg = lerp(rg, 0.62, ice);
+      var rv = (rg * 255) | 0;
+      dRgh[i4] = rv; dRgh[i4 + 1] = rv; dRgh[i4 + 2] = rv; dRgh[i4 + 3] = 255;
+
+      /* 凹凸：海底最低，山脉最高 */
+      var bp = land ? 0.55 + e * 0.45 : 0.10 + smoothstep(0.30, 0.502, h) * 0.22;
+      var bv = (bp * 255) | 0;
+      dBmp[i4] = bv; dBmp[i4 + 1] = bv; dBmp[i4 + 2] = bv; dBmp[i4 + 3] = 255;
+    }
+  }
+  cx.putImageData(iCol, 0, 0);
+  rx.putImageData(iRgh, 0, 0);
+  bx.putImageData(iBmp, 0, 0);
+
+  /* 云层（RGBA，白+alpha） */
+  var cvCld = document.createElement('canvas'); cvCld.width = W; cvCld.height = H;
+  var cc = cvCld.getContext('2d');
+  var iCld = cc.createImageData(W, H), dCld = iCld.data;
+  for (var y2 = 0; y2 < H; y2++) {
+    var lat2 = (0.5 - (y2 + 0.5) / H) * Math.PI;
+    var cl2 = Math.cos(lat2), sl2 = Math.sin(lat2);
+    /* 赤道辐合带多云 + 副热带少云 */
+    var band = 0.55 + 0.45 * Math.cos(lat2 * 3.4) * Math.exp(-Math.abs(lat2) * 0.6);
+    for (var x2 = 0; x2 < W; x2++) {
+      var lon2 = ((x2 + 0.5) / W) * Math.PI * 2;
+      var qx = cl2 * Math.cos(lon2), qy = sl2, qz = cl2 * Math.sin(lon2);
+      var w = fbm(qx * 1.3 + 50, qy * 1.3 + 50, qz * 1.3 + 50, 4) - 0.5;
+      var c1 = fbm(qx * 3.2 + w * 1.5, qy * 3.2 + w * 1.5, qz * 3.2 + w * 1.5, 5);
+      var c2 = fbm(qx * 7.5 + 3, qy * 7.5, qz * 7.5, 4);
+      var a = smoothstep(0.505, 0.665, c1 * band + c2 * 0.18);
+      var i5 = (y2 * W + x2) * 4;
+      dCld[i5] = 255; dCld[i5 + 1] = 255; dCld[i5 + 2] = 255;
+      dCld[i5 + 3] = (a * 212) | 0;
+    }
+  }
+  cc.putImageData(iCld, 0, 0);
+
+  var aniso = renderer.capabilities.getMaxAnisotropy ? renderer.capabilities.getMaxAnisotropy() : 4;
+  function tex(cv, srgb) {
+    var t = new THREE.CanvasTexture(cv);
+    t.anisotropy = aniso;
+    t.wrapS = THREE.RepeatWrapping;
+    if (srgb) t.colorSpace = THREE.SRGBColorSpace;
+    return t;
+  }
+  return { col: tex(cvCol, true), rgh: tex(cvRgh, false), bmp: tex(cvBmp, false), cld: tex(cvCld, true) };
+}
+
+var earthGroup = new THREE.Group();
+earthGroup.rotation.z = 0.41;                     // 23.4° 轴倾角
+scene.add(earthGroup);
+
+var earthMesh, cloudMesh;
+(function buildEarth() {
+  var maps = buildEarthMaps();
+  var seg = 128, rseg = 84;
+  var mat = new THREE.MeshStandardMaterial({
+    map: maps.col, roughnessMap: maps.rgh, bumpMap: maps.bmp, bumpScale: 0.28,
+    roughness: 1.0, metalness: 0.0,
+    emissiveMap: maps.col, emissive: new THREE.Color(0xffffff), emissiveIntensity: 0.10
+  });
+  earthMesh = new THREE.Mesh(new THREE.SphereGeometry(EARTH_R, seg, rseg), mat);
+  earthMesh.layers.set(1);
+  earthGroup.add(earthMesh);
+
+  var cldMat = new THREE.MeshStandardMaterial({
+    map: maps.cld, transparent: true, depthWrite: false,
+    roughness: 1.0, metalness: 0.0, opacity: 0.94
+  });
+  cloudMesh = new THREE.Mesh(new THREE.SphereGeometry(EARTH_R * 1.012, seg, rseg), cldMat);
+  cloudMesh.layers.set(1);
+  earthGroup.add(cloudMesh);
+
+  /* 大气：内圈锐利边缘 + 外圈柔和光晕 */
+  function atmoShell(scale, power, fade, color, strength) {
+    var m = new THREE.ShaderMaterial({
+      side: THREE.BackSide, transparent: true, depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      uniforms: {
+        uColor: { value: new THREE.Color(color) },
+        uPow: { value: power }, uFade: { value: fade }, uStr: { value: strength }
+      },
+      vertexShader: [
+        'varying vec3 vN; varying vec3 vP; varying vec3 vL;',
+        'void main(){',
+        '  vN = normalize(normalMatrix * normal);',
+        '  vL = position;',
+        '  vec4 mv = modelViewMatrix * vec4(position, 1.0);',
+        '  vP = mv.xyz;',
+        '  gl_Position = projectionMatrix * mv;',
+        '}'
+      ].join('\n'),
+      fragmentShader: [
+        'uniform vec3 uColor; uniform float uPow; uniform float uFade; uniform float uStr;',
+        'varying vec3 vN; varying vec3 vP; varying vec3 vL;',
+        'void main(){',
+        '  vec3 v = normalize(-vP);',
+        '  float rim = pow(clamp(1.0 - abs(dot(normalize(vN), v)), 0.0, 1.0), uPow);',
+        '  float rr = clamp(length(vL) / ' + (EARTH_R * scale).toFixed(3) + ', 0.0, 1.0);',
+        '  float soft = smoothstep(1.0, uFade, rr);',
+        '  float k = rim * soft * uStr;',
+        '  gl_FragColor = vec4(uColor * k, k);',
+        '}'
+      ].join('\n')
+    });
+    var mesh = new THREE.Mesh(new THREE.SphereGeometry(EARTH_R * scale, 64, 44), m);
+    mesh.layers.set(1);
+    earthGroup.add(mesh);
+  }
+  atmoShell(1.025, 3.2, 0.90, 0x7fd8ff, 1.05);   // 贴地锐利蓝边
+  atmoShell(1.30, 5.0, 0.62, 0x3f7fe8, 0.85);    // 外围柔光
+})();
+
+/* ============================================================
+   4. 卡通犀牛
+   ============================================================ */
+/* 4 段式 toon 渐变 */
+var gradientMap = (function () {
+  var data = new Uint8Array([62, 142, 216, 255]);
+  var t = new THREE.DataTexture(data, data.length, 1, THREE.RedFormat);
+  t.minFilter = t.magFilter = THREE.NearestFilter;
+  t.generateMipmaps = false;
+  t.needsUpdate = true;
+  return t;
+})();
+function toon(c) { return new THREE.MeshToonMaterial({ color: c, gradientMap: gradientMap }); }
+
+var MAT = {
+  skin:      toon(0xa9b3c3),
+  skinDark:  toon(0x7d8798),
+  skinLight: toon(0xc6cedb),
+  plate:     toon(0x939dae),
+  horn:      toon(0xf7e9c6)
+};
+MAT.hornTip = toon(0xdcc49a);
+MAT.nail = toon(0xf0e8d6);
+MAT.earIn = toon(0xd08d95);
+MAT.eyeW = toon(0xfdfdfd);
+MAT.eyeB = new THREE.MeshBasicMaterial({ color: 0x15171f });
+MAT.hi = new THREE.MeshBasicMaterial({ color: 0xffffff });
+MAT.dark = new THREE.MeshBasicMaterial({ color: 0x3b303a });
+MAT.mouth = toon(0x7a6670);
+
+var OUTLINE = new THREE.MeshBasicMaterial({ color: 0x130e1c, side: THREE.BackSide });
+
+/* 单位几何体（用 scale 变形） */
+var GEO = {
+  sph: new THREE.SphereGeometry(1, 30, 22),
+  sphLo: new THREE.SphereGeometry(1, 18, 12),
+  cap: new THREE.CapsuleGeometry(1, 1, 6, 22),
+  cone: new THREE.ConeGeometry(1, 1, 26, 1),
+  cyl: new THREE.CylinderGeometry(1, 1, 1, 20, 1),
+  ring: new THREE.TorusGeometry(1, 0.048, 8, 44),
+  box: new THREE.BoxGeometry(1, 1, 1)
+};
+
+function part(parent, geo, mat, pos, scl, rot, outline) {
+  var m = new THREE.Mesh(geo, mat);
+  if (pos) m.position.set(pos[0], pos[1], pos[2]);
+  if (scl) m.scale.set(scl[0], scl[1], scl[2]);
+  if (rot) m.rotation.set(rot[0], rot[1], rot[2]);
+  if (outline !== false) {
+    var o = new THREE.Mesh(geo, OUTLINE);
+    o.scale.setScalar(outline || 1.045);
+    m.add(o);
+  }
+  parent.add(m);
+  return m;
+}
+
+/* 模型坐标系：+X = 前（鼻尖方向），+Y = 上，+Z = 右 */
+var rhinoPivot = new THREE.Group();   // 位置 + 朝向（lookAt 后 +Z 指向速度方向）
+var rhinoYaw = new THREE.Group();     // 让模型 +X 对齐 pivot 的 +Z
+var rhinoBody = new THREE.Group();    // 整体俯仰 / 侧倾 / 起伏
+rhinoYaw.rotation.y = -Math.PI / 2;
+rhinoPivot.add(rhinoYaw); rhinoYaw.add(rhinoBody);
+scene.add(rhinoPivot);
+
+var legs = [], headGrp, tailGrp, earL, earR, bodyCore;
+
+(function buildRhino() {
+  var R = rhinoBody;
+
+  /* --- 躯干：臀部 + 桶身 + 肩峰（犀牛标志性隆起） --- */
+  bodyCore = new THREE.Group(); R.add(bodyCore);
+  part(bodyCore, GEO.sph, MAT.skin, [-16, 0.5, 0], [17.5, 16.0, 15.2]);   // 后臀
+  part(bodyCore, GEO.sph, MAT.skin, [2, 0, 0], [18.5, 17.2, 16.2]);       // 主躯干
+  part(bodyCore, GEO.sph, MAT.skin, [17, 6.0, 0], [16.0, 18.5, 14.8]);    // 肩峰（犀牛标志性隆起）
+  part(bodyCore, GEO.sph, MAT.skin, [26.5, 2.0, 0], [11.8, 12.0, 11.0]);  // 颈
+  part(bodyCore, GEO.sph, MAT.skinDark, [-27, -3, 0], [10, 9, 9.5]);      // 后臀下缘
+
+  /* --- 背部甲片 --- */
+  part(bodyCore, GEO.sph, MAT.plate, [-22, 13.5, 0], [7.5, 3.4, 10.5], [0, 0, -0.22]);
+  part(bodyCore, GEO.sph, MAT.plate, [-7, 16.4, 0], [7.5, 3.6, 11.5], [0, 0, -0.06]);
+  part(bodyCore, GEO.sph, MAT.plate, [8, 17.6, 0], [7.5, 3.6, 11.8], [0, 0, 0.10]);
+  part(bodyCore, GEO.sph, MAT.plate, [20, 17.0, 0], [6.5, 3.2, 10.5], [0, 0, 0.22]);
+
+  /* --- 皮褶：环绕躯干的褶皱环（半径贴合各截面轮廓） --- */
+  var folds = [
+    [-25, 0.5, 14.3, 13.6],
+    [-14, 0.5, 16.3, 15.4],
+    [-3,  0.0, 16.9, 15.9],
+    [7,   1.9, 18.8, 15.9],
+    [16,  6.6, 18.2, 15.1]
+  ];
+  folds.forEach(function (f) {
+    part(bodyCore, GEO.ring, MAT.skinDark, [f[0], f[1], 0], [f[3], f[2], f[3]],
+         [0, Math.PI / 2, 0], 1.05);
+  });
+  /* 颈部褶皱 */
+  part(bodyCore, GEO.ring, MAT.skinDark, [28.5, 2, 0], [11.2, 12.0, 11.2], [0, Math.PI / 2, 0], 1.05);
+
+  /* --- 头 --- */
+  headGrp = new THREE.Group();
+  headGrp.position.set(35, 2.5, 0);
+  headGrp.scale.setScalar(1.09);
+  R.add(headGrp);
+  var H = headGrp;
+  part(H, GEO.sph, MAT.skin, [0, 0, 0], [11.5, 10.4, 10.0]);            // 颅骨
+  part(H, GEO.sph, MAT.skin, [4.5, 4.2, 0], [8.6, 5.4, 9.4]);           // 眉骨
+  part(H, GEO.sph, MAT.skinLight, [10.5, -3.2, 0], [10.0, 7.4, 8.6]);   // 上唇吻部
+  part(H, GEO.sph, MAT.skin, [9.0, -8.2, 0], [9.0, 3.9, 7.9]);          // 方形下唇
+  part(H, GEO.sph, MAT.skinDark, [13.0, -6.4, 0], [3.6, 1.3, 8.6], [0, 0, -0.10], 1.16);  // 嘴缝
+  /* 鼻角（夸张大角）+ 后角 */
+  part(H, GEO.cone, MAT.horn, [15.2, 9.6, 0], [5.4, 25.0, 4.4], [0, 0, -0.30], 1.05);
+  part(H, GEO.cone, MAT.hornTip, [14.0, 20.6, 0], [2.7, 7.0, 2.3], [0, 0, -0.34], 1.07);
+  part(H, GEO.cone, MAT.horn, [5.6, 9.6, 0], [2.8, 9.6, 2.4], [0, 0, -0.18], 1.07);
+  /* 耳 */
+  earL = part(H, GEO.cone, MAT.skin, [-1.6, 8.6, 6.4], [3.2, 6.4, 2.6], [0.30, 0, -0.12], 1.09);
+  earR = part(H, GEO.cone, MAT.skin, [-1.6, 8.6, -6.4], [3.2, 6.4, 2.6], [-0.30, 0, -0.12], 1.09);
+  part(earL, GEO.cone, MAT.earIn, [0, 0.02, 0.30], [0.55, 0.62, 0.30], [0, 0, 0], false);
+  part(earR, GEO.cone, MAT.earIn, [0, 0.02, -0.30], [0.55, 0.62, 0.30], [0, 0, 0], false);
+  /* 眼 */
+  [1, -1].forEach(function (s) {
+    part(H, GEO.sph, MAT.eyeW, [5.6, 2.6, 7.0 * s], [3.9, 3.9, 3.3], null, false);
+    part(H, GEO.sph, MAT.eyeB, [7.2, 2.6, 8.6 * s], [2.05, 2.05, 2.05], null, false);
+    part(H, GEO.sph, MAT.hi, [8.2, 3.7, 9.3 * s], [0.78, 0.78, 0.78], null, false);
+  });
+  /* 鼻孔 */
+  [1, -1].forEach(function (s) {
+    part(H, GEO.sph, MAT.dark, [17.4, -3.4, 2.7 * s], [1.7, 1.25, 1.5], null, false);
+  });
+
+  /* --- 四条腿 --- */
+  function buildLeg(x, z, front) {
+    var g = new THREE.Group();
+    g.position.set(x, -11, z);
+    R.add(g);
+    part(g, GEO.cap, MAT.skin, [0, -8.6, 0], [5.6, 6.6, 5.9]);                 // 大腿
+    part(g, GEO.cap, MAT.skinLight, [0.3, -19.5, 0], [4.8, 4.6, 5.0]);         // 小腿
+    part(g, GEO.ring, MAT.skinDark, [0, -5.0, 0], [6.5, 6.5, 6.5], [Math.PI / 2, 0, 0], 1.05);
+    part(g, GEO.ring, MAT.skinDark, [0.2, -17.5, 0], [5.4, 5.4, 5.4], [Math.PI / 2, 0, 0], 1.05);
+    part(g, GEO.sph, MAT.skin, [0.8, -24.6, 0], [7.0, 3.2, 6.6]);              // 蹄
+    [-3.5, 0, 3.5].forEach(function (tz) {
+      part(g, GEO.sph, MAT.nail, [5.4, -25.2, tz], [2.3, 1.8, 2.1], null, false);
+    });
+    g.userData = { front: front, phase: front ? 0 : Math.PI };
+    return g;
+  }
+  legs.push(buildLeg(17, 11.6, true), buildLeg(17, -11.6, true));
+  legs.push(buildLeg(-17, 11.8, false), buildLeg(-17, -11.8, false));
+
+  /* --- 尾巴 --- */
+  tailGrp = new THREE.Group();
+  tailGrp.position.set(-31, -1, 0);
+  R.add(tailGrp);
+  part(tailGrp, GEO.cap, MAT.skin, [-4.0, -5.0, 0], [2.2, 3.4, 2.2], [0, 0, -0.72], 1.06);
+  part(tailGrp, GEO.sph, MAT.skinDark, [-8.6, -10.6, 0], [3.0, 4.4, 2.9], [0, 0, -0.3], 1.06);
+})();
+
+/* ============================================================
+   5. 公转轨道：带拖尾的发光环
+   ============================================================ */
+var orbitRingMat;
+(function buildOrbitRing() {
+  orbitRingMat = new THREE.ShaderMaterial({
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+    uniforms: {
+      uAngle: { value: 0 },
+      uColor: { value: new THREE.Color(0x8fe4ff) }
+    },
+    vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.0); }',
+    fragmentShader: [
+      'uniform float uAngle; uniform vec3 uColor; varying vec2 vUv;',
+      'void main(){',
+      '  float ds = mod(uAngle - vUv.x, 1.0);',
+      '  float trail = exp(-ds * 11.0) * 1.25 + 0.055;',
+      '  float k = trail * (0.35 + 0.65 * pow(sin(vUv.y * 3.14159), 0.5));',
+      '  gl_FragColor = vec4(uColor * k, k);',
+      '}'
+    ].join('\n')
+  });
+  var geo = new THREE.TorusGeometry(ORBIT_R, 0.75, 8, 360);
+  var ring = new THREE.Mesh(geo, orbitRingMat);
+  ring.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(B_U, B_V, ORBIT_N));
+  scene.add(ring);
+
+  /* 轨道尘埃颗粒 */
+  var N = 420, pos = new Float32Array(N * 3);
+  for (var i = 0; i < N; i++) {
+    var a = rnd() * Math.PI * 2, r = ORBIT_R + (rnd() - 0.5) * 16;
+    var p = new THREE.Vector3().addScaledVector(B_U, Math.cos(a) * r).addScaledVector(B_V, Math.sin(a) * r);
+    p.addScaledVector(ORBIT_N, (rnd() - 0.5) * 10);
+    pos[i * 3] = p.x; pos[i * 3 + 1] = p.y; pos[i * 3 + 2] = p.z;
+  }
+  var g2 = new THREE.BufferGeometry();
+  g2.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  var dust = new THREE.Points(g2, new THREE.PointsMaterial({
+    color: 0x9fe8ff, size: 1.6, sizeAttenuation: true,
+    transparent: true, opacity: 0.55, depthWrite: false, blending: THREE.AdditiveBlending
+  }));
+  scene.add(dust);
+})();
+
+/* ============================================================
+   6. 灯光（太阳方向跟随镜头，保证主体始终受光）
+   ============================================================ */
+var hemi = new THREE.HemisphereLight(0x9fc4ff, 0x2a1f38, 0.26);
+hemi.layers.enable(1);
+scene.add(hemi);
+var amb = new THREE.AmbientLight(0x51619c, 0.14);
+amb.layers.enable(1);
+scene.add(amb);
+/* 地球专用太阳（layer 1），强度独立，避免烤白卡通犀牛 */
+var sunLight = new THREE.DirectionalLight(0xfff1dc, 2.35);
+sunLight.layers.set(1);
+scene.add(sunLight); scene.add(sunLight.target);
+/* 犀牛主光 / 轮廓光（layer 0） */
+var keyLight = new THREE.DirectionalLight(0xfff1dc, 1.05);
+scene.add(keyLight); scene.add(keyLight.target);
+var rimLight = new THREE.DirectionalLight(0x74c8ff, 0.62);
+scene.add(rimLight); scene.add(rimLight.target);
+
+/* ============================================================
+   7. 动画：整个场景是时间 t 的纯函数（无逐帧累积 → 无抖动、可任意定位）
+   ============================================================ */
+var ORBIT_W = 0.20;                 // 公转角速度 rad/s（约 31s 一圈）
+var camLook = new THREE.Vector3();
+var _pos = new THREE.Vector3(), _tan = new THREE.Vector3();
+var _camF = new THREE.Vector3(), _camR = new THREE.Vector3(), _sunDir = new THREE.Vector3();
+var _out = new THREE.Vector3(), _camPos = new THREE.Vector3(), _aim = new THREE.Vector3();
+var _q = new THREE.Quaternion(), _rimDir = new THREE.Vector3();
+
+function update(t) {
+  /* --- 公转 --- */
+  var th = t * ORBIT_W;
+  var c = Math.cos(th), s = Math.sin(th);
+  _pos.copy(B_U).multiplyScalar(c * ORBIT_R).addScaledVector(B_V, s * ORBIT_R);
+  _tan.copy(B_U).multiplyScalar(-s).addScaledVector(B_V, c);
+
+  /* 腿部奔跑循环（前后腿反相） */
+  var ph = t * 3.1;
+  for (var i = 0; i < legs.length; i++) {
+    var L = legs[i], off = L.userData.phase;
+    L.rotation.z = Math.sin(ph + off) * 0.58;
+    L.rotation.x = Math.sin(ph + off + 1.2) * 0.10 * (L.position.z > 0 ? 1 : -1);
+    L.position.y = -11 + Math.max(0, Math.cos(ph + off)) * 2.6;
+  }
+  /* 身体起伏 + 头部点动 + 尾巴摆动 */
+  rhinoBody.position.y = Math.sin(ph * 2) * 1.5;
+  rhinoBody.rotation.z = Math.sin(ph) * 0.045;
+  rhinoBody.rotation.x = Math.sin(ph * 2 + 0.8) * 0.035;
+  headGrp.rotation.z = Math.sin(ph + 0.6) * 0.075 - 0.03;
+  headGrp.rotation.y = Math.sin(ph * 0.5) * 0.10;
+  tailGrp.rotation.y = Math.sin(ph * 0.62 + 1.0) * 0.30;
+  tailGrp.rotation.z = Math.sin(ph * 0.9) * 0.12;
+  earL.rotation.z = -0.12 + Math.sin(ph * 1.7) * 0.07;
+  earR.rotation.z = -0.12 + Math.sin(ph * 1.7 + 2.0) * 0.07;
+
+  /* --- 姿态：朝向切线 + 侧倾 + 抬头 --- */
+  rhinoPivot.position.copy(_pos);
+  rhinoPivot.up.copy(ORBIT_N);
+  _aim.copy(_pos).add(_tan);
+  rhinoPivot.lookAt(_aim);
+  rhinoPivot.rotateZ(-0.16 + Math.sin(t * 0.5) * 0.05);
+  rhinoYaw.rotation.z = 0.10 + Math.sin(t * 0.7) * 0.03;   // 抬头
+  rhinoBody.rotation.y = Math.sin(t * 0.43) * 0.06;
+
+  /* --- 地球自转 / 云层 --- */
+  earthMesh.rotation.y = t * 0.055;
+  cloudMesh.rotation.y = t * 0.082;
+
+  /* --- 轨道拖尾角度 --- */
+  orbitRingMat.uniforms.uAngle.value = (th / (Math.PI * 2)) % 1;
+
+  /* --- 镜头：站在轨道外侧、略偏前方，跟随犀牛 --- */
+  _out.copy(_pos).normalize();                       // 背离地心
+  _q.setFromAxisAngle(ORBIT_N, -0.30);
+  _out.applyQuaternion(_q);
+  /* 窄窗口时自动后退，保证主体不被裁切 */
+  var fit = Math.max(1, 1.55 / camera.aspect);
+  _camPos.copy(_pos)
+    .addScaledVector(_out, (176 + Math.sin(t * 0.31) * 9) * fit)
+    .addScaledVector(ORBIT_N, (50 + Math.sin(t * 0.23 + 1.4) * 8) * fit);
+  camera.position.copy(_camPos);
+  camLook.copy(_pos).addScaledVector(_out, -13).addScaledVector(ORBIT_N, 5);
+  camera.lookAt(camLook);
+
+  /* --- 灯光随镜头：太阳在镜头同侧偏右上 → 地球呈凸月相，主体侧面受光 --- */
+  _camF.subVectors(camLook, camera.position).normalize();
+  _camR.crossVectors(_camF, WORLD_UP).normalize();
+  _sunDir.copy(_camF).multiplyScalar(-0.58).addScaledVector(_camR, 0.92).addScaledVector(WORLD_UP, 0.52).normalize();
+  sunLight.position.copy(_pos).addScaledVector(_sunDir, 3000);
+  sunLight.target.position.copy(_pos);
+  keyLight.position.copy(_pos).addScaledVector(_sunDir, 3000);
+  keyLight.target.position.copy(_pos);
+  _rimDir.copy(_camR).multiplyScalar(-0.55).addScaledVector(WORLD_UP, 0.30).addScaledVector(_camF, 0.55).normalize();
+  rimLight.position.copy(_pos).addScaledVector(_rimDir, 3000);
+  rimLight.target.position.copy(_pos);
+
+  starMat.uniforms.uTime.value = t;
+}
+
+var clock = new THREE.Clock();
+var T = 0;
+function loop() {
+  T += Math.min(clock.getDelta(), 0.05);
+  update(T);
+  renderer.render(scene, camera);
+  requestAnimationFrame(loop);
+}
+
+/* 调试/定帧钩子（不参与画面呈现） */
+window.__seek = function (t) { T = t; update(t); renderer.render(scene, camera); };
+
+window.addEventListener('resize', function () {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  if (starMat) starMat.uniforms.uPR.value = renderer.getPixelRatio();
+});
+
+/* 起步：同步渲染首帧 → 撤掉加载提示 → 进入循环（rAF 被节流时画面依然可见） */
+if (renderer.compile) renderer.compile(scene, camera);
+update(0);
+renderer.render(scene, camera);
+boot.classList.add('hide');
+setTimeout(function () { if (boot.parentNode) boot.parentNode.removeChild(boot); }, 1200);
+requestAnimationFrame(loop);
+})();
+</script>
+<!--zc-home:start--><style>.zc-home-btn{position:fixed;top:16px;left:16px;z-index:2147483647;display:inline-flex;align-items:center;gap:6px;padding:8px 14px;font:500 13px/1.1 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Noto Sans SC",sans-serif;color:#111;background:rgba(255,255,255,.86);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);border:1px solid rgba(0,0,0,.08);border-radius:999px;text-decoration:none;box-shadow:0 2px 12px rgba(0,0,0,.2);transition:background .2s ease,transform .2s ease,box-shadow .2s ease}.zc-home-btn:hover{background:#fff;transform:translateY(-1px);box-shadow:0 4px 18px rgba(0,0,0,.26)}</style><a class="zc-home-btn" href="../">← 返回首页</a><!--zc-home:end-->
+</body>
+</html>

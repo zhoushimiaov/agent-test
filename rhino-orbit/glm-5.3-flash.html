@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>犀牛绕地球公转 · GLM-5.3-Flash</title>
+<!-- 一头巨大的卡通犀牛绕着地球公转 · 单文件动画 · model: GLM-5.3-Flash -->
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html,body { width:100%; height:100%; overflow:hidden; background:#040512; }
+
+  /* ============ 深空背景 ============ */
+  #space { position:fixed; inset:0; overflow:hidden; background:
+    radial-gradient(120vmax 90vmax at 18% -10%, rgba(64,58,130,.35), transparent 55%),
+    radial-gradient(100vmax 80vmax at 85% 110%, rgba(28,74,120,.30), transparent 60%),
+    linear-gradient(200deg,#0a0c22 0%,#060814 45%,#03040c 100%); }
+  .nebula { position:absolute; border-radius:50%; filter:blur(70px); }
+  .n1 { width:70vmax; height:46vmax; left:52%; top:-18%; background:radial-gradient(circle,rgba(150,110,255,.14),transparent 65%); }
+  .n2 { width:60vmax; height:40vmax; left:-14%; bottom:-20%; background:radial-gradient(circle,rgba(46,190,220,.12),transparent 65%); }
+  .sun { position:absolute; width:64vmin; height:64vmin; left:-16vmin; top:-18vmin; border-radius:50%;
+    background:radial-gradient(circle,rgba(255,220,160,.32) 0%,rgba(255,190,120,.10) 38%,transparent 68%); }
+  #stars { position:absolute; inset:0; }
+  .star,.sp { position:absolute; display:block; }
+  .star { background:#fff; border-radius:50%; animation:tw var(--d) ease-in-out var(--dl) infinite alternate; }
+  .star.big { box-shadow:0 0 6px 1px rgba(255,255,255,.75); }
+  @keyframes tw { from{opacity:.15} to{opacity:1} }
+  .sp { background:#fff; clip-path:polygon(50% 0,61% 39%,100% 50%,61% 61%,50% 100%,39% 61%,0 50%,39% 39%);
+    animation:spkw var(--d) ease-in-out var(--dl) infinite alternate; filter:drop-shadow(0 0 6px rgba(255,255,255,.9)); }
+  @keyframes spkw { from{transform:scale(.35) rotate(0deg);opacity:.25} to{transform:scale(1) rotate(26deg);opacity:.95} }
+  .shoot { position:absolute; width:150px; height:2px; border-radius:2px; opacity:0;
+    background:linear-gradient(90deg,rgba(255,255,255,.95),rgba(160,200,255,.4) 55%,transparent);
+    filter:drop-shadow(0 0 4px rgba(255,255,255,.8)); }
+  .shoot.a { animation:shA 13s linear 2.5s infinite; }
+  .shoot.b { width:110px; animation:shB 17s linear 9s infinite; }
+  @keyframes shA { 0%{transform:translate(108vw,4vh) rotate(-33deg);opacity:0} 1.5%{opacity:1}
+    8%{transform:translate(38vw,36vh) rotate(-33deg);opacity:0} 100%{transform:translate(38vw,36vh) rotate(-33deg);opacity:0} }
+  @keyframes shB { 0%{transform:translate(96vw,12vh) rotate(-29deg);opacity:0} 1.5%{opacity:.9}
+    7%{transform:translate(44vw,44vh) rotate(-29deg);opacity:0} 100%{transform:translate(44vw,44vh) rotate(-29deg);opacity:0} }
+  #vignette { position:fixed; inset:0; pointer-events:none; z-index:20;
+    background:radial-gradient(120% 105% at 50% 46%, transparent 55%, rgba(2,3,12,.55) 100%); }
+
+  /* ============ 场景(整体轻微浮动 = 视差) ============ */
+  #scene { position:fixed; inset:0; animation:sway 14s ease-in-out infinite; }
+  @keyframes sway { 0%,100%{transform:translateY(-7px)} 50%{transform:translateY(9px)} }
+
+  svg.orbit { position:absolute; inset:0; overflow:visible; pointer-events:none; }
+  #orbitBack { z-index:2; }
+  #orbitFront { z-index:5; }
+  #orbitFront path, #orbitBack ellipse { animation:dash 1.1s linear infinite; }
+  @keyframes dash { to { stroke-dashoffset:-15; } }
+
+  /* ============ 地球 ============ */
+  #earth { position:absolute; border-radius:50%; overflow:hidden; z-index:4; --u:2px;
+    background:radial-gradient(circle at 33% 28%, #93e4ff 0%, #47b2ec 26%, #1f7ad0 52%, #0d4194 75%, #071d50 100%);
+    box-shadow:0 0 calc(var(--u)*40) calc(var(--u)*9) rgba(98,182,255,.5),
+               0 0 calc(var(--u)*130) calc(var(--u)*38) rgba(56,110,255,.22); }
+  #earth .scroll { position:absolute; top:0; left:0; height:100%; width:200%; display:flex; will-change:transform; }
+  #earth .scroll svg { width:50%; height:100%; flex:none; display:block; }
+  #land  { animation:spin 46s linear infinite; }
+  #cloud { animation:spin 74s linear infinite; opacity:.85; }
+  @keyframes spin { to { transform:translateX(-50%); } }
+  #earth::after { content:""; position:absolute; inset:0; border-radius:50%; z-index:3; box-shadow:
+    inset calc(var(--u)*-30) calc(var(--u)*-26) calc(var(--u)*74) calc(var(--u)*6) rgba(3,9,42,.82),
+    inset calc(var(--u)*16)  calc(var(--u)*14)  calc(var(--u)*42) rgba(255,255,255,.22),
+    inset 0 0 calc(var(--u)*34) calc(var(--u)*5) rgba(6,14,48,.45); }
+
+  /* ============ 月球 ============ */
+  #moon { position:absolute; left:0; top:0; width:0; height:0; z-index:5; will-change:transform; }
+  #moon svg { display:block; width:100%; height:100%; transform:translate(-50%,-50%); border-radius:50%; }
+
+  /* ============ 犀牛 ============ */
+  #rhino { position:absolute; left:0; top:0; width:0; height:0; z-index:6; will-change:transform; }
+  #rhino .inner { position:absolute; left:0; top:0; animation:bob .55s ease-in-out infinite;
+    filter:drop-shadow(0 0 16px rgba(150,200,255,.28)); }
+  #rhino .inner svg { display:block; transform:translate(-50%,-50%); }
+  @keyframes bob { 0%,100%{transform:translateY(0) rotate(0deg)} 25%{transform:translateY(-8px) rotate(-1.6deg)}
+    50%{transform:translateY(1px) rotate(0deg)} 75%{transform:translateY(-5px) rotate(1.3deg)} }
+
+  .leg { transform-box:fill-box; transform-origin:50% 10%; animation:gallop .55s ease-in-out infinite; }
+  .leg.nf { animation-delay:0s; } .leg.lf { animation-delay:-.12s; }
+  .leg.nb { animation-delay:-.28s; } .leg.lb { animation-delay:-.4s; }
+  @keyframes gallop { 0%,100%{transform:rotate(26deg)} 50%{transform:rotate(-24deg)} }
+  .tail { transform-box:fill-box; transform-origin:12% 6%; animation:wag 1.1s ease-in-out infinite; }
+  @keyframes wag { 0%,100%{transform:rotate(-12deg)} 50%{transform:rotate(16deg)} }
+  .ear { transform-box:fill-box; transform-origin:55% 92%; animation:earf 3.8s ease-in-out infinite; }
+  @keyframes earf { 0%,86%,100%{transform:rotate(0deg)} 90%{transform:rotate(-16deg)} 95%{transform:rotate(7deg)} }
+  .eye { transform-box:fill-box; transform-origin:center; animation:blink 4.6s infinite; }
+  @keyframes blink { 0%,91%,100%{transform:scaleY(1)} 94%{transform:scaleY(.1)} 97%{transform:scaleY(1)} }
+  .streak { animation:stk .55s linear infinite; }
+  .streak:nth-of-type(2) { animation-delay:-.18s; }
+  .streak:nth-of-type(3) { animation-delay:-.36s; }
+  @keyframes stk { 0%,100%{opacity:.12} 50%{opacity:.5} }
+  .spk { transform-box:fill-box; transform-origin:center; animation:twk 1.7s ease-in-out infinite; }
+  .spk2 { animation-delay:-.9s; }
+  @keyframes twk { 0%,100%{opacity:.12;transform:scale(.45)} 50%{opacity:.95;transform:scale(1.1)} }
+</style>
+</head>
+<body>
+
+<div id="space">
+  <div class="nebula n1"></div><div class="nebula n2"></div><div class="sun"></div>
+  <div id="stars"></div>
+  <div class="shoot a"></div><div class="shoot b"></div>
+</div>
+
+<div id="scene">
+  <svg id="orbitBack" class="orbit">
+    <ellipse rx="1" ry="1" fill="none" stroke="rgba(255,255,255,.14)" stroke-width="2"
+             stroke-dasharray="3 12" stroke-linecap="round"/>
+  </svg>
+  <svg id="orbitFront" class="orbit">
+    <path fill="none" stroke="rgba(190,220,255,.30)" stroke-width="2.5"
+          stroke-dasharray="4 11" stroke-linecap="round"/>
+  </svg>
+
+  <div id="earth">
+    <div id="land" class="scroll"></div>
+    <div id="cloud" class="scroll"></div>
+  </div>
+
+  <div id="moon">
+    <svg viewBox="0 0 100 100">
+      <defs>
+        <radialGradient id="mg" cx="35%" cy="30%" r="80%">
+          <stop offset="0%" stop-color="#f2f2f8"/><stop offset="55%" stop-color="#c3c4d6"/>
+          <stop offset="100%" stop-color="#7c7d96"/>
+        </radialGradient>
+      </defs>
+      <circle cx="50" cy="50" r="48" fill="url(#mg)"/>
+      <circle cx="36" cy="38" r="9" fill="#a9aac0" opacity=".8"/>
+      <circle cx="62" cy="58" r="12" fill="#a9aac0" opacity=".7"/>
+      <circle cx="46" cy="72" r="6" fill="#a9aac0" opacity=".75"/>
+      <circle cx="70" cy="30" r="5" fill="#a9aac0" opacity=".7"/>
+    </svg>
+  </div>
+
+  <div id="rhino"><div class="inner">
+    <svg viewBox="0 0 460 320">
+      <defs>
+        <path id="silh" d="M 58 128 C 74 108 96 100 120 96 C 142 91 160 92 174 98
+          C 202 78 242 70 274 76 C 312 84 342 99 357 119 C 376 139 383 159 378 181
+          C 375 205 367 224 351 238 C 335 251 310 257 282 258 C 250 261 222 257 204 247
+          C 182 235 169 219 161 199 C 152 182 140 172 124 170 C 110 169 99 175 89 185
+          C 79 194 66 197 56 195 C 44 192 35 184 32 170 C 30 156 36 140 48 133
+          C 51 131 55 129 58 128 Z"/>
+        <clipPath id="cBody"><use href="#silh"/></clipPath>
+        <filter id="soft" x="-40%" y="-40%" width="180%" height="180%">
+          <feGaussianBlur stdDeviation="9"/>
+        </filter>
+      </defs>
+
+      <!-- 速度线 -->
+      <g stroke="#eaf3ff" stroke-width="6" stroke-linecap="round">
+        <line class="streak" x1="384" y1="130" x2="452" y2="126"/>
+        <line class="streak" x1="392" y1="166" x2="446" y2="164"/>
+        <line class="streak" x1="382" y1="200" x2="432" y2="199"/>
+      </g>
+
+      <!-- 尾巴 -->
+      <g class="tail">
+        <path d="M 370 144 C 388 162 396 186 393 208 C 392 216 388 222 384 226"
+              stroke="#8fa2c8" stroke-width="7" stroke-linecap="round" fill="none"/>
+        <path d="M 386 218 C 396 220 401 232 395 242 C 389 251 375 249 371 239 C 368 230 376 219 386 218 Z"
+              fill="#3c4a6e" stroke="#2e3952" stroke-width="4"/>
+      </g>
+
+      <!-- 犄角(藏在头轮廓后面) -->
+      <path d="M 38 146 C 30 122 24 100 20 82 C 36 92 54 110 64 132 C 67 140 54 148 38 146 Z"
+            fill="#f4e8ce" stroke="#2e3952" stroke-width="5" stroke-linejoin="round"/>
+      <path d="M 68 128 C 66 108 72 94 84 90 C 90 88 94 94 92 105 C 90 117 86 125 80 129 Z"
+            fill="#f4e8ce" stroke="#2e3952" stroke-width="5" stroke-linejoin="round"/>
+
+      <!-- 耳朵 -->
+      <g class="ear">
+        <path d="M 144 100 C 140 84 146 70 158 66 C 167 63 172 71 169 81 C 166 92 157 99 150 102 Z"
+              fill="#8fa2c8" stroke="#2e3952" stroke-width="5" stroke-linejoin="round"/>
+        <path d="M 151 94 C 149 83 153 74 160 71 C 164 69 166 74 164 81 C 162 88 157 92 151 94 Z" fill="#e9a4b4"/>
+      </g>
+
+      <!-- 远侧腿 -->
+      <g class="leg lf">
+        <rect x="178" y="212" width="28" height="74" rx="13" fill="#7186b2" stroke="#2e3952" stroke-width="5"/>
+        <ellipse cx="186" cy="284" rx="5" ry="6" fill="#d9d4c8" stroke="#2e3952" stroke-width="3"/>
+        <ellipse cx="198" cy="284" rx="5" ry="6" fill="#d9d4c8" stroke="#2e3952" stroke-width="3"/>
+      </g>
+      <g class="leg lb">
+        <rect x="336" y="208" width="30" height="76" rx="14" fill="#7186b2" stroke="#2e3952" stroke-width="5"/>
+        <ellipse cx="345" cy="282" rx="5" ry="6" fill="#d9d4c8" stroke="#2e3952" stroke-width="3"/>
+        <ellipse cx="357" cy="282" rx="5" ry="6" fill="#d9d4c8" stroke="#2e3952" stroke-width="3"/>
+      </g>
+
+      <!-- 近侧腿 -->
+      <g class="leg nf">
+        <rect x="196" y="216" width="30" height="78" rx="14" fill="#8fa2c8" stroke="#2e3952" stroke-width="5"/>
+        <ellipse cx="205" cy="291" rx="5.5" ry="6.5" fill="#ece7db" stroke="#2e3952" stroke-width="3"/>
+        <ellipse cx="218" cy="291" rx="5.5" ry="6.5" fill="#ece7db" stroke="#2e3952" stroke-width="3"/>
+      </g>
+      <g class="leg nb">
+        <rect x="312" y="214" width="32" height="78" rx="15" fill="#8fa2c8" stroke="#2e3952" stroke-width="5"/>
+        <ellipse cx="322" cy="289" rx="5.5" ry="6.5" fill="#ece7db" stroke="#2e3952" stroke-width="3"/>
+        <ellipse cx="336" cy="289" rx="5.5" ry="6.5" fill="#ece7db" stroke="#2e3952" stroke-width="3"/>
+      </g>
+
+      <!-- 身体 + 头 -->
+      <use href="#silh" fill="#8fa2c8" stroke="#2e3952" stroke-width="6" stroke-linejoin="round"/>
+
+      <!-- 明暗(裁剪在身体轮廓内) -->
+      <g clip-path="url(#cBody)">
+        <ellipse cx="345" cy="185" rx="52" ry="98" fill="#6d81ab" opacity=".55" filter="url(#soft)"/>
+        <ellipse cx="250" cy="262" rx="105" ry="30" fill="#64789f" opacity=".5" filter="url(#soft)"/>
+        <ellipse cx="215" cy="108" rx="95" ry="42" fill="#ccdaef" opacity=".55" filter="url(#soft)"/>
+        <ellipse cx="245" cy="228" rx="92" ry="42" fill="#b9c8e2" opacity=".85"/>
+      </g>
+
+      <!-- 皮褶(铠甲纹) -->
+      <g stroke="#5f729b" stroke-width="5" stroke-linecap="round" fill="none" opacity=".9">
+        <path d="M 150 104 C 158 124 162 144 158 164"/>
+        <path d="M 184 112 C 200 142 206 176 196 206"/>
+        <path d="M 322 118 C 338 150 340 184 328 212"/>
+      </g>
+
+      <!-- 脸 -->
+      <ellipse cx="100" cy="152" rx="8" ry="5" fill="#e79aa8" opacity=".55"/>
+      <path d="M 38 172 C 46 190 62 198 80 193 C 89 190 93 183 88 177 C 72 186 53 184 38 172 Z"
+            fill="#33202f" stroke="#2e3952" stroke-width="3" stroke-linejoin="round"/>
+      <path d="M 47 185 C 53 194 65 196 74 192 C 71 200 57 201 50 195 C 47 192 46 188 47 185 Z" fill="#ef8ba1"/>
+      <ellipse cx="46" cy="156" rx="4.5" ry="6.5" fill="#2e3952" opacity=".85" transform="rotate(-18 46 156)"/>
+      <g class="eye">
+        <ellipse cx="127" cy="127" rx="10.5" ry="12.5" fill="#fff" stroke="#2e3952" stroke-width="4"/>
+        <circle cx="125" cy="130" r="5.4" fill="#232c44"/>
+        <circle cx="122.5" cy="126.5" r="2.1" fill="#fff"/>
+        <path d="M 113 118 Q 127 109 141 117" stroke="#2e3952" stroke-width="5" stroke-linecap="round" fill="none"/>
+      </g>
+
+      <!-- 角尖星光 -->
+      <path class="spk"  d="M 16 66 l 2.2 6.2 6.2 2.2 -6.2 2.2 -2.2 6.2 -2.2 -6.2 -6.2 -2.2 6.2 -2.2 Z" fill="#fff"/>
+      <path class="spk spk2" d="M 10 98 l 1.8 5 5 1.8 -5 1.8 -1.8 5 -1.8 -5 -5 -1.8 5 -1.8 Z" fill="#fff"/>
+    </svg>
+  </div></div>
+</div>
+
+<div id="vignette"></div>
+
+<script>
+(() => {
+  const $ = s => document.querySelector(s);
+  const rhinoEl = $('#rhino'), moonEl = $('#moon'), earthEl = $('#earth'),
+        orbitBack = $('#orbitBack'), orbitFront = $('#orbitFront'),
+        bEllipse = orbitBack.querySelector('ellipse'),
+        fPath = orbitFront.querySelector('path'),
+        starsEl = $('#stars');
+
+  const TAU = Math.PI * 2, T = 16, TM = 42;
+  const clamp = (v,a,b) => Math.max(a, Math.min(b, v));
+  let W, H, minD, cx, cy, Rx, Ry, Re, rw;
+
+  /* ---- 地球表面的陆地与云(平铺两份实现无缝自转) ---- */
+  const landTile = `<svg viewBox="0 0 800 600" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
+    <path d="M0 0 H800 V54 C700 86 620 42 520 64 C420 86 340 46 240 66 C150 82 60 56 0 64 Z" fill="#eef7ff" opacity=".95"/>
+    <path d="M0 600 H800 V556 C680 536 560 570 440 548 C330 530 220 566 120 546 C70 536 25 548 0 546 Z" fill="#eef7ff" opacity=".95"/>
+    <path d="M90 180 C150 128 262 138 302 198 C338 250 302 322 240 346 C175 372 104 340 80 280 C62 234 58 210 90 180 Z" fill="#4db06b"/>
+    <path d="M120 210 C165 180 240 184 268 224 C292 258 268 306 224 320 C178 334 128 314 112 272 C102 244 102 226 120 210 Z" fill="#3c9758" opacity=".55"/>
+    <ellipse cx="205" cy="245" rx="55" ry="30" fill="#d9c36a" opacity=".5"/>
+    <path d="M470 118 C560 88 692 108 722 178 C748 240 682 300 602 310 C530 318 470 280 455 220 C445 176 445 138 470 118 Z" fill="#4db06b"/>
+    <path d="M500 150 C570 130 660 142 682 186 C700 224 656 262 596 268 C544 272 502 246 492 204 C486 178 488 158 500 150 Z" fill="#3c9758" opacity=".5"/>
+    <path d="M560 402 C620 380 692 400 702 448 C710 494 656 526 596 518 C546 512 520 470 530 434 C536 414 546 406 560 402 Z" fill="#46a562"/>
+    <ellipse cx="382" cy="432" rx="26" ry="14" fill="#4db06b"/>
+    <ellipse cx="414" cy="470" rx="14" ry="9" fill="#4db06b"/>
+    <ellipse cx="352" cy="474" rx="10" ry="7" fill="#46a562"/>
+  </svg>`;
+  const cloudTile = `<svg viewBox="0 0 800 600" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
+    <g fill="#ffffff" opacity=".9">
+      <ellipse cx="120" cy="118" rx="85" ry="24"/><ellipse cx="185" cy="102" rx="58" ry="19"/>
+      <ellipse cx="425" cy="212" rx="108" ry="28"/><ellipse cx="487" cy="192" rx="66" ry="21"/>
+      <ellipse cx="672" cy="92" rx="72" ry="20"/>
+      <ellipse cx="255" cy="356" rx="92" ry="24"/><ellipse cx="318" cy="340" rx="58" ry="18"/>
+      <ellipse cx="612" cy="428" rx="102" ry="27"/><ellipse cx="678" cy="412" rx="60" ry="19"/>
+      <ellipse cx="95" cy="498" rx="78" ry="22"/><ellipse cx="152" cy="482" rx="48" ry="16"/>
+      <ellipse cx="430" cy="528" rx="88" ry="22"/>
+    </g>
+  </svg>`;
+  $('#land').innerHTML = landTile + landTile;
+  $('#cloud').innerHTML = cloudTile + cloudTile;
+
+  /* ---- 星空 ---- */
+  function makeStars(){
+    let h = '';
+    for (let i = 0; i < 150; i++){
+      const s = (Math.random()*1.8 + .8).toFixed(1);
+      const big = Math.random() < .12;
+      h += `<i class="star${big?' big':''}" style="left:${(Math.random()*100).toFixed(2)}%;top:${(Math.random()*100).toFixed(2)}%;width:${s}px;height:${s}px;--d:${(Math.random()*2.6+1.4).toFixed(2)}s;--dl:${(Math.random()*3).toFixed(2)}s"></i>`;
+    }
+    for (let i = 0; i < 7; i++){
+      const s = (Math.random()*8 + 7).toFixed(0);
+      h += `<i class="sp" style="left:${(Math.random()*100).toFixed(2)}%;top:${(Math.random()*100).toFixed(2)}%;width:${s}px;height:${s}px;--d:${(Math.random()*2+1.6).toFixed(2)}s;--dl:${(Math.random()*4).toFixed(2)}s"></i>`;
+    }
+    starsEl.innerHTML = h;
+  }
+
+  function resize(){
+    W = innerWidth; H = innerHeight; minD = Math.min(W, H);
+    cx = W*.5; cy = H*.545; Rx = W*.365; Ry = H*.20;
+    Re = minD*.24; rw = minD*.50;
+    Object.assign(earthEl.style, {
+      width: Re*2+'px', height: Re*2+'px', left: cx-Re+'px', top: cy-Re+'px' });
+    earthEl.style.setProperty('--u', (Re/100).toFixed(3)+'px');
+    const rsvg = rhinoEl.querySelector('svg');
+    rsvg.style.width = rw+'px'; rsvg.style.height = (rw*320/460)+'px';
+    const ms = minD*.075;
+    moonEl.style.width = ms+'px'; moonEl.style.height = ms+'px';
+    for (const s of [orbitBack, orbitFront]){
+      s.setAttribute('width', W); s.setAttribute('height', H);
+      s.setAttribute('viewBox', `0 0 ${W} ${H}`);
+    }
+    bEllipse.setAttribute('cx', cx); bEllipse.setAttribute('cy', cy);
+    bEllipse.setAttribute('rx', Rx); bEllipse.setAttribute('ry', Ry);
+    let d = '';
+    for (let i = 0; i <= 72; i++){
+      const a = i/72*Math.PI;
+      d += (i?'L':'M') + (cx+Rx*Math.cos(a)).toFixed(1) + ',' + (cy+Ry*Math.sin(a)).toFixed(1);
+    }
+    fPath.setAttribute('d', d);
+    if (!starsEl.children.length) makeStars();
+  }
+
+  let t0 = performance.now()/1000, seekAt = null;
+  window.__seek = f => { seekAt = f; };   // 调试用:固定轨道相位 0~1
+  window.__play = () => { seekAt = null; };
+
+  function frame(now){
+    const secs = now/1000 - t0;
+    const frac = (seekAt !== null) ? seekAt : (secs/T) % 1;
+    const t = frac * TAU;
+
+    /* ---- 犀牛:椭圆轨道 + 前后透视 + 沿速度方向俯仰 + 掉头翻转 ---- */
+    const s = Math.sin(t), c = Math.cos(t);
+    const px = cx + Rx*c, py = cy + Ry*s;
+    const depth = (s+1)/2;                       // 0 最远(后) ~ 1 最近(前)
+    const k = 0.34 + 0.66*depth;                 // 距离缩放
+    const facing = s >= 0 ? 1 : -1;              // 前半程朝左跑,后半程朝右
+    const sq = 0.26 + 0.74*Math.min(1, Math.abs(s)*3.2);  // 掉头时的压扁
+    let R = Math.atan2(-facing*Ry*c, facing*Rx*s) * 180/Math.PI;
+    R = clamp(R, -62, 62);
+    const blur = (Math.max(0, .5 - depth)*2*1.3).toFixed(2);
+    rhinoEl.style.zIndex = s >= 0 ? 6 : 3;
+    rhinoEl.style.transform =
+      `translate3d(${px.toFixed(1)}px,${py.toFixed(1)}px,0) rotate(${R.toFixed(1)}deg) ` +
+      `scale(${(facing*sq*k).toFixed(3)},${k.toFixed(3)})`;
+    rhinoEl.style.filter = `brightness(${(0.66+0.34*depth).toFixed(3)}) blur(${blur}px)`;
+
+    /* ---- 月球:更小更慢的另一条倾斜轨道 ---- */
+    const fm = (t*T)/TM + 2.1;
+    const mx0 = Math.cos(fm)*minD*.42, my0 = Math.sin(fm)*minD*.13;
+    const th = -0.24, co = Math.cos(th), si = Math.sin(th);
+    const mx = cx + mx0*co - my0*si, my = cy + mx0*si + my0*co;
+    const d2 = (Math.sin(fm)+1)/2;
+    moonEl.style.zIndex = Math.sin(fm) >= 0 ? 5 : 3;
+    moonEl.style.transform = `translate3d(${mx.toFixed(1)}px,${my.toFixed(1)}px,0)`;
+    moonEl.style.filter = `brightness(${(0.7+0.3*d2).toFixed(3)})`;
+
+    requestAnimationFrame(frame);
+  }
+
+  addEventListener('resize', resize);
+  resize();
+  requestAnimationFrame(frame);
+})();
+</script>
+<!--zc-home:start--><style>.zc-home-btn{position:fixed;top:16px;left:16px;z-index:2147483647;display:inline-flex;align-items:center;gap:6px;padding:8px 14px;font:500 13px/1.1 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Noto Sans SC",sans-serif;color:#111;background:rgba(255,255,255,.86);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);border:1px solid rgba(0,0,0,.08);border-radius:999px;text-decoration:none;box-shadow:0 2px 12px rgba(0,0,0,.2);transition:background .2s ease,transform .2s ease,box-shadow .2s ease}.zc-home-btn:hover{background:#fff;transform:translateY(-1px);box-shadow:0 4px 18px rgba(0,0,0,.26)}</style><a class="zc-home-btn" href="../">← 返回首页</a><!--zc-home:end-->
+</body>
+</html>

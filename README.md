@@ -16,7 +16,7 @@
 | 鲸鱼在城市上空游泳 | `whale-over-city/` | 超现实尺度 + 云层前后遮挡 | 版本征集中 |
 | 大象走钢丝 | `elephant-tightrope/` | 身躯 + 平衡杆 + 钢丝下垂张力 | 1 个版本 |
 | 章鱼打架子鼓 | `octopus-drummer/` | 八腕到各鼓件的分配与协调 | 版本征集中 |
-| 犀牛绕地球 | `rhino-orbit/` | 轨道运动与天体尺度关系 | 4 个版本 · Jev 已评分 |
+| 犀牛绕地球 | `rhino-orbit/` | 轨道运动与天体尺度关系 | 10 个版本 · Jev 已评分 |
 | 狮子跳火圈 | `lion-fire-hoop/` | 抛物线 + 火圈粒子 + 落地时机 | 版本征集中 |
 
 ### 🦩🚲 鹈鹕骑车 (`pelican-bicycle/`)
@@ -53,16 +53,24 @@
 鹈鹕骑车栏目页已变为 **Jev 评分排行榜**:25 个版本由 TypeSafe 的 System One 判定模型(`jev-1.13.0`)按 4 个加权维度打分 —— 鹈鹕还原 30 / 单车结构 25 / 骑行姿态 25 / 场景构图 20,合成 0–100 总分后降序排列,卡片带名次徽标、分数徽标与各维度迷你条。详见下方「用 Jev 给版本打分」。
 
 ### 🦏 犀牛绕地球 (`rhino-orbit/`)
-让模型实现「一头犀牛绕地球公转」。现有 4 个模型版本(均为 Three.js 3D 实时场景),栏目页同样是 Jev 评分排行榜。
+让模型实现「一头犀牛绕地球公转」。现有 10 个模型版本,技术方案自选(Three.js 3D、动画 SVG、Canvas 2D 混合),栏目页是 Jev 评分排行榜。
 
 | # | 版本 | 来源 / 说明 | 文件 |
 | --- | --- | --- | --- |
-| 1 | GLM-5.3 | Three.js 3D | `glm-5.3.html` |
-| 2 | Claude Opus 4.8 | Three.js 3D | `opus-4.8.html` |
-| 3 | Gemini 3.8 Flash | Three.js 3D | `gemini-3.8-flash.html` |
-| 4 | Agnes 3.0 Flash | Three.js 3D | `agnes-3.0-flash.html` |
+| 1 | K3 | SVG 动画 | `k3.html` |
+| 2 | Gemini 3.8 Flash | Three.js 3D | `gemini-3.8-flash.html` |
+| 3 | DeepSeek 4.1 Flash | Three.js 3D | `deepseek-4.1-flash.html` |
+| 4 | GLM-5.3 | Three.js 3D | `glm-5.3.html` |
+| 5 | Ling 3.1 Flash | Canvas 2D | `ling-3.1-flash.html` |
+| 6 | MiMo 2.6 Flash | Three.js 3D | `mimo-2.6-flash.html` |
+| 7 | GLM 5.3 Flash | SVG 动画 | `glm-5.3-flash.html` |
+| 8 | Claude Opus 4.8 | Three.js 3D | `opus-4.8.html` |
+| 9 | Qwen 3.8 Flash Next | Canvas 2D | `qwen-3.8-flash-next.html` |
+| 10 | Agnes 3.0 Flash | Three.js 3D | `agnes-3.0-flash.html` |
 
-犀牛绕地球使用一套该命题专属的评分维度 —— 犀牛造型 35 / 轨道运动 30 / 地球质感 20 / 场景氛围 15。按 `rhino-orbit/PROMPT.md` 的设计,这题**刻意不考写实尺度**(犀牛缩成小点会丢失细节、观感差),而是奖励抢眼、细节清晰的犀牛造型。由 `jev-score-rhino.mjs` 生成 `rhino-orbit/scores.json`,排行结果:Gemini 3.8 Flash(84)> GLM-5.3(77)> Claude Opus 4.8(70)> Agnes 3.0 Flash(62)。Gemini 版犀牛最抢眼、地球与太空氛围最精细,夺得第一;GLM 与 Opus 用真正的开普勒椭圆轨道(近快远慢)拿下轨道运动项,但犀牛偏小;Gemini 与 Agnes 为匀速环绕。
+犀牛绕地球使用一套该命题专属的评分维度 —— 犀牛造型 35 / 轨道运动 30 / 地球质感 20 / 场景氛围 15。按 `rhino-orbit/PROMPT.md` 的设计,这题**刻意不考写实尺度**(犀牛缩成小点会丢失细节、观感差),而是奖励抢眼、细节清晰的犀牛造型。由 `jev-score-rhino.mjs` 生成 `rhino-orbit/scores.json`,当前排行(满分 100):K3(86)> Gemini 3.8 Flash(84)> DeepSeek 4.1 Flash(83)> GLM-5.3 与 Ling 3.1 Flash(并列 77)> MiMo 2.6 Flash(76)> GLM 5.3 Flash(72)> Claude Opus 4.8 与 Qwen 3.8 Flash Next(并列 71)> Agnes 3.0 Flash(61)。靠前的版本几乎都胜在犀牛造型抢眼、细节清晰加上精致的地球与太空氛围(K3、DeepSeek、Gemini 的犀牛都做得又大又细);轨道运动项普遍偏弱 —— 多数版本把轨道画成清晰的倾斜椭圆,但很少表现出「近快远慢」的开普勒节奏。
+
+> 第二批(K3、DeepSeek 4.1 Flash、Ling 3.1 Flash、MiMo 2.6 Flash、GLM 5.3 Flash、Qwen 3.8 Flash Next)是题目更新后新跑的一轮;与第一批重名的模型(Opus 4.8、GLM-5.3、Gemini 3.8 Flash)保留原来的版本,未覆盖。
 
 ## 目录结构
 

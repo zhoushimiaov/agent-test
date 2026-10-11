@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Space Rhino — Orbiting Earth</title>
+<style>
+  html, body { margin:0; padding:0; height:100%; overflow:hidden; background:#04060f; }
+  canvas { display:block; width:100vw; height:100vh; }
+</style>
+</head>
+<body>
+<canvas id="scene"></canvas>
+<script>
+'use strict';
+
+/* ============================================================
+   SPACE RHINO — a giant cartoon rhino orbiting a tiny Earth.
+   Pure canvas 2D. Everything is a pure function of time t (s),
+   so any instant can be inspected via window.__seek(t).
+   ============================================================ */
+
+const canvas = document.getElementById('scene');
+const ctx = canvas.getContext('2d');
+let W = 0, H = 0, DPR = 1;
+
+function resize() {
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  W = window.innerWidth;
+  H = window.innerHeight;
+  canvas.width  = Math.round(W * DPR);
+  canvas.height = Math.round(H * DPR);
+  canvas.style.width  = W + 'px';
+  canvas.style.height = H + 'px';
+}
+window.addEventListener('resize', resize);
+resize();
+
+/* ---------------- background data ---------------- */
+
+const STAR_COUNT = 260;
+const stars = [];
+for (let i = 0; i < STAR_COUNT; i++) {
+  stars.push({
+    x: Math.random(), y: Math.random(),
+    r: Math.random() * 1.6 + 0.3,
+    ph: Math.random() * Math.PI * 2,
+    sp: 0.5 + Math.random() * 2.0,
+    hue: Math.random() < 0.12 ? (Math.random() < 0.5 ? 210 : 42) : 0
+  });
+}
+
+const NEBULAE = [
+  { x: 0.20, y: 0.28, r: 0.55, c: '120,80,200'  },
+  { x: 0.82, y: 0.72, r: 0.60, c: '40,90,180'   },
+  { x: 0.62, y: 0.12, r: 0.45, c: '190,70,130'  }
+];
+
+/* Earth surface: [nx, ny, radius, seed, color] in units of R */
+const LANDS = [
+  [-0.36, -0.30, 0.34, 1.3, '#3f9c68'],
+  [-0.02, -0.52, 0.20, 2.9, '#48a872'],
+  [ 0.34, -0.34, 0.24, 4.1, '#3f9c68'],
+  [ 0.58,  0.02, 0.17, 5.3, '#48a872'],
+  [-0.14,  0.28, 0.30, 0.7, '#3f9c68'],
+  [ 0.28,  0.44, 0.16, 3.6, '#48a872'],
+  [-0.56,  0.34, 0.14, 6.2, '#48a872'],
+  [ 0.02, -0.08, 0.13, 7.5, '#37915f']
+];
+const CLOUDS = [
+  [-0.22, -0.12, 0.28, 0.4],
+  [ 0.30,  0.18, 0.25, 1.8],
+  [-0.52,  0.42, 0.19, 3.1],
+  [ 0.08, -0.56, 0.21, 4.6],
+  [ 0.62, -0.24, 0.15, 5.9],
+  [-0.30,  0.55, 0.14, 2.2]
+];
+const MOON_CRATERS = [
+  [-0.30, -0.15, 0.22], [0.25, 0.30, 0.16], [0.10, -0.35, 0.12], [-0.15, 0.40, 0.10]
+];
+
+/* ---------------- tiny path helpers ---------------- */
+
+function rr(g, x, y, w, h, r) {
+  g.beginPath();
+  g.moveTo(x + r, y);
+  g.arcTo(x + w, y,     x + w, y + h, r);
+  g.arcTo(x + w, y + h, x,     y + h, r);
+  g.arcTo(x,     y + h, x,     y,     r);
+  g.arcTo(x,     y,     x + w, y,     r);
+  g.closePath();
+}
+
+function blobPath(g, x, y, r, seed, wob) {
+  const N = 12;
+  const pts = [];
+  for (let i = 0; i < N; i++) {
+    const a = i / N * Math.PI * 2;
+    const rad = r * (1 + wob * Math.sin(a * 3 + seed) + wob * 0.55 * Math.sin(a * 5 + seed * 1.7));
+    pts.push([x + Math.cos(a) * rad, y + Math.sin(a) * rad]);
+  }
+  g.beginPath();
+  g.moveTo((pts[0][0] + pts[N - 1][0]) / 2, (pts[0][1] + pts[N - 1][1]) / 2);
+  for (let i = 0; i < N; i++) {
+    const p = pts[i], q = pts[(i + 1) % N];
+    g.quadraticCurveTo(p[0], p[1], (p[0] + q[0]) / 2, (p[1] + q[1]) / 2);
+  }
+  g.closePath();
+}
+
+/* ---------------- the rhino ----------------
+   Drawn facing +x, centered near origin, in units of s.
+   Body spans roughly x:[-1.3, 1.3], y:[-0.75, 0.9].      */
+
+const OUT   = '#414a59';   // outline
+const BODY  = '#96a0b4';   // main coat
+const BODY_D= '#7a8499';   // shade
+const BELLY = '#b4bccb';   // belly light
+
+function bodyPath(g) {
+  g.beginPath();
+  g.moveTo(-1.00, -0.02);
+  g.bezierCurveTo(-1.06, -0.32, -0.88, -0.50, -0.58, -0.57);   // rump
+  g.bezierCurveTo(-0.32, -0.63, -0.06, -0.60,  0.14, -0.55);   // back
+  g.bezierCurveTo( 0.30, -0.52,  0.42, -0.50,  0.52, -0.47);   // neck
+  g.bezierCurveTo( 0.74, -0.45,  0.96, -0.38,  1.10, -0.26);   // head top
+  g.bezierCurveTo( 1.25, -0.14,  1.31,  0.00,  1.28,  0.12);   // snout front
+  g.bezierCurveTo( 1.25,  0.24,  1.12,  0.31,  0.96,  0.34);   // snout bottom
+  g.bezierCurveTo( 0.78,  0.39,  0.58,  0.41,  0.40,  0.39);   // jaw
+  g.bezierCurveTo( 0.18,  0.45, -0.02,  0.56, -0.26,  0.59);   // chest
+  g.bezierCurveTo(-0.56,  0.62, -0.86,  0.53, -1.00,  0.33);   // belly
+  g.bezierCurveTo(-1.07,  0.20, -1.07,  0.08, -1.00, -0.02);
+  g.closePath();
+}
+
+function drawLeg(g, x, phase, far) {
+  const swing = Math.sin(phase) * 0.12;
+  g.save();
+  g.translate(x, 0.28);
+  g.rotate(swing);
+  g.fillStyle = far ? '#6d7688' : '#8791a4';
+  rr(g, -0.13, -0.05, 0.26, 0.62, 0.09);
+  g.fill();
+  g.lineWidth = 0.035; g.strokeStyle = OUT; g.stroke();
+  g.fillStyle = far ? '#4a5260' : '#59626f';                 // hoof
+  rr(g, -0.14, 0.44, 0.28, 0.15, 0.05);
+  g.fill(); g.stroke();
+  g.restore();
+}
+
+function horn(g, x, y, len, w) {
+  g.beginPath();
+  g.moveTo(x - w, y);
+  g.quadraticCurveTo(x - w * 0.4, y - len * 0.7, x + w * 0.5, y - len);
+  g.quadraticCurveTo(x + w * 0.9, y - len * 0.55, x + w, y);
+  g.quadraticCurveTo(x, y + w * 0.35, x - w, y);
+  g.closePath();
+  const hg = g.createLinearGradient(x, y, x, y - len);
+  hg.addColorStop(0, '#d8d2c4'); hg.addColorStop(1, '#f6f1e6');
+  g.fillStyle = hg; g.fill();
+  g.lineWidth = 0.03; g.strokeStyle = OUT; g.stroke();
+  g.strokeStyle = 'rgba(120,112,96,0.55)'; g.lineWidth = 0.02; // growth ridges
+  g.beginPath(); g.moveTo(x - w * 0.55, y - len * 0.25);
+  g.quadraticCurveTo(x, y - len * 0.34, x + w * 0.55, y - len * 0.22); g.stroke();
+  g.beginPath(); g.moveTo(x - w * 0.30, y - len * 0.55);
+  g.quadraticCurveTo(x + w * 0.10, y - len * 0.62, x + w * 0.70, y - len * 0.50); g.stroke();
+}
+
+function fold(g, x1, y1, x2, y2) {
+  g.beginPath();
+  g.moveTo(x1, y1);
+  g.quadraticCurveTo((x1 + x2) / 2 + 0.06, (y1 + y2) / 2, x2, y2);
+  g.stroke();
+}
+
+function drawRhino(g, s, t) {
+  g.save();
+  g.scale(s, s);
+  g.lineJoin = 'round';
+  g.lineCap = 'round';
+
+  const walk = t * 7;
+  const legs = [
+    { x: -0.68, far: true,  ph: 0          },
+    { x: -0.28, far: false, ph: Math.PI    },
+    { x:  0.16, far: true,  ph: Math.PI * 0.9 },
+    { x:  0.52, far: false, ph: Math.PI * 1.9 }
+  ];
+
+  // far legs (behind body)
+  for (const L of legs) if (L.far) drawLeg(g, L.x, walk + L.ph, true);
+
+  // tail with tuft, wagging
+  g.save();
+  g.translate(-0.98, -0.12);
+  g.rotate(Math.sin(t * 4.5) * 0.18 - 0.35);
+  g.strokeStyle = BODY_D; g.lineWidth = 0.10;
+  g.beginPath(); g.moveTo(0, 0); g.quadraticCurveTo(-0.22, 0.12, -0.26, 0.34); g.stroke();
+  g.fillStyle = '#3d4452';
+  g.beginPath(); g.ellipse(-0.27, 0.40, 0.075, 0.11, 0.3, 0, Math.PI * 2); g.fill();
+  g.restore();
+
+  // body
+  bodyPath(g);
+  g.fillStyle = BODY; g.fill();
+  g.lineWidth = 0.045; g.strokeStyle = OUT; g.stroke();
+
+  // belly light + top shade, clipped to the silhouette
+  g.save();
+  bodyPath(g); g.clip();
+  g.globalAlpha = 0.85; g.fillStyle = BELLY;
+  g.beginPath();
+  g.moveTo(-1.1, 0.10);
+  g.bezierCurveTo(-0.7, 0.55, 0.0, 0.68, 0.6, 0.45);
+  g.bezierCurveTo(0.9, 0.38, 1.2, 0.30, 1.35, 0.25);
+  g.lineTo(1.35, 0.75); g.lineTo(-1.1, 0.75);
+  g.closePath(); g.fill();
+  g.globalAlpha = 0.45; g.fillStyle = BODY_D;
+  g.beginPath();
+  g.moveTo(-1.1, -0.65); g.lineTo(1.4, -0.65); g.lineTo(1.4, -0.10);
+  g.bezierCurveTo(0.9, -0.28, 0.2, -0.34, -0.3, -0.30);
+  g.bezierCurveTo(-0.75, -0.28, -1.0, -0.18, -1.1, -0.10);
+  g.closePath(); g.fill();
+  g.restore();
+
+  // skin folds
+  g.strokeStyle = 'rgba(60,68,84,0.6)'; g.lineWidth = 0.028;
+  fold(g, -0.52, -0.42, -0.60,  0.30);
+  fold(g, -0.02, -0.46, -0.08,  0.44);
+  fold(g,  0.34, -0.40,  0.30,  0.30);
+  g.beginPath(); g.arc(0.28, -0.05, 0.30, -2.4, -0.5); g.stroke();   // shoulder fold
+  g.beginPath(); g.moveTo(0.38, -0.38);                               // neck fold
+  g.quadraticCurveTo(0.52, -0.10, 0.44, 0.22); g.stroke();
+
+  // ear
+  g.beginPath();
+  g.moveTo(0.44, -0.44);
+  g.quadraticCurveTo(0.36, -0.74, 0.56, -0.74);
+  g.quadraticCurveTo(0.66, -0.60, 0.58, -0.40);
+  g.closePath();
+  g.fillStyle = BODY; g.fill();
+  g.lineWidth = 0.035; g.strokeStyle = OUT; g.stroke();
+  g.beginPath();                                                     // inner ear
+  g.moveTo(0.48, -0.46);
+  g.quadraticCurveTo(0.44, -0.64, 0.55, -0.65);
+  g.quadraticCurveTo(0.60, -0.56, 0.55, -0.45);
+  g.closePath();
+  g.fillStyle = '#c98f96'; g.fill();
+
+  // the horns — front big one, second smaller
+  horn(g, 1.00, -0.28, 0.46, 0.16);
+  horn(g, 0.70, -0.44, 0.30, 0.12);
+
+  // eye (blinks every ~4.3 s) + brow ridge
+  const blink = (t % 4.3) < 0.12;
+  if (blink) {
+    g.strokeStyle = '#1c2230'; g.lineWidth = 0.03;
+    g.beginPath(); g.moveTo(0.66, -0.10); g.quadraticCurveTo(0.74, -0.05, 0.82, -0.10); g.stroke();
+  } else {
+    g.fillStyle = '#1c2230';
+    g.beginPath(); g.arc(0.74, -0.10, 0.055, 0, Math.PI * 2); g.fill();
+    g.fillStyle = 'rgba(255,255,255,0.9)';
+    g.beginPath(); g.arc(0.72, -0.12, 0.018, 0, Math.PI * 2); g.fill();
+  }
+  g.strokeStyle = OUT; g.lineWidth = 0.03;
+  g.beginPath(); g.moveTo(0.62, -0.22); g.quadraticCurveTo(0.74, -0.30, 0.88, -0.22); g.stroke();
+
+  // nostril + smile
+  g.fillStyle = 'rgba(50,58,72,0.8)';
+  g.beginPath(); g.ellipse(1.17, 0.04, 0.035, 0.05, -0.4, 0, Math.PI * 2); g.fill();
+  g.strokeStyle = 'rgba(50,58,72,0.7)'; g.lineWidth = 0.025;
+  g.beginPath(); g.moveTo(1.02, 0.20); g.quadraticCurveTo(0.92, 0.28, 0.80, 0.26); g.stroke();
+
+  // near legs (over the belly)
+  for (const L of legs) if (!L.far) drawLeg(g, L.x, walk + L.ph, false);
+
+  g.restore();
+}
+
+/* ---------------- earth & moon ---------------- */
+
+function drawEarth(g, t, cx, cy, R) {
+  // atmosphere glow
+  let grd = g.createRadialGradient(cx, cy, R * 0.9, cx, cy, R * 1.55);
+  grd.addColorStop(0,   'rgba(90,150,255,0.28)');
+  grd.addColorStop(0.6, 'rgba(70,120,240,0.10)');
+  grd.addColorStop(1,   'rgba(70,120,240,0)');
+  g.fillStyle = grd;
+  g.beginPath(); g.arc(cx, cy, R * 1.55, 0, Math.PI * 2); g.fill();
+
+  g.save();
+  g.beginPath(); g.arc(cx, cy, R, 0, Math.PI * 2); g.clip();
+  g.translate(cx, cy);
+
+  // ocean
+  grd = g.createRadialGradient(-R * 0.4, -R * 0.4, R * 0.1, 0, 0, R * 1.15);
+  grd.addColorStop(0,    '#5aa3ec');
+  grd.addColorStop(0.45, '#2f6fd0');
+  grd.addColorStop(1,    '#0d2f6e');
+  g.fillStyle = grd;
+  g.fillRect(-R, -R, R * 2, R * 2);
+
+  // continents, slowly rotating
+  g.save();
+  g.rotate(t * 0.02);
+  for (const L of LANDS) {
+    blobPath(g, L[0] * R, L[1] * R, L[2] * R, L[3], 0.22);
+    g.fillStyle = L[4]; g.fill();
+  }
+  g.restore();
+
+  // clouds, drifting the other way
+  g.save();
+  g.rotate(-t * 0.035);
+  g.fillStyle = 'rgba(255,255,255,0.28)';
+  for (const C of CLOUDS) {
+    blobPath(g, C[0] * R, C[1] * R, C[2] * R, C[3], 0.30);
+    g.fill();
+  }
+  g.restore();
+
+  // polar caps
+  g.fillStyle = 'rgba(235,245,255,0.95)';
+  g.beginPath(); g.ellipse(0, -R * 0.80, R * 0.52, R * 0.20, 0, 0, Math.PI * 2); g.fill();
+  g.beginPath(); g.ellipse(0,  R * 0.85, R * 0.40, R * 0.16, 0, 0, Math.PI * 2); g.fill();
+
+  // day -> night shading
+  grd = g.createLinearGradient(-R, -R, R * 0.9, R * 0.9);
+  grd.addColorStop(0,    'rgba(255,255,255,0.10)');
+  grd.addColorStop(0.45, 'rgba(0,0,0,0)');
+  grd.addColorStop(1,    'rgba(2,6,24,0.50)');
+  g.fillStyle = grd;
+  g.fillRect(-R, -R, R * 2, R * 2);
+
+  // sunlit specular
+  grd = g.createRadialGradient(-R * 0.45, -R * 0.45, 0, -R * 0.45, -R * 0.45, R * 0.7);
+  grd.addColorStop(0, 'rgba(255,255,255,0.18)');
+  grd.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = grd;
+  g.fillRect(-R, -R, R * 2, R * 2);
+
+  g.restore();
+
+  // rim light
+  g.strokeStyle = 'rgba(150,195,255,0.40)';
+  g.lineWidth = Math.max(1.5, R * 0.02);
+  g.beginPath(); g.arc(cx, cy, R * 0.995, 0, Math.PI * 2); g.stroke();
+}
+
+function drawMoon(g, t, cx, cy, R) {
+  const am = 2.2 - t * 0.09;
+  const mr = R * 0.17;
+  const mx = cx + Math.cos(am) * R * 2.9;
+  const my = cy + Math.sin(am) * R * 2.9;
+
+  const grd = g.createRadialGradient(mx - mr * 0.4, my - mr * 0.4, mr * 0.1, mx, my, mr * 1.2);
+  grd.addColorStop(0, '#cdd1da');
+  grd.addColorStop(1, '#6f7480');
+  g.fillStyle = grd;
+  g.beginPath(); g.arc(mx, my, mr, 0, Math.PI * 2); g.fill();
+
+  g.fillStyle = 'rgba(90,95,110,0.55)';
+  for (const c of MOON_CRATERS) {
+    g.beginPath();
+    g.arc(mx + c[0] * mr, my + c[1] * mr, c[2] * mr, 0, Math.PI * 2);
+    g.fill();
+  }
+}
+
+/* ---------------- scene ---------------- */
+
+function render(t) {
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  const m = Math.min(W, H);
+  const cx = W / 2, cy = H / 2;
+
+  // deep space gradient
+  const bg = ctx.createLinearGradient(0, 0, 0, H);
+  bg.addColorStop(0,   '#070b1c');
+  bg.addColorStop(0.5, '#0a1030');
+  bg.addColorStop(1,   '#04060f');
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, W, H);
+
+  // nebulae
+  for (const n of NEBULAE) {
+    const grd = ctx.createRadialGradient(n.x * W, n.y * H, 0, n.x * W, n.y * H, n.r * m);
+    grd.addColorStop(0, `rgba(${n.c},0.10)`);
+    grd.addColorStop(1, `rgba(${n.c},0)`);
+    ctx.fillStyle = grd;
+    ctx.fillRect(0, 0, W, H);
+  }
+
+  // twinkling stars
+  for (const s of stars) {
+    const tw = 0.35 + 0.65 * Math.abs(Math.sin(t * s.sp + s.ph));
+    ctx.globalAlpha = tw;
+    ctx.fillStyle = s.hue ? `hsl(${s.hue},80%,80%)` : '#dfe8ff';
+    ctx.beginPath(); ctx.arc(s.x * W, s.y * H, s.r, 0, Math.PI * 2); ctx.fill();
+    if (s.r > 1.4) {                                   // cross flare on bright stars
+      ctx.globalAlpha = tw * 0.5;
+      ctx.fillRect(s.x * W - s.r * 4, s.y * H - 0.5, s.r * 8, 1);
+      ctx.fillRect(s.x * W - 0.5, s.y * H - s.r * 4, 1, s.r * 8);
+    }
+  }
+  ctx.globalAlpha = 1;
+
+  // orbital geometry
+  const R  = m * 0.15;
+  const rx = R * 2.1, ry = R * 1.6;
+  const S  = m * 0.125;                 // rhino unit scale
+  const a  = t * 0.32;                  // orbital angle
+
+  // slow cinematic breathing zoom
+  const z = 1 + 0.02 * Math.sin(t * 0.12);
+  ctx.save();
+  ctx.translate(cx, cy); ctx.scale(z, z); ctx.translate(-cx, -cy);
+
+  // dashed orbit path
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.strokeStyle = 'rgba(150,180,255,0.18)';
+  ctx.lineWidth = 1.5;
+  ctx.setLineDash([6, 10]);
+  ctx.beginPath(); ctx.ellipse(0, 0, rx, ry, 0, 0, Math.PI * 2); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.restore();
+
+  drawMoon(ctx, t, cx, cy, R);
+  drawEarth(ctx, t, cx, cy, R);
+
+  // rhino position + facing (tangent to the ellipse)
+  const rhinoAt = (ang, alpha) => {
+    const px = cx + Math.cos(ang) * rx;
+    const py = cy + Math.sin(ang) * ry;
+    const ta = Math.atan2(Math.cos(ang) * ry, -Math.sin(ang) * rx);
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.translate(px, py);
+    ctx.rotate(ta + Math.sin(t * 1.3) * 0.04);   // gentle attitude wobble
+    ctx.translate(0, Math.sin(t * 1.8) * 0.05 * S); // bob along facing normal
+    // soft glow behind the rhino
+    if (alpha > 0.5) {
+      const gg = ctx.createRadialGradient(0, 0, 0, 0, 0, 1.6 * S);
+      gg.addColorStop(0, 'rgba(150,180,255,0.10)');
+      gg.addColorStop(1, 'rgba(150,180,255,0)');
+      ctx.fillStyle = gg;
+      ctx.fillRect(-1.6 * S, -1.6 * S, 3.2 * S, 3.2 * S);
+    }
+    drawRhino(ctx, S, t);
+    ctx.restore();
+  };
+
+  // motion-trail ghosts, then the rhino itself
+  for (let k = 3; k >= 1; k--) rhinoAt(a - k * 0.09, 0.05);
+  rhinoAt(a, 1);
+
+  ctx.restore(); // zoom
+
+  // vignette
+  const vg = ctx.createRadialGradient(cx, cy, m * 0.45, cx, cy, m * 0.95);
+  vg.addColorStop(0, 'rgba(0,0,0,0)');
+  vg.addColorStop(1, 'rgba(2,3,10,0.55)');
+  ctx.fillStyle = vg;
+  ctx.fillRect(0, 0, W, H);
+}
+
+/* ---------------- run ---------------- */
+
+const t0 = performance.now();
+const now = () => (performance.now() - t0) / 1000;
+
+function loop() {
+  render(now());
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+
+// inspection hook: render any instant on demand (useful for screenshots)
+window.__seek = function (t) { render(t); return 'seeked to t=' + t; };
+</script>
+<!--zc-home:start--><style>.zc-home-btn{position:fixed;top:16px;left:16px;z-index:2147483647;display:inline-flex;align-items:center;gap:6px;padding:8px 14px;font:500 13px/1.1 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Noto Sans SC",sans-serif;color:#111;background:rgba(255,255,255,.86);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);border:1px solid rgba(0,0,0,.08);border-radius:999px;text-decoration:none;box-shadow:0 2px 12px rgba(0,0,0,.2);transition:background .2s ease,transform .2s ease,box-shadow .2s ease}.zc-home-btn:hover{background:#fff;transform:translateY(-1px);box-shadow:0 4px 18px rgba(0,0,0,.26)}</style><a class="zc-home-btn" href="../">← 返回首页</a><!--zc-home:end-->
+</body>
+</html>

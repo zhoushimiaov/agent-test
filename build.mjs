@@ -116,6 +116,12 @@ const categories = [
       ["opus-4.8", "Claude Opus 4.8", "Three.js 3D"],
       ["gemini-3.8-flash", "Gemini 3.8 Flash", "Three.js 3D"],
       ["agnes-3.0-flash", "Agnes 3.0 Flash", "Three.js 3D"],
+      ["mimo-2.6-flash", "MiMo 2.6 Flash", "Three.js 3D"],
+      ["deepseek-4.1-flash", "DeepSeek 4.1 Flash", "Three.js 3D"],
+      ["glm-5.3-flash", "GLM 5.3 Flash", "SVG 动画"],
+      ["k3", "K3", "SVG 动画"],
+      ["qwen-3.8-flash-next", "Qwen 3.8 Flash Next", "Canvas 2D"],
+      ["ling-3.1-flash", "Ling 3.1 Flash", "Canvas 2D"],
     ].map(([slug, name, sub]) => ({ slug, name, sub })),
   },
   {

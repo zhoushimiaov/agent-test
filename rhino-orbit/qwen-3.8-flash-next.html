@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>犀牛绕地球公转</title>
+<style>
+  html,body{margin:0;height:100%;background:#04050e;overflow:hidden}
+  canvas{display:block;width:100vw;height:100vh}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+"use strict";
+/* ============================================================
+   一头犀牛绕地球公转 —— 全场景是时间 t 的纯函数 render(t)
+   自动循环播放 ; window.__seek(t) 可跳到任意时刻
+   ============================================================ */
+const cv = document.getElementById('c'), ctx = cv.getContext('2d');
+const TAU = Math.PI*2;
+let W=0, H=0, DPR=1;
+function resize(){
+  DPR = Math.min(window.devicePixelRatio||1, 2);
+  W = window.innerWidth; H = window.innerHeight;
+  cv.width = Math.round(W*DPR); cv.height = Math.round(H*DPR);
+}
+window.addEventListener('resize', resize); resize();
+
+/* 确定性伪随机（Math.imul 防 32 位溢出） */
+function hash(n){
+  n = Math.imul(n|0, 15731) + 789221;
+  n = Math.imul(n, n);
+  n = Math.imul(n, 789221) + 1376312891;
+  return ((n >>> 0) % 100000) / 100000;
+}
+
+/* ---------- 场景常量 ---------- */
+const ORBIT_T   = 26;      // 公转周期（秒）
+const GAIT_W    = 9.5;     // 奔跑步态角频率
+const A0        = Math.PI/2;   // 开场：犀牛位于轨道正前方中心
+
+/* ---------- 星空（固定种子） ---------- */
+const stars = [];
+for (let i=0;i<230;i++){
+  stars.push({
+    x: hash(i*5+3), y: hash(i*5+4),
+    r: 0.6 + hash(i*5+5)*1.7,
+    tw: 0.7 + hash(i*5+6)*2.4,
+    ph: hash(i*5+7)*TAU,
+    c: hash(i*7) > 0.82 ? '178,206,255' : (hash(i*7+1)>0.5 ? '255,236,210' : '255,255,255')
+  });
+}
+
+/* ---------- 地球：大陆 / 云 ---------- */
+const land = [];
+for (let i=0;i<14;i++){
+  land.push({
+    lon: hash(i*11+1)*TAU,
+    lat: (hash(i*11+2)-0.5)*1.5,
+    r:   0.16 + hash(i*11+3)*0.22,
+    sd:  i*13+7
+  });
+}
+const clouds = [];
+for (let i=0;i<9;i++){
+  clouds.push({
+    lon: hash(i*17+2)*TAU,
+    lat: (hash(i*17+3)-0.5)*1.3,
+    sc:  0.55 + hash(i*17+4)*0.8,
+    sd:  i*29+5
+  });
+}
+
+/* ---------- 通用小工具 ---------- */
+function blobPath(g,x,y,r,sd,sqx,sqy){
+  sqx = sqx||1; sqy = sqy||1;
+  g.beginPath();
+  const n = 8;
+  for (let k=0;k<=n;k++){
+    const an = k%n/n*TAU;
+    const rr = r*(0.66+0.55*hash(sd*17 + (k%n)*7));
+    const px = x + Math.cos(an)*rr*sqx, py = y + Math.sin(an)*rr*sqy;
+    if (k===0) g.moveTo(px,py); else g.lineTo(px,py);
+  }
+  g.closePath();
+}
+
+/* ============================================================
+   犀牛（局部坐标：锚点约在躯干中心，x 向右为前进方向）
+   躯干 ≈ x:-210..265, 高 y:-190..140
+   ============================================================ */
+const OUTLINE = '#2C3348';
+function capsule(g,x0,y0,x1,y1,w){
+  g.lineWidth = w; g.lineCap = 'round';
+  g.beginPath(); g.moveTo(x0,y0); g.lineTo(x1,y1); g.stroke();
+}
+function drawLeg(g,hx,ang,col,shade){
+  g.save(); g.translate(hx,0); g.rotate(ang);
+  const len = 96, wob = Math.sin(ang*2.4)*5;
+  capsule(g,0,4, wob,len-24,38);                 // 大腿+小腿
+  capsule(g,wob,len-24, wob+5,len,30);
+  const fx = wob+5, fy = len;
+  g.fillStyle = col; g.strokeStyle = OUTLINE; g.lineWidth = 5;
+  g.beginPath(); g.ellipse(fx+8,fy-4,26,15,0,0,TAU); g.fill(); g.stroke();  // 脚掌
+  g.fillStyle = '#EFE2C2';                                          // 趾甲
+  for (let i=-1;i<=1;i++){
+    g.beginPath(); g.ellipse(fx+28+i*8, fy-2+i*3, 6.5,8.5, 0.3, 0,TAU);
+    g.fill(); g.stroke();
+  }
+  g.restore();
+}
+function drawHorn(g,bx,by,bw,tx,ty,cy1,cx1,cy2,cx2){
+  g.beginPath();
+  g.moveTo(bx-bw, by);
+  g.quadraticCurveTo(cx1, cy1, tx, ty);
+  g.quadraticCurveTo(cx2, cy2, bx+bw, by-2);
+  g.closePath();
+  g.fillStyle='#F1E4C3'; g.fill();
+  g.strokeStyle=OUTLINE; g.lineWidth=5; g.lineJoin='round'; g.stroke();
+}
+function drawRhinoLocal(g,t){
+  const GG   = t*GAIT_W;                    // 步态相位
+  const amp  = 0.55;
+  const bobY = Math.sin(GG*2)*5.5;
+  g.save();
+  g.translate(0, bobY);
+
+  /* 呼吸喷气（鼻向前、向后方飘散的白圈） */
+  const bph = (t % 2.4)/2.4;
+  for (let i=0;i<3;i++){
+    const pp = bph*1.8 - i*0.30;
+    if (pp<=0 || pp>1) continue;
+    g.strokeStyle = 'rgba(255,255,255,'+(0.4*(1-pp)).toFixed(3)+')';
+    g.lineWidth = 5;
+    g.beginPath();
+    g.arc(342 + pp*52 + i*4, 18 + pp*20, 5 + pp*15 + i*3, 0, TAU);
+    g.stroke();
+  }
+
+  /* ---- 远侧双腿（暗色，制造体积感） ---- */
+  drawLeg(g,-58, Math.sin(GG)*amp*0.85, '#6F7C97');
+  drawLeg(g, 98, Math.sin(GG+Math.PI)*amp*0.85, '#6F7C97');
+
+  /* ---- 尾巴（先画，挂在臀部后） ---- */
+  const tail = Math.sin(GG*0.8)*0.25;
+  g.strokeStyle=OUTLINE; g.lineWidth=12; g.lineCap='round';
+  g.beginPath(); g.moveTo(-192,-36); g.quadraticCurveTo(-240,-6+tail*20,-232,52+tail*16); g.stroke();
+  g.strokeStyle='#7E8BA6'; g.lineWidth=6;
+  g.beginPath(); g.moveTo(-192,-36); g.quadraticCurveTo(-240,-6+tail*20,-232,52+tail*16); g.stroke();
+  blobPath(g,-231,58+tail*16,12,-9,1,1.4); g.fillStyle='#68758F'; g.fill(); g.lineWidth=5; g.strokeStyle=OUTLINE; g.stroke();
+
+  /* ---- 躯干（含背部隆起） ---- */
+  const bodyPath = new Path2D();
+  bodyPath.moveTo(-150,-72);
+  bodyPath.bezierCurveTo(-118,-158, -22,-180, 52,-152);
+  bodyPath.bezierCurveTo(128,-126, 156,-80, 160,-30);
+  bodyPath.bezierCurveTo(163,14, 112,46, 26,52);
+  bodyPath.bezierCurveTo(-72,58, -148,40, -172,-8);
+  bodyPath.bezierCurveTo(-184,-36, -172,-58, -150,-72);
+  bodyPath.closePath();
+  const bg = g.createLinearGradient(0,-180,0,55);
+  bg.addColorStop(0,'#A3AFC6'); bg.addColorStop(0.55,'#8B98B0'); bg.addColorStop(1,'#77839C');
+  g.fillStyle=bg; g.fill(bodyPath);
+  g.strokeStyle=OUTLINE; g.lineWidth=6; g.lineJoin='round'; g.stroke(bodyPath);
+  /* 肚皮高光 */
+  g.save(); g.clip(bodyPath);
+  g.fillStyle='rgba(206,216,235,0.75)';
+  g.beginPath(); g.ellipse(-10,58,116,34,0,0,TAU); g.fill();
+  g.restore();
+
+  /* ---- 近侧双腿 ---- */
+  drawLeg(g,-42, Math.sin(GG+Math.PI)*amp, '#8B98B0');
+  drawLeg(g,112, Math.sin(GG)*amp, '#8B98B0');
+
+  /* ---- 皮褶 ---- */
+  g.strokeStyle='rgba(52,60,82,0.5)'; g.lineWidth=5; g.lineCap='round';
+  g.beginPath(); g.moveTo(-118,-58); g.quadraticCurveTo(-104,-12,-122,28); g.stroke();
+  g.beginPath(); g.moveTo(104,-96);  g.quadraticCurveTo(122,-50,108,0);    g.stroke();
+  g.beginPath(); g.moveTo(148,-44);  g.quadraticCurveTo(162,-8,148,30);    g.stroke();
+
+  /* ---- 头（先铺头形盖住颈肩接缝） ---- */
+  const headPath = new Path2D();
+  headPath.moveTo(128,-116);
+  headPath.bezierCurveTo(172,-150, 238,-138, 256,-86);
+  headPath.bezierCurveTo(266,-58, 266,-34, 258,-16);
+  headPath.bezierCurveTo(250,4, 226,18, 192,22);
+  headPath.bezierCurveTo(164,25, 144,14, 132,-6);
+  headPath.closePath();
+  const hg = g.createLinearGradient(120,-140,250,20);
+  hg.addColorStop(0,'#A9B5CB'); hg.addColorStop(1,'#8794AC');
+  g.fillStyle=hg; g.fill(headPath);
+  g.strokeStyle=OUTLINE; g.lineWidth=6; g.stroke(headPath);
+
+  /* ---- 耳朵 ---- */
+  g.save(); g.translate(146,-116); g.rotate(-0.38 + Math.sin(GG*0.9)*0.1);
+  g.beginPath(); g.ellipse(0,-24,15,27,0,0,TAU);
+  g.fillStyle='#8B98B0'; g.fill(); g.strokeStyle=OUTLINE; g.lineWidth=5; g.stroke();
+  g.beginPath(); g.ellipse(2,-22,7.5,16,0,0,TAU);
+  g.fillStyle='#5D6980'; g.fill();
+  g.restore();
+
+  /* ---- 角 ---- */
+  drawHorn(g,228,-108,20, 270,-196, 264,-150, 246,-138);   // 大角
+  g.strokeStyle='rgba(160,138,96,0.55)'; g.lineWidth=3.5;
+  g.beginPath(); g.moveTo(240,-128); g.lineTo(256,-120); g.stroke();
+  g.beginPath(); g.moveTo(250,-152); g.lineTo(262,-146); g.stroke();
+  drawHorn(g,192,-126,12, 206,-156, 206,-142, 198,-138);   // 小角
+
+  /* ---- 眼睛（含眨眼） ---- */
+  const blink = ((t%3.4) > 3.25) ? 1 : 0;
+  g.beginPath(); g.arc(196,-74,16,0,TAU);
+  g.fillStyle='#FFFFFF'; g.fill(); g.strokeStyle=OUTLINE; g.lineWidth=4.5; g.stroke();
+  if (!blink){
+    g.beginPath(); g.arc(200,-72,7.5,0,TAU); g.fillStyle='#232838'; g.fill();
+    g.beginPath(); g.arc(202.5,-74.5,2.6,0,TAU); g.fillStyle='#FFFFFF'; g.fill();
+  } else {
+    g.beginPath(); g.moveTo(184,-72); g.quadraticCurveTo(196,-64,208,-72);
+    g.strokeStyle=OUTLINE; g.lineWidth=4.5; g.stroke();
+  }
+  g.beginPath(); g.moveTo(180,-96); g.quadraticCurveTo(196,-104,212,-94);
+  g.strokeStyle=OUTLINE; g.lineWidth=5; g.lineCap='round'; g.stroke();
+
+  /* ---- 鼻孔 + 嘴 ---- */
+  g.fillStyle='#39415C';
+  g.beginPath(); g.ellipse(251,-12,5.5,8,0.35,0,TAU); g.fill();
+  g.beginPath(); g.moveTo(256,4); g.quadraticCurveTo(226,18,194,16);
+  g.strokeStyle=OUTLINE; g.lineWidth=4.5; g.stroke();
+
+  g.restore();
+}
+
+/* ============================================================
+   场景绘制
+   ============================================================ */
+function geom(t){
+  const R   = Math.min(W*0.40, H*0.56);
+  const f   = 0.34;                       // 轨道压扁（透视）
+  const base= Math.min(W*0.00135, H*0.00185);
+  const a   = A0 + TAU*t/ORBIT_T;
+  const z   = Math.sin(a);                // >0 在地球前面
+  const x   = W*0.5 + R*Math.cos(a);
+  const y   = H*0.54 + R*f*Math.sin(a) + Math.sin(GAIT_W*2*t)*5.5*base*38;
+  const s   = (0.74 + 0.34*z) * base;
+  const vx  = -R*Math.sin(a);
+  const vy  = R*f*Math.cos(a);
+  return {R,f,base,a,z,x,y,s,vx,vy};
+}
+
+function drawSky(){
+  const g = ctx.createLinearGradient(0,0,W*0.3,H);
+  g.addColorStop(0,'#0A0D22'); g.addColorStop(0.55,'#070A1B'); g.addColorStop(1,'#04050F');
+  ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
+  const neb = [[W*0.18,H*0.25,W*0.30,'108,80,190'],[W*0.85,H*0.72,W*0.34,'36,120,150'],[W*0.72,H*0.12,W*0.22,'150,70,130']];
+  for (const [x,y,r,c] of neb){
+    const q = ctx.createRadialGradient(x,y,0,x,y,r);
+    q.addColorStop(0,'rgba('+c+',0.16)'); q.addColorStop(1,'rgba('+c+',0)');
+    ctx.fillStyle=q; ctx.fillRect(x-r,y-r,r*2,r*2);
+  }
+}
+function drawStars(t){
+  for (const st of stars){
+    const al = 0.25 + 0.65*(0.5 + 0.5*Math.sin(t*st.tw + st.ph));
+    ctx.fillStyle = 'rgba('+st.c+','+al.toFixed(3)+')';
+    ctx.beginPath(); ctx.arc(st.x*W, st.y*H, st.r, 0, TAU); ctx.fill();
+  }
+  const cyc = 7.3, k = Math.floor(t/cyc), pp = (t%cyc)/1.0;   // 流星
+  if (pp < 1){
+    const sx = hash(k*3+11)*W*0.9+W*0.05, sy = hash(k*3+12)*H*0.4,
+          dx = 260+hash(k*3+13)*220, dy = dx*0.45, e = 1-pp;
+    ctx.strokeStyle='rgba(255,255,255,'+(0.8*e).toFixed(3)+')';
+    ctx.lineWidth=2.5; ctx.lineCap='round';
+    ctx.beginPath();
+    ctx.moveTo(sx+dx*pp, sy+dy*pp);
+    ctx.lineTo(sx+dx*pp-90*e, sy+dy*pp-40*e);
+    ctx.stroke();
+  }
+}
+function drawOrbitPath(G){
+  ctx.save();
+  ctx.strokeStyle='rgba(255,255,255,0.07)';
+  ctx.lineWidth=2; ctx.setLineDash([5,11]);
+  ctx.beginPath(); ctx.ellipse(W*0.5, H*0.54, G.R, G.R*G.f, 0, 0, TAU); ctx.stroke();
+  ctx.restore();
+}
+function drawEarth(t,G){
+  const cx=W*0.5, cy=H*0.54, R=G.R;
+  /* 大气外辉光 */
+  let gl = ctx.createRadialGradient(cx,cy,R*0.92,cx,cy,R*1.3);
+  gl.addColorStop(0,'rgba(110,170,255,0.34)'); gl.addColorStop(1,'rgba(110,170,255,0)');
+  ctx.fillStyle=gl; ctx.beginPath(); ctx.arc(cx,cy,R*1.3,0,TAU); ctx.fill();
+  /* 海洋球体 */
+  const oc = ctx.createRadialGradient(cx-R*0.35,cy-R*0.38,R*0.1,cx,cy,R*1.05);
+  oc.addColorStop(0,'#7CC6F2'); oc.addColorStop(0.55,'#3D86C9'); oc.addColorStop(1,'#173E78');
+  ctx.fillStyle=oc; ctx.beginPath(); ctx.arc(cx,cy,R,0,TAU); ctx.fill();
+  ctx.save(); ctx.beginPath(); ctx.arc(cx,cy,R,0,TAU); ctx.clip();
+  /* 大陆（绕轴滚动） */
+  const rot = t*0.09;
+  for (const c of land){
+    const lo = c.lon + rot;
+    if (Math.cos(lo) <= 0.06) continue;
+    const px = cx + Math.sin(lo)*R*Math.cos(c.lat*0.9);
+    const py = cy + c.lat*R*0.88;
+    const sqx = Math.pow(Math.cos(lo),0.8);
+    blobPath(g0(), px, py, c.r*R, c.sd, sqx, 0.85);
+    ctx.fillStyle='#55A263'; ctx.fill();
+    ctx.strokeStyle='rgba(46,106,68,0.9)'; ctx.lineWidth=Math.max(1.5,R*0.008); ctx.stroke();
+  }
+  /* 极冠 */
+  ctx.fillStyle='rgba(240,248,255,0.9)';
+  ctx.beginPath(); ctx.ellipse(cx, cy-R*0.93, R*0.5, R*0.16, 0,0,TAU); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(cx, cy+R*0.94, R*0.55, R*0.17, 0,0,TAU); ctx.fill();
+  /* 云（更快的滚动层） */
+  const crot = t*0.125;
+  for (const c of clouds){
+    const lo = c.lon + crot;
+    if (Math.cos(lo) <= 0.12) continue;
+    const px = cx + Math.sin(lo)*R*Math.cos(c.lat), py = cy + c.lat*R*0.85;
+    const sqx = Math.pow(Math.cos(lo),0.8), sc=c.sc*R*0.09;
+    ctx.fillStyle='rgba(255,255,255,0.88)';
+    for (let i=-1;i<=1;i++){
+      ctx.beginPath();
+      ctx.ellipse(px+i*sc*1.4, py+(i%2)*sc*0.3, sc*1.25*sqx, sc*0.75, 0, 0,TAU);
+      ctx.fill();
+    }
+  }
+  /* 昼夜明暗（光来自左上太阳） */
+  const ng = ctx.createLinearGradient(cx-R,cy-R,cx+R,cy+R);
+  ng.addColorStop(0,'rgba(8,10,34,0)'); ng.addColorStop(0.52,'rgba(8,10,34,0.04)'); ng.addColorStop(1,'rgba(5,8,28,0.6)');
+  ctx.fillStyle=ng; ctx.fillRect(cx-R,cy-R,R*2,R*2);
+  ctx.restore();
+  /* 朝阳侧亮边 */
+  ctx.strokeStyle='rgba(168,214,255,0.85)'; ctx.lineWidth=Math.max(2,R*0.014);
+  ctx.beginPath(); ctx.arc(cx,cy,R*0.995,-2.6,-0.5); ctx.stroke();
+}
+function g0(){ return ctx; }   // 占位：blobPath 统一用主 ctx
+
+function drawMoon(t){
+  const per=13, a=-TAU*t/per, mx=W*0.5+Math.cos(a)*Math.min(W,H)*0.44,
+        my=H*0.54-14+Math.sin(a)*Math.min(W,H)*0.44*0.30, mr=Math.min(W,H)*0.028;
+  const mg=ctx.createRadialGradient(mx-mr*0.4,my-mr*0.4,mr*0.1,mx,my,mr);
+  mg.addColorStop(0,'#EAE6DC'); mg.addColorStop(1,'#9B968A');
+  ctx.fillStyle=mg; ctx.beginPath(); ctx.arc(mx,my,mr,0,TAU); ctx.fill();
+  ctx.fillStyle='rgba(120,114,102,0.5)';
+  for (let i=0;i<3;i++){
+    ctx.beginPath();
+    ctx.arc(mx+Math.cos(i*2.1)*mr*0.4, my+Math.sin(i*2.1)*mr*0.35, mr*0.18, 0,TAU);
+    ctx.fill();
+  }
+}
+function drawSun(t){
+  const sx=W*0.11, sy=H*0.15;
+  const pul = 1 + Math.sin(t*0.8)*0.04;
+  const gl=ctx.createRadialGradient(sx,sy,2,sx,sy,Math.min(W,H)*0.22*pul);
+  gl.addColorStop(0,'rgba(255,236,180,0.95)'); gl.addColorStop(0.25,'rgba(255,200,120,0.35)');
+  gl.addColorStop(1,'rgba(255,190,110,0)');
+  ctx.fillStyle=gl;
+  ctx.beginPath(); ctx.arc(sx,sy,Math.min(W,H)*0.22*pul,0,TAU); ctx.fill();
+  ctx.fillStyle='#FFEFCB';
+  ctx.beginPath(); ctx.arc(sx,sy,Math.min(W,H)*0.028,0,TAU); ctx.fill();
+}
+function drawRhinoWorld(t,G){
+  const flip = G.vx >= 0 ? 1 : -1;
+  const tilt = Math.atan2(G.vy, Math.abs(G.vx)) * 0.30;
+  const k = Math.abs(Math.sin(G.a));
+  const squashX = 1 - 0.22*Math.pow(k,0.35);          // 转身瞬间水平压缩
+  ctx.save();
+  ctx.translate(G.x, G.y);
+  ctx.rotate(tilt*flip);
+  ctx.scale(G.s*squashX*flip, G.s);
+  ctx.translate(-40, 40);                              // 锚点对准身体中心
+  drawRhinoLocal(ctx, t);
+  ctx.restore();
+}
+function drawTrail(t,G){
+  const steps=26, span=0.55;
+  for (let i=steps;i>0;i--){
+    const frac = i/steps;
+    const aa = G.a - span*frac;
+    const z  = Math.sin(aa);
+    if ((z>0) !== (G.z>0)) continue;
+    const x = W*0.5 + G.R*Math.cos(aa);
+    const y = H*0.54 + G.R*G.f*Math.sin(aa) - G.s*118;
+    const al = (1-frac)*0.13, r = G.s*8*(1-frac)+1.5;
+    ctx.fillStyle='rgba(190,215,255,'+al.toFixed(3)+')';
+    ctx.beginPath(); ctx.arc(x,y,r,0,TAU); ctx.fill();
+  }
+}
+
+/* ============================================================
+   主渲染：完整一帧 = f(t)
+   ============================================================ */
+function render(t){
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  ctx.clearRect(0,0,W,H);
+  drawSky();
+  drawStars(t);
+  drawSun(t);
+  const G = geom(t);
+  drawOrbitPath(G);
+  const moonFront = Math.sin(-TAU*t/13) > 0;
+  if (!moonFront) drawMoon(t);
+  const front = G.z > 0;
+  if (!front){ drawTrail(t,G); drawRhinoWorld(t,G); }   // 轨道远端：被地球挡住
+  drawEarth(t,G);
+  if (front){ drawTrail(t,G); drawRhinoWorld(t,G); }    // 轨道近端：飞过地球前方
+  if (moonFront) drawMoon(t);
+  const vg = ctx.createRadialGradient(W/2,H/2,Math.min(W,H)*0.45,W/2,H/2,Math.max(W,H)*0.75);
+  vg.addColorStop(0,'rgba(0,0,0,0)'); vg.addColorStop(1,'rgba(0,0,8,0.5)');
+  ctx.fillStyle=vg; ctx.fillRect(0,0,W,H);
+}
+
+let userPaused=false;
+window.__seek = function(t){ userPaused=true; render(t); return t; };
+function loop(now){
+  if (!userPaused) render(now/1000);
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+</script>
+<!--zc-home:start--><style>.zc-home-btn{position:fixed;top:16px;left:16px;z-index:2147483647;display:inline-flex;align-items:center;gap:6px;padding:8px 14px;font:500 13px/1.1 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Noto Sans SC",sans-serif;color:#111;background:rgba(255,255,255,.86);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);border:1px solid rgba(0,0,0,.08);border-radius:999px;text-decoration:none;box-shadow:0 2px 12px rgba(0,0,0,.2);transition:background .2s ease,transform .2s ease,box-shadow .2s ease}.zc-home-btn:hover{background:#fff;transform:translateY(-1px);box-shadow:0 4px 18px rgba(0,0,0,.26)}</style><a class="zc-home-btn" href="../">← 返回首页</a><!--zc-home:end-->
+</body>
+</html>

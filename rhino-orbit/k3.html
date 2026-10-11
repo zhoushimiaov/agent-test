@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<title>Rhino Orbit</title>
+<style>
+  html,body{margin:0;padding:0;width:100%;height:100%;overflow:hidden;background:#070a18;}
+  svg{display:block;width:100vw;height:100vh;}
+</style>
+</head>
+<body>
+<svg id="scene" viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">
+<defs>
+  <radialGradient id="bgG" cx="50%" cy="46%" r="75%">
+    <stop offset="0%" stop-color="#1d2547"/>
+    <stop offset="55%" stop-color="#121735"/>
+    <stop offset="100%" stop-color="#070a18"/>
+  </radialGradient>
+  <radialGradient id="nebP"><stop offset="0%" stop-color="#7b4fd0" stop-opacity=".34"/><stop offset="100%" stop-color="#7b4fd0" stop-opacity="0"/></radialGradient>
+  <radialGradient id="nebT"><stop offset="0%" stop-color="#2fd0c8" stop-opacity=".26"/><stop offset="100%" stop-color="#2fd0c8" stop-opacity="0"/></radialGradient>
+  <radialGradient id="nebM"><stop offset="0%" stop-color="#d05090" stop-opacity=".22"/><stop offset="100%" stop-color="#d05090" stop-opacity="0"/></radialGradient>
+  <radialGradient id="oceanG" cx="38%" cy="30%" r="95%">
+    <stop offset="0%" stop-color="#5aa9ec"/><stop offset="55%" stop-color="#2f6fc4"/><stop offset="100%" stop-color="#1b4a96"/>
+  </radialGradient>
+  <radialGradient id="shadeG" cx="68%" cy="74%" r="90%">
+    <stop offset="55%" stop-color="#070a28" stop-opacity="0"/><stop offset="100%" stop-color="#070a28" stop-opacity=".55"/>
+  </radialGradient>
+  <radialGradient id="glowG"><stop offset="0%" stop-color="#5aa0ff" stop-opacity=".25"/><stop offset="70%" stop-color="#5aa0ff" stop-opacity=".08"/><stop offset="100%" stop-color="#5aa0ff" stop-opacity="0"/></radialGradient>
+  <radialGradient id="planetG" cx="35%" cy="30%" r="90%"><stop offset="0%" stop-color="#9a86c8"/><stop offset="100%" stop-color="#4a3d70"/></radialGradient>
+  <radialGradient id="portalG" gradientUnits="userSpaceOnUse" cx="0" cy="0" r="92">
+    <stop offset="55%" stop-color="#67e8ff" stop-opacity=".85"/>
+    <stop offset="88%" stop-color="#4f7dff" stop-opacity=".45"/>
+    <stop offset="100%" stop-color="#4f7dff" stop-opacity="0"/>
+  </radialGradient>
+  <radialGradient id="vignG" cx="50%" cy="50%" r="72%"><stop offset="62%" stop-color="#04050f" stop-opacity="0"/><stop offset="100%" stop-color="#04050f" stop-opacity=".55"/></radialGradient>
+  <filter id="blur6" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="6"/></filter>
+  <filter id="rShadow" x="-60%" y="-60%" width="220%" height="220%"><feDropShadow dx="0" dy="10" stdDeviation="10" flood-color="#02030c" flood-opacity="0.45"/></filter>
+  <clipPath id="globeClip"><circle cx="0" cy="0" r="210"/></clipPath>
+
+  <!-- chunky cartoon leg (origin at hip joint, y down). fill inherited from <use>. -->
+  <g id="leg">
+    <path d="M-15 2 C-19 32 -17 62 -13 86 L-15 118 C-16 131 -11 139 -1 141 L13 141 C21 139 23 130 17 121 L11 87 C17 60 17 30 13 2 Z"
+          stroke="#463b4b" stroke-width="6" stroke-linejoin="round"/>
+    <path d="M-15 110 L17 110 L19 127 C20 136 15 141 6 141 L-6 141 C-14 141 -18 136 -17 127 Z"
+          fill="#f2e6ca" stroke="#463b4b" stroke-width="5" stroke-linejoin="round"/>
+    <path d="M-6 116 L-6 136 M5 116 L5 136" stroke="#463b4b" stroke-width="3" stroke-linecap="round" opacity=".55" fill="none"/>
+  </g>
+
+  <g id="landBand" fill="#5cb56e">
+    <path d="M-560 -60 C-540 -110 -470 -120 -440 -80 C-420 -50 -440 -10 -480 10 C-520 30 -570 0 -560 -60 Z"/>
+    <path d="M-350 60 C-330 20 -280 10 -260 45 C-245 75 -270 110 -310 115 C-345 118 -365 95 -350 60 Z"/>
+    <path d="M-120 -100 C-80 -130 -20 -120 0 -85 C15 -55 -10 -25 -50 -20 C-95 -15 -150 -60 -120 -100 Z"/>
+    <path d="M30 30 C60 5 110 10 125 45 C138 78 105 110 65 105 C30 100 5 60 30 30 Z"/>
+    <path d="M240 -70 C280 -95 340 -85 355 -50 C368 -20 340 15 295 15 C255 15 210 -40 240 -70 Z"/>
+    <path d="M420 80 C450 60 500 65 510 95 C518 122 490 145 455 140 C425 135 400 105 420 80 Z"/>
+    <circle cx="560" cy="-40" r="13"/><circle cx="592" cy="-12" r="8"/><circle cx="150" cy="-140" r="10"/><circle cx="-660" cy="120" r="10"/>
+    <path d="M-200 -20 C-170 -35 -140 -25 -135 0 C-130 25 -165 40 -190 30 C-212 20 -215 0 -200 -20 Z" fill="#d9c27a"/>
+    <path d="M-520 -70 C-500 -90 -465 -88 -455 -65 C-445 -42 -470 -25 -495 -30 C-515 -35 -530 -50 -520 -70 Z" fill="#4a9d5c"/>
+    <path d="M260 -60 C285 -75 320 -68 330 -48 C338 -30 318 -12 292 -14 C270 -16 245 -45 260 -60 Z" fill="#4a9d5c"/>
+  </g>
+  <g id="cloudBand" fill="#ffffff" opacity=".5">
+    <ellipse cx="-480" cy="-120" rx="70" ry="15"/><ellipse cx="-385" cy="-104" rx="48" ry="12"/>
+    <ellipse cx="-150" cy="-40" rx="80" ry="17"/><ellipse cx="-58" cy="-24" rx="52" ry="13"/>
+    <ellipse cx="150" cy="60" rx="85" ry="16"/><ellipse cx="262" cy="76" rx="58" ry="12"/>
+    <ellipse cx="420" cy="-90" rx="75" ry="15"/><ellipse cx="540" cy="-70" rx="45" ry="11"/>
+    <ellipse cx="600" cy="20" rx="60" ry="13"/><ellipse cx="-620" cy="90" rx="65" ry="14"/>
+    <ellipse cx="40" cy="130" rx="72" ry="14"/><ellipse cx="-250" cy="150" rx="60" ry="12"/>
+  </g>
+</defs>
+
+<g id="cam">
+  <rect x="-260" y="-260" width="2120" height="1420" fill="url(#bgG)"/>
+
+  <ellipse id="neb1" cx="1150" cy="220" rx="420" ry="180" fill="url(#nebP)" transform="rotate(-15 1150 220)"/>
+  <ellipse id="neb2" cx="350" cy="650" rx="380" ry="200" fill="url(#nebT)" transform="rotate(10 350 650)"/>
+  <ellipse id="neb3" cx="850" cy="820" rx="500" ry="160" fill="url(#nebM)"/>
+
+  <g id="starsFar"></g>
+
+  <g id="decoPlanet" transform="translate(255 165) rotate(-18)" opacity=".85">
+    <ellipse rx="95" ry="26" fill="none" stroke="#b9a7e0" stroke-opacity=".3" stroke-width="7"/>
+    <circle r="52" fill="url(#planetG)"/>
+    <path d="M-48 -12 C-20 -22 20 -22 48 -12" stroke="#3c3160" stroke-width="6" fill="none" opacity=".4"/>
+    <path d="M-50 6 C-20 -2 20 -2 50 6" stroke="#3c3160" stroke-width="5" fill="none" opacity=".3"/>
+    <path d="M-95 0 A95 26 0 0 0 95 0" fill="none" stroke="#cdbcf0" stroke-opacity=".5" stroke-width="7"/>
+  </g>
+
+  <g id="starsMid"></g>
+
+  <!-- orbit guide, far half (behind earth) -->
+  <path d="M180 465 A620 205 0 0 1 1420 465" fill="none" stroke="#a0beff" stroke-opacity=".16" stroke-width="2" stroke-dasharray="2 14" stroke-linecap="round"/>
+
+  <!-- stargates the rhino dives through -->
+  <g id="stargates">
+    <g class="gate" transform="translate(1148 380) rotate(-8)">
+      <ellipse rx="92" ry="30" fill="url(#portalG)"/>
+      <ellipse rx="92" ry="30" fill="none" stroke="#8ff0ff" stroke-opacity=".6" stroke-width="3"/>
+      <ellipse rx="68" ry="21" fill="none" stroke="#bfefff" stroke-opacity=".45" stroke-width="2" stroke-dasharray="4 10"/>
+      <circle cx="-60" cy="-25" r="2.4" fill="#d8f6ff"/><circle cx="60" cy="25" r="2.4" fill="#d8f6ff"/><circle cx="70" cy="-18" r="1.8" fill="#d8f6ff"/>
+    </g>
+    <g class="gate" transform="translate(300 558) rotate(170)">
+      <ellipse rx="92" ry="30" fill="url(#portalG)"/>
+      <ellipse rx="92" ry="30" fill="none" stroke="#8ff0ff" stroke-opacity=".6" stroke-width="3"/>
+      <ellipse rx="68" ry="21" fill="none" stroke="#bfefff" stroke-opacity=".45" stroke-width="2" stroke-dasharray="4 10"/>
+      <circle cx="-60" cy="-25" r="2.4" fill="#d8f6ff"/><circle cx="60" cy="25" r="2.4" fill="#d8f6ff"/><circle cx="70" cy="-18" r="1.8" fill="#d8f6ff"/>
+    </g>
+  </g>
+
+  <g id="backLayer"></g>
+
+  <g id="earth" transform="translate(800 465)">
+    <circle r="250" fill="url(#glowG)"/>
+    <circle r="215" fill="none" stroke="#9fd0ff" stroke-opacity=".35" stroke-width="10" filter="url(#blur6)"/>
+    <g clip-path="url(#globeClip)">
+      <circle r="210" fill="url(#oceanG)"/>
+      <g id="landScroll"><use href="#landBand" x="-1320"/><use href="#landBand"/><use href="#landBand" x="1320"/></g>
+      <ellipse cx="0" cy="-198" rx="140" ry="34" fill="#eef6ff" opacity=".9"/>
+      <ellipse cx="0" cy="201" rx="150" ry="36" fill="#eef6ff" opacity=".9"/>
+      <g id="cloudScroll"><use href="#cloudBand" x="-1320"/><use href="#cloudBand"/><use href="#cloudBand" x="1320"/></g>
+      <circle r="210" fill="url(#shadeG)"/>
+      <ellipse cx="-70" cy="-80" rx="120" ry="70" fill="#ffffff" opacity=".10" transform="rotate(-20 -70 -80)"/>
+    </g>
+    <circle r="210" fill="none" stroke="#cfe6ff" stroke-opacity=".55" stroke-width="2"/>
+  </g>
+
+  <!-- orbit guide, near half (in front of earth) -->
+  <path d="M1420 465 A620 205 0 0 1 180 465" fill="none" stroke="#a0beff" stroke-opacity=".16" stroke-width="2" stroke-dasharray="2 14" stroke-linecap="round"/>
+
+  <g id="frontLayer">
+    <g id="wakeG"></g>
+
+    <!-- ================= RHINO ================= -->
+    <g id="rhino" filter="url(#rShadow)">
+      <g id="rBob">
+        <g id="tailG" transform="translate(80 98)">
+          <path d="M0 0 C-22 10 -34 32 -30 56" fill="none" stroke="#8d8098" stroke-width="11" stroke-linecap="round"/>
+          <path d="M-30 54 L-44 74 L-30 71 L-28 86 L-20 74 L-10 82 L-14 66 L-2 62 Z" fill="#463b4b"/>
+        </g>
+
+        <g id="legBF"><g><use href="#leg" fill="#7e7286"/></g></g>
+        <g id="legFF"><g><use href="#leg" fill="#7e7286"/></g></g>
+
+        <path id="body" d="M78 104 C80 62 128 42 186 44 C226 46 246 30 272 40 C310 48 332 78 330 110 C328 140 300 162 262 168 C210 176 150 174 116 160 C88 150 72 130 78 104 Z"
+              fill="#9c90a1" stroke="#463b4b" stroke-width="7" stroke-linejoin="round"/>
+        <path d="M250 50 C280 60 296 90 292 124 C284 146 262 158 244 152 C262 120 262 84 250 50 Z" fill="#8d8098" opacity=".55"/>
+        <path d="M84 96 C104 70 140 58 170 62 C140 92 120 126 116 156 C96 146 82 124 84 96 Z" fill="#8d8098" opacity=".45"/>
+        <path d="M122 148 C162 168 248 172 294 152 C282 172 152 178 122 148 Z" fill="#bcb0c0" opacity=".85"/>
+        <path d="M112 68 C160 48 238 46 296 62" fill="none" stroke="#ffffff" stroke-width="10" stroke-linecap="round" opacity=".14"/>
+
+        <!-- skin folds -->
+        <g fill="none" stroke="#75667b" stroke-width="5" stroke-linecap="round" opacity=".7">
+          <path d="M296 66 C288 90 287 114 294 136"/>
+          <path d="M278 62 C270 88 269 114 277 138"/>
+          <path d="M256 56 C248 86 248 118 257 148"/>
+          <path d="M196 58 C192 84 192 110 197 134" opacity=".6"/>
+          <path d="M122 68 C114 94 114 124 123 150"/>
+        </g>
+        <ellipse cx="170" cy="90" rx="10" ry="7" fill="#8d8098" opacity=".5"/>
+        <ellipse cx="205" cy="120" rx="8" ry="6" fill="#8d8098" opacity=".5"/>
+        <ellipse cx="150" cy="125" rx="7" ry="5" fill="#8d8098" opacity=".5"/>
+
+        <g id="legBN"><g><use href="#leg" fill="#9c90a1"/></g></g>
+        <g id="legFN"><g transform="scale(.92 1)"><use href="#leg" fill="#9c90a1"/></g></g>
+
+        <g id="headG">
+          <path d="M318 50 C314 34 318 20 328 16 C335 24 336 38 331 52 Z" fill="#7e7286" stroke="#463b4b" stroke-width="5"/>
+          <path d="M300 86 C306 60 338 46 372 50 C400 53 422 66 430 88 L434 112 C436 130 424 146 402 150 C396 152 388 153 380 153 L352 153 C328 151 308 139 300 119 C294 103 294 96 300 86 Z"
+                fill="#9c90a1" stroke="#463b4b" stroke-width="7" stroke-linejoin="round"/>
+          <path d="M404 64 C408 42 418 22 432 10 C436 28 432 50 424 66 C417 71 409 70 404 64 Z"
+                fill="#f2e6ca" stroke="#463b4b" stroke-width="6" stroke-linejoin="round"/>
+          <path d="M409 60 C414 40 424 22 436 10 C440 30 434 54 424 70 C417 72 411 68 409 60 Z"
+                fill="#ffffff" opacity=".3"/>
+          <path d="M378 58 C381 42 388 28 398 20 C401 34 399 50 393 61 C387 64 381 63 378 58 Z"
+                fill="#f2e6ca" stroke="#463b4b" stroke-width="5" stroke-linejoin="round"/>
+          <g id="earNG" transform="translate(338 48)">
+            <path d="M-4 4 C-8 -12 -2 -28 10 -32 C18 -22 18 -6 12 4 Z" fill="#9c90a1" stroke="#463b4b" stroke-width="5" stroke-linejoin="round"/>
+            <path d="M0 0 C-2 -10 2 -20 8 -24 C12 -15 11 -6 8 0 Z" fill="#d9a7b1"/>
+          </g>
+          <path d="M338 66 C330 88 329 112 336 132" fill="none" stroke="#75667b" stroke-width="5" stroke-linecap="round" opacity=".7"/>
+          <path d="M400 84 C409 81 418 83 425 90" fill="none" stroke="#75667b" stroke-width="4" stroke-linecap="round" opacity=".6"/>
+          <path d="M352 68 C360 60 374 59 385 66" fill="none" stroke="#463b4b" stroke-width="6" stroke-linecap="round"/>
+          <g id="eyeG">
+            <circle cx="368" cy="94" r="13" fill="#ffffff" stroke="#463b4b" stroke-width="4"/>
+            <circle cx="371" cy="96" r="6.2" fill="#2d2430"/>
+            <circle cx="368.5" cy="92" r="2.4" fill="#ffffff"/>
+          </g>
+          <ellipse cx="414" cy="103" rx="6.5" ry="8.5" fill="#463b4b" transform="rotate(18 414 103)"/>
+          <path d="M431 121 C414 135 388 141 365 138" fill="none" stroke="#463b4b" stroke-width="5" stroke-linecap="round"/>
+          <path d="M360 137 C352 135 345 131 340 125" fill="none" stroke="#463b4b" stroke-width="4" stroke-linecap="round" opacity=".6"/>
+          <ellipse cx="336" cy="118" rx="12" ry="7" fill="#d98a9e" opacity=".3"/>
+        </g>
+      </g>
+    </g>
+    <!-- =============== /RHINO ================= -->
+  </g>
+
+  <g id="meteor" opacity="0">
+    <line id="metT2" stroke="#cfe4ff" stroke-width="1.5" stroke-linecap="round" opacity=".5"/>
+    <line id="metT1" stroke="#eaf4ff" stroke-width="3" stroke-linecap="round"/>
+    <circle id="metH" r="3.5" fill="#ffffff"/>
+  </g>
+
+  <g id="starsNear"></g>
+
+  <rect x="-260" y="-260" width="2120" height="1420" fill="url(#vignG)"/>
+</g>
+</svg>
+
+<script>
+(function(){
+"use strict";
+var svgNS='http://www.w3.org/2000/svg';
+function $(id){return document.getElementById(id);}
+var cam=$('cam'), rhino=$('rhino'), rBob=$('rBob'), headG=$('headG'), tailG=$('tailG'),
+    earNG=$('earNG'), eyeG=$('eyeG'),
+    legBN=$('legBN'), legBF=$('legBF'), legFN=$('legFN'), legFF=$('legFF'),
+    backLayer=$('backLayer'), frontLayer=$('frontLayer'), wakeG=$('wakeG'),
+    landScroll=$('landScroll'), cloudScroll=$('cloudScroll'), meteor=$('meteor'),
+    metH=$('metH'), metT1=$('metT1'), metT2=$('metT2'),
+    neb1=$('neb1'), neb2=$('neb2'), neb3=$('neb3'), gates=document.querySelectorAll('#stargates .gate');
+
+var TWO_PI=Math.PI*2, T=20, LOOP=40;
+var CX=800, CY=465, RX=620, RY=205;
+function lerp(a,b,u){return a+(b-a)*u;}
+function fract(x){return x-Math.floor(x);}
+
+/* deterministic PRNG (Math.imul based — avoids int overflow pitfalls) */
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;var t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
+var rand=mulberry32(20261011);
+
+/* starfield */
+var stars=[];
+var layers=[{g:$('starsFar'),n:70,rmin:.6,rmax:1.5},
+            {g:$('starsMid'),n:44,rmin:1.0,rmax:2.2},
+            {g:$('starsNear'),n:14,rmin:1.6,rmax:3.0}];
+var cols=['#ffffff','#ffffff','#cfe0ff','#ffe9c9','#ffc9d9'];
+for(var li=0;li<layers.length;li++){
+  var L=layers[li];
+  for(var i=0;i<L.n;i++){
+    var c=document.createElementNS(svgNS,'circle');
+    c.setAttribute('cx',(rand()*1700-50).toFixed(1));
+    c.setAttribute('cy',(rand()*1000-50).toFixed(1));
+    c.setAttribute('r',(L.rmin+rand()*(L.rmax-L.rmin)).toFixed(2));
+    c.setAttribute('fill',cols[(rand()*cols.length)|0]);
+    L.g.appendChild(c);
+    stars.push({el:c, base:.45+rand()*.55, k:1+((rand()*4)|0), ph:rand()*TWO_PI});
+  }
+}
+
+/* wake segments behind the rhino */
+var wakeSegs=[];
+for(var w=0;w<7;w++){
+  var ln=document.createElementNS(svgNS,'line');
+  ln.setAttribute('stroke','#ffd98a');
+  ln.setAttribute('stroke-linecap','round');
+  ln.setAttribute('stroke-width',(4.2-0.45*w).toFixed(2));
+  wakeG.appendChild(ln);
+  wakeSegs.push(ln);
+}
+
+var legs=[
+  {el:legFN, x:292, y:136, amp:34, ph:0.0},
+  {el:legFF, x:276, y:140, amp:30, ph:0.12},
+  {el:legBN, x:132, y:140, amp:40, ph:0.5},
+  {el:legBF, x:114, y:144, amp:36, ph:0.62}
+];
+
+var lastFront=null;
+
+function render(t){
+  /* ---- slow camera breathing (period LOOP) ---- */
+  var cph=TWO_PI*t/LOOP;
+  var cs=1.03+0.025*Math.sin(cph+0.6);
+  var cdx=14*Math.sin(cph+1.4), cdy=9*Math.sin(2*cph+0.8);
+  cam.setAttribute('transform','translate('+(800+cdx).toFixed(2)+' '+(450+cdy).toFixed(2)+') scale('+cs.toFixed(4)+') translate(-800 -450)');
+
+  /* ---- rhino orbit: one revolution per T, counterclockwise on screen ---- */
+  var th=Math.PI/2-TWO_PI*t/T;
+  var px=CX+RX*Math.cos(th), py=CY+RY*Math.sin(th);
+  var vx=RX*Math.sin(th), vy=-RY*Math.cos(th);
+  var vl=Math.sqrt(vx*vx+vy*vy); vx/=vl; vy/=vl;
+  var rot=Math.atan2(vy,vx)*180/Math.PI;
+  var depth=Math.sin(th);               /* 1 = nearest (bottom), -1 = far (top) */
+  var u=(depth+1)/2, su=u*u*(3-2*u);
+  var sc=lerp(0.40,1.5,su), op=lerp(0.78,1,su);
+  rhino.setAttribute('transform','translate('+px.toFixed(2)+' '+py.toFixed(2)+') rotate('+rot.toFixed(2)+') scale('+sc.toFixed(4)+') translate(-230 -145)');
+  rhino.setAttribute('opacity',op.toFixed(3));
+  var front=depth>=0;
+  if(front!==lastFront){
+    lastFront=front;
+    var layer=front?frontLayer:backLayer;
+    layer.appendChild(wakeG);
+    layer.appendChild(rhino);
+  }
+
+  /* ---- gallop cycle (48 strides per orbit) ---- */
+  var ps=fract(t*48/T);
+  var bob=-7*Math.sin(TWO_PI*(ps-0.22));
+  var pitch=3.2*Math.sin(TWO_PI*(ps-0.05));
+  rBob.setAttribute('transform','translate(0 '+bob.toFixed(2)+') rotate('+pitch.toFixed(2)+' 210 120)');
+  for(var q=0;q<legs.length;q++){
+    var lg=legs[q];
+    var a=lg.amp*Math.sin(TWO_PI*(ps-lg.ph));
+    lg.el.setAttribute('transform','translate('+lg.x+' '+lg.y+') rotate('+a.toFixed(2)+')');
+  }
+  headG.setAttribute('transform','rotate('+(4.5*Math.sin(TWO_PI*(ps-0.38))).toFixed(2)+' 306 112)');
+  tailG.setAttribute('transform','translate(80 98) rotate('+(16*Math.sin(TWO_PI*(ps-0.55))+6*Math.sin(2*TWO_PI*ps)).toFixed(2)+')');
+  earNG.setAttribute('transform','translate(338 48) rotate('+(4+7*Math.sin(TWO_PI*(ps*2+0.3))).toFixed(2)+')');
+
+  /* ---- blink ---- */
+  var bp=LOOP/13, bu=fract(t/bp);
+  var sy=bu<0.055?1-0.92*Math.sin(Math.PI*bu/0.055):1;
+  eyeG.setAttribute('transform','translate(368 94) scale(1 '+sy.toFixed(3)+') translate(-368 -94)');
+
+  /* ---- earth spin (fake scroll) ---- */
+  landScroll.setAttribute('transform','translate('+(-((t*33)%1320)).toFixed(2)+' 0)');
+  cloudScroll.setAttribute('transform','translate('+(-((t*66)%1320)).toFixed(2)+' 0)');
+
+  /* ---- stars twinkle ---- */
+  for(var s=0;s<stars.length;s++){
+    var st=stars[s];
+    st.el.setAttribute('opacity',(st.base*(0.55+0.45*Math.sin(TWO_PI*(st.k*t/LOOP)+st.ph))).toFixed(3));
+  }
+  neb1.setAttribute('opacity',(0.9+0.1*Math.sin(cph)).toFixed(3));
+  neb2.setAttribute('opacity',(0.85+0.15*Math.sin(cph+2)).toFixed(3));
+  neb3.setAttribute('opacity',(0.8+0.2*Math.sin(cph+4)).toFixed(3));
+  for(var g=0;g<gates.length;g++){
+    gates[g].setAttribute('opacity',(0.65+0.35*Math.sin(TWO_PI*(2*t/LOOP)+g*2.1)).toFixed(3));
+  }
+
+  /* ---- meteor: brief window each orbit ---- */
+  var mu=fract(t/T);
+  if(mu>0.58&&mu<0.645){
+    var p=(mu-0.58)/0.065;
+    var hx=lerp(1400,860,p), hy=lerp(110,390,p);
+    var ux=(860-1400), uy=(390-110), ul=Math.sqrt(ux*ux+uy*uy); ux/=ul; uy/=ul;
+    var t1=120+80*p, t2=t1*1.8;
+    metH.setAttribute('cx',hx.toFixed(1)); metH.setAttribute('cy',hy.toFixed(1));
+    metH.setAttribute('r',(4.5).toFixed(1));
+    metT1.setAttribute('x1',hx.toFixed(1)); metT1.setAttribute('y1',hy.toFixed(1));
+    metT1.setAttribute('x2',(hx-ux*t1).toFixed(1)); metT1.setAttribute('y2',(hy-uy*t1).toFixed(1));
+    metT2.setAttribute('x1',(hx-ux*t1*0.5).toFixed(1)); metT2.setAttribute('y1',(hy-uy*t1*0.5).toFixed(1));
+    metT2.setAttribute('x2',(hx-ux*t2).toFixed(1)); metT2.setAttribute('y2',(hy-uy*t2).toFixed(1));
+    meteor.setAttribute('opacity',(Math.sin(Math.PI*p)*0.9).toFixed(3));
+  }else{
+    meteor.setAttribute('opacity','0');
+  }
+
+  /* ---- wake trailing behind along the orbit ---- */
+  var fade=lerp(0.3,1,su);
+  for(var k=0;k<7;k++){
+    var a1=th+0.07*(k+0.15), a2=th+0.07*(k+1);
+    var sg=wakeSegs[k];
+    sg.setAttribute('x1',(CX+RX*Math.cos(a1)+vx*(8+3*k)).toFixed(1));
+    sg.setAttribute('y1',(CY+RY*Math.sin(a1)+vy*(8+3*k)).toFixed(1));
+    sg.setAttribute('x2',(CX+RX*Math.cos(a2)+vx*(8+3*k)).toFixed(1));
+    sg.setAttribute('y2',(CY+RY*Math.sin(a2)+vy*(8+3*k)).toFixed(1));
+    sg.setAttribute('opacity',(0.5*(1-k/7)*fade).toFixed(3));
+  }
+}
+
+var seekT=null;
+var t0=performance.now();
+window.__seek=function(tt){seekT=tt; render(tt);};
+window.__play=function(){seekT=null;};
+function tick(){ render(seekT!==null?seekT:(performance.now()-t0)/1000); requestAnimationFrame(tick); }
+render(0);
+requestAnimationFrame(tick);
+})();
+</script>
+<!--zc-home:start--><style>.zc-home-btn{position:fixed;top:16px;left:16px;z-index:2147483647;display:inline-flex;align-items:center;gap:6px;padding:8px 14px;font:500 13px/1.1 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Noto Sans SC",sans-serif;color:#111;background:rgba(255,255,255,.86);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);border:1px solid rgba(0,0,0,.08);border-radius:999px;text-decoration:none;box-shadow:0 2px 12px rgba(0,0,0,.2);transition:background .2s ease,transform .2s ease,box-shadow .2s ease}.zc-home-btn:hover{background:#fff;transform:translateY(-1px);box-shadow:0 4px 18px rgba(0,0,0,.26)}</style><a class="zc-home-btn" href="../">← 返回首页</a><!--zc-home:end-->
+</body>
+</html>

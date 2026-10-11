@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-10T07:21:15.290Z",
+  "generatedAt": "2026-10-11T00:29:41.624Z",
   "model": "jev-1.13.0",
   "weights": {
     "rhino": 35,
@@ -15,18 +15,74 @@
   },
   "results": [
     {
+      "slug": "k3",
+      "total": 86,
+      "dims": {
+        "rhino": {
+          "score": 2.87,
+          "confidence": 0.87,
+          "frac": 0.957
+        },
+        "orbit": {
+          "score": 1.92,
+          "confidence": 0.8,
+          "frac": 0.64
+        },
+        "earth": {
+          "score": 2.96,
+          "confidence": 0.96,
+          "frac": 0.987
+        },
+        "scene": {
+          "score": 2.77,
+          "confidence": 0.78,
+          "frac": 0.923
+        }
+      },
+      "jev": "jev-1.13.0",
+      "rank": 1
+    },
+    {
       "slug": "gemini-3.8-flash",
       "total": 84,
       "dims": {
         "rhino": {
-          "score": 2.71,
+          "score": 2.73,
           "confidence": 0.72,
-          "frac": 0.903
+          "frac": 0.91
         },
         "orbit": {
           "score": 1.97,
-          "confidence": 0.97,
+          "confidence": 0.96,
           "frac": 0.657
+        },
+        "earth": {
+          "score": 2.89,
+          "confidence": 0.9,
+          "frac": 0.963
+        },
+        "scene": {
+          "score": 2.56,
+          "confidence": 0.56,
+          "frac": 0.853
+        }
+      },
+      "jev": "jev-1.13.0",
+      "rank": 2
+    },
+    {
+      "slug": "deepseek-4.1-flash",
+      "total": 83,
+      "dims": {
+        "rhino": {
+          "score": 2.69,
+          "confidence": 0.69,
+          "frac": 0.897
+        },
+        "orbit": {
+          "score": 1.83,
+          "confidence": 0.6,
+          "frac": 0.61
         },
         "earth": {
           "score": 2.93,
@@ -34,27 +90,27 @@
           "frac": 0.977
         },
         "scene": {
-          "score": 2.62,
-          "confidence": 0.62,
-          "frac": 0.873
+          "score": 2.68,
+          "confidence": 0.67,
+          "frac": 0.893
         }
       },
       "jev": "jev-1.13.0",
-      "rank": 1
+      "rank": 3
     },
     {
       "slug": "glm-5.3",
       "total": 77,
       "dims": {
         "rhino": {
-          "score": 1.68,
-          "confidence": 0.67,
-          "frac": 0.56
+          "score": 1.72,
+          "confidence": 0.7,
+          "frac": 0.573
         },
         "orbit": {
-          "score": 2.69,
-          "confidence": 0.69,
-          "frac": 0.897
+          "score": 2.68,
+          "confidence": 0.67,
+          "frac": 0.893
         },
         "earth": {
           "score": 2.92,
@@ -62,55 +118,167 @@
           "frac": 0.973
         },
         "scene": {
-          "score": 2.12,
-          "confidence": 0.62,
-          "frac": 0.707
+          "score": 2.2,
+          "confidence": 0.61,
+          "frac": 0.733
         }
       },
       "jev": "jev-1.13.0",
-      "rank": 2
+      "rank": 4
+    },
+    {
+      "slug": "ling-3.1-flash",
+      "total": 77,
+      "dims": {
+        "rhino": {
+          "score": 2.8,
+          "confidence": 0.8,
+          "frac": 0.933
+        },
+        "orbit": {
+          "score": 1.89,
+          "confidence": 0.84,
+          "frac": 0.63
+        },
+        "earth": {
+          "score": 2.13,
+          "confidence": 0.86,
+          "frac": 0.71
+        },
+        "scene": {
+          "score": 2.16,
+          "confidence": 0.81,
+          "frac": 0.72
+        }
+      },
+      "jev": "jev-1.13.0",
+      "rank": 5
+    },
+    {
+      "slug": "mimo-2.6-flash",
+      "total": 76,
+      "dims": {
+        "rhino": {
+          "score": 2.47,
+          "confidence": 0.48,
+          "frac": 0.823
+        },
+        "orbit": {
+          "score": 1.8,
+          "confidence": 0.25,
+          "frac": 0.6
+        },
+        "earth": {
+          "score": 2.77,
+          "confidence": 0.77,
+          "frac": 0.923
+        },
+        "scene": {
+          "score": 2.06,
+          "confidence": 0.48,
+          "frac": 0.687
+        }
+      },
+      "jev": "jev-1.13.0",
+      "rank": 6
+    },
+    {
+      "slug": "glm-5.3-flash",
+      "total": 72,
+      "dims": {
+        "rhino": {
+          "score": 1.8,
+          "confidence": 0.78,
+          "frac": 0.6
+        },
+        "orbit": {
+          "score": 2,
+          "confidence": 0.99,
+          "frac": 0.667
+        },
+        "earth": {
+          "score": 2.98,
+          "confidence": 0.98,
+          "frac": 0.993
+        },
+        "scene": {
+          "score": 2.29,
+          "confidence": 0.71,
+          "frac": 0.763
+        }
+      },
+      "jev": "jev-1.13.0",
+      "rank": 7
     },
     {
       "slug": "opus-4.8",
-      "total": 70,
+      "total": 71,
       "dims": {
         "rhino": {
-          "score": 1.83,
-          "confidence": 0.82,
-          "frac": 0.61
+          "score": 1.85,
+          "confidence": 0.84,
+          "frac": 0.617
         },
         "orbit": {
-          "score": 2.49,
-          "confidence": 0.51,
-          "frac": 0.83
+          "score": 2.57,
+          "confidence": 0.58,
+          "frac": 0.857
         },
         "earth": {
-          "score": 2.19,
-          "confidence": 0.81,
-          "frac": 0.73
+          "score": 2.17,
+          "confidence": 0.82,
+          "frac": 0.723
         },
         "scene": {
           "score": 1.9,
-          "confidence": 0.72,
+          "confidence": 0.71,
           "frac": 0.633
         }
       },
       "jev": "jev-1.13.0",
-      "rank": 3
+      "rank": 8
+    },
+    {
+      "slug": "qwen-3.8-flash-next",
+      "total": 71,
+      "dims": {
+        "rhino": {
+          "score": 2.35,
+          "confidence": 0.35,
+          "frac": 0.783
+        },
+        "orbit": {
+          "score": 1.99,
+          "confidence": 0.62,
+          "frac": 0.663
+        },
+        "earth": {
+          "score": 2.02,
+          "confidence": 0.96,
+          "frac": 0.673
+        },
+        "scene": {
+          "score": 2.03,
+          "confidence": 0.55,
+          "frac": 0.677
+        }
+      },
+      "jev": "jev-1.13.0",
+      "rank": 9
     },
     {
       "slug": "agnes-3.0-flash",
-      "total": 62,
+      "total": 61,
       "dims": {
         "rhino": {
-          "score": 1.72,
-          "confidence": 0.72,
-          "frac": 0.573
+          "score": 1.67,
+          "confidence": 0.67,
+          "frac": 0.557
         },
         "orbit": {
-          "score": 1.92,
-          "confidence": 0.92,
-          "frac": 0.64
+          "score": 1.93,
+          "confidence": 0.93,
+          "frac": 0.643
         },
         "earth": {
           "score": 1.99,
@@ -118,13 +286,13 @@
           "frac": 0.663
         },
         "scene": {
-          "score": 1.86,
+          "score": 1.85,
           "confidence": 0.84,
-          "frac": 0.62
+          "frac": 0.617
         }
       },
       "jev": "jev-1.13.0",
-      "rank": 4
+      "rank": 10
     }
   ]
 }
