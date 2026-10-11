@@ -1,0 +1,189 @@
+// 测试你的大模型 — fully client-side tester for OpenAI-compatible endpoints.
+// The browser calls the user's own endpoint directly; the key is kept only in
+// localStorage (opt-in) and the model output is rendered in a sandboxed iframe
+// (sandbox="allow-scripts", NO allow-same-origin) so it can never read the key.
+(() => {
+  "use strict";
+  const $ = (id) => document.getElementById(id);
+  const LS = "zoo-pg-cfg-v1";
+  const el = {
+    base: $("pg-base"), model: $("pg-model"), key: $("pg-keyin"), eye: $("pg-eye"),
+    remember: $("pg-remember"), forget: $("pg-forget"), preset: $("pg-preset"),
+    text: $("pg-text"), run: $("pg-run"), stop: $("pg-stop"), status: $("pg-status"),
+    frame: $("pg-frame"), raw: $("pg-rawtext"), dl: $("pg-dl"), open: $("pg-open"),
+  };
+  const prompts = JSON.parse($("zoo-prompts").textContent || "[]");
+
+  // ---- config persistence (browser only) ----
+  function loadCfg() {
+    let c = {};
+    try { c = JSON.parse(localStorage.getItem(LS) || "{}"); } catch (_) {}
+    el.base.value = c.base || "";
+    el.model.value = c.model || "";
+    el.key.value = c.key || "";
+    el.remember.checked = !!c.remember;
+  }
+  function saveCfg() {
+    const base = { base: el.base.value.trim(), model: el.model.value.trim(), remember: el.remember.checked };
+    if (el.remember.checked) base.key = el.key.value;
+    localStorage.setItem(LS, JSON.stringify(base));
+  }
+  function forgetKey() {
+    el.key.value = "";
+    localStorage.setItem(LS, JSON.stringify({ base: el.base.value.trim(), model: el.model.value.trim(), remember: false }));
+    el.remember.checked = false;
+    setStatus("已清除本地保存的密钥。", "ok");
+  }
+
+  // ---- prompt picker ----
+  function initPrompts() {
+    el.preset.innerHTML =
+      '<option value="__custom">✍️ 自定义(自己写提示词)</option>' +
+      prompts.map((p, i) => `<option value="${i}">${p.emoji} ${p.title}</option>`).join("");
+    el.preset.addEventListener("change", () => {
+      const v = el.preset.value;
+      if (v === "__custom") return;
+      el.text.value = prompts[Number(v)].prompt;
+    });
+    if (prompts.length) { el.preset.value = "0"; el.text.value = prompts[0].prompt; }
+  }
+
+  function setStatus(msg, kind) {
+    el.status.textContent = msg || "";
+    el.status.className = "pg-status" + (kind ? " " + kind : "");
+  }
+
+  // ---- extract a self-contained HTML document from the model reply ----
+  function extractHtml(text) {
+    let m = text.match(/```(?:html|HTML)\s*\n([\s\S]*?)```/);
+    if (m) return m[1].trim();
+    const blocks = [...text.matchAll(/```[a-zA-Z]*\s*\n([\s\S]*?)```/g)].map((b) => b[1]);
+    for (const b of blocks) if (/<!doctype html|<html[\s>]/i.test(b)) return b.trim();
+    const i = text.search(/<!doctype html|<html[\s>]/i);
+    if (i >= 0) return text.slice(i).trim();
+    return null;
+  }
+
+  let lastHtml = "";
+  function showPreview(html) {
+    lastHtml = html;
+    el.frame.srcdoc = html;
+    el.dl.disabled = el.open.disabled = false;
+  }
+  function currentSlug() {
+    const v = el.preset.value;
+    return v === "__custom" ? "model-output" : prompts[Number(v)].slug;
+  }
+  function download() {
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([lastHtml], { type: "text/html" }));
+    a.download = currentSlug() + ".html";
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  }
+  function openTab() {
+    const url = URL.createObjectURL(new Blob([lastHtml], { type: "text/html" }));
+    window.open(url, "_blank");
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+  }
+
+  // ---- run ----
+  let ac = null;
+  async function run() {
+    const base = el.base.value.trim().replace(/\/+$/, "");
+    const model = el.model.value.trim();
+    const key = el.key.value.trim();
+    const prompt = el.text.value.trim();
+    if (!base || !model || !key) return setStatus("请先填 Base URL、模型名和 API Key。", "err");
+    if (!prompt) return setStatus("提示词不能为空。", "err");
+    saveCfg();
+    setRunning(true);
+    setStatus("请求中…", "");
+    el.raw.textContent = "";
+    el.frame.srcdoc = "";
+    el.dl.disabled = el.open.disabled = true;
+
+    ac = new AbortController();
+    let full = "";
+    try {
+      const res = await fetch(base + "/chat/completions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: "Bearer " + key },
+        body: JSON.stringify({ model, stream: true, messages: [{ role: "user", content: prompt }] }),
+        signal: ac.signal,
+      });
+      if (!res.ok) {
+        const t = await res.text().catch(() => "");
+        throw new Error(`HTTP ${res.status} ${res.statusText}${t ? " — " + t.slice(0, 300) : ""}`);
+      }
+      const ct = res.headers.get("content-type") || "";
+      if (ct.includes("text/event-stream") && res.body) {
+        full = await readStream(res, (s) => { el.raw.textContent = s; });
+      } else {
+        const j = await res.json();
+        full = j.choices?.[0]?.message?.content ?? j.choices?.[0]?.text ?? JSON.stringify(j, null, 2);
+        el.raw.textContent = full;
+      }
+    } catch (err) {
+      setRunning(false);
+      if (err.name === "AbortError") return setStatus("已停止。", "");
+      return setStatus(hint(err), "err");
+    }
+    setRunning(false);
+    const html = extractHtml(full);
+    if (html) { showPreview(html); setStatus("完成 ✓ 已渲染模型输出。", "ok"); }
+    else setStatus("完成,但没能从回复里找到完整的 HTML。见下方原始输出。", "err");
+  }
+
+  async function readStream(res, onText) {
+    const reader = res.body.getReader();
+    const dec = new TextDecoder();
+    let buf = "", full = "";
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      let nl;
+      while ((nl = buf.indexOf("\n")) >= 0) {
+        const line = buf.slice(0, nl).trim();
+        buf = buf.slice(nl + 1);
+        if (!line.startsWith("data:")) continue;
+        const data = line.slice(5).trim();
+        if (data === "[DONE]") continue;
+        try {
+          const j = JSON.parse(data);
+          const d = j.choices?.[0]?.delta?.content ?? j.choices?.[0]?.text ?? "";
+          if (d) { full += d; onText(full); }
+        } catch (_) {}
+      }
+    }
+    return full;
+  }
+
+  function hint(err) {
+    const m = String(err.message || err);
+    if (err instanceof TypeError)
+      return "请求失败,通常是该接口未开放浏览器跨域(CORS),或 Base URL 写错。本工具不经过任何服务器,只能连支持 CORS 的接口。原始错误:" + m;
+    return "请求失败:" + m;
+  }
+
+  function setRunning(on) {
+    el.run.disabled = on;
+    el.stop.disabled = !on;
+  }
+
+  // ---- wire up ----
+  loadCfg();
+  initPrompts();
+  el.run.addEventListener("click", run);
+  el.stop.addEventListener("click", () => ac && ac.abort());
+  el.forget.addEventListener("click", forgetKey);
+  el.dl.addEventListener("click", download);
+  el.open.addEventListener("click", openTab);
+  el.eye.addEventListener("click", () => {
+    const show = el.key.type === "password";
+    el.key.type = show ? "text" : "password";
+    el.eye.textContent = show ? "隐藏" : "显示";
+  });
+  ["base", "model"].forEach((k) => el[k].addEventListener("change", saveCfg));
+})();

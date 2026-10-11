@@ -152,6 +152,41 @@ const categories = [
   },
 ];
 
+// ---- project grouping (logical, for now) ----
+// The site is being generalized into a multi-project platform. Today there is
+// one project — "Zoo Test" (the animal creative benchmarks above) — and the
+// landing page IS the Zoo Test hub. When a second project lands, the root will
+// become a Google-Labs-style project grid and each project moves under its own
+// base path; the `categories` data and all rendering below stay the same, just
+// nested one level deeper. See STATUS.md for the roadmap.
+const ZOO = { slug: "zoo", name: "Zoo Test", base: "", categories };
+
+// ---- preset prompts (for the in-browser "测试你的大模型" playground) ----
+// Each category archives its model-facing prompt in <slug>/PROMPT.md inside a
+// ```text``` block; pelican-bicycle predates that convention, so it carries an
+// inline fallback. These get embedded into playground/index.html, so the page
+// needs no extra fetch and works offline.
+const PELICAN_PROMPT = `用一个单独的 HTML 文件,做一个「一只鹈鹕骑自行车」的画面。
+
+交付要求:
+- 全部代码(HTML / CSS / JS)写在同一个文件内,双击即可在浏览器打开运行,无需任何交互。
+- 技术方案自选:纯 CSS/JS 2D,或 Three.js / WebGL 3D 都可以;需要第三方库就用 CDN 引入。
+- 画面不要有操作说明或控件,打开就是成品。
+
+鹈鹕的造型、自行车的结构、骑行的姿态与场景构图,全部由你自己判断,做出你认为最有说服力的一版。`;
+
+function presetPrompt(cat) {
+  if (cat.slug === "pelican-bicycle") return PELICAN_PROMPT;
+  const p = join(ROOT, cat.slug, "PROMPT.md");
+  if (!existsSync(p)) return "";
+  const m = readFileSync(p, "utf8").match(/```text\s*\n([\s\S]*?)```/);
+  return m ? m[1].trim() : "";
+}
+
+const PRESET_PROMPTS = ZOO.categories
+  .map((c) => ({ slug: c.slug, title: c.title, emoji: c.emoji, prompt: presetPrompt(c) }))
+  .filter((p) => p.prompt);
+
 const pad2 = (n) => String(n).padStart(2, "0");
 
 // Floating "返回首页" button injected into every version page. Version pages are
@@ -235,6 +270,10 @@ ${FONTS}
     <div class="eyebrow">Agent Test</div>
     <h1>看不同模型<br>同题同框的<em>真实表现</em></h1>
     <p class="lede">用一组经典、直观的任务,横向对比不同大模型与 Agent 的实际输出。每个大类下按模型版本归档,点进去即是可交互的在线效果。</p>
+    <div class="hero-cta">
+      <a class="btn-primary" href="playground/">🧪 测试你自己的大模型</a>
+      <span class="cta-note">填入你的 API,在浏览器里跑同一道题 · 密钥只留本地</span>
+    </div>
   </section>
 
   <div class="label"><span>栏目 Categories</span><i></i></div>
@@ -355,6 +394,87 @@ ${body}
 `;
 }
 
+// ---- playground page (测试你的大模型) ----
+// A fully client-side tester: the user supplies an OpenAI-compatible Base URL +
+// Key + model, picks a preset prompt (or writes one), and the browser calls
+// their endpoint directly and renders the returned HTML in a sandboxed iframe.
+// The key never leaves the browser. Logic lives in the hand-written
+// playground/playground.js; this only emits the shell + embeds the prompts.
+function renderPlayground() {
+  const promptsJson = JSON.stringify(PRESET_PROMPTS).replace(/</g, "\\u003c");
+  return `<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>测试你的大模型 · Agent Test</title>
+${FONTS}
+<link rel="stylesheet" href="../assets/site.css">
+</head>
+<body>
+  <nav class="nav">
+    <a class="brand" href="../"><span class="mark">A</span>Agent Test</a>
+    <a class="repo" href="https://github.com/zhoushimiaov/agent-test" target="_blank" rel="noopener">GitHub ↗</a>
+  </nav>
+
+  <section class="hero sub">
+    <div class="crumb"><a href="../">首页</a> &nbsp;/&nbsp; 测试你的大模型</div>
+    <h1>测试你的<em>大模型</em></h1>
+    <p class="lede">填入任意 OpenAI 兼容接口(Base URL + Key + 模型名),选一道题或自己写,浏览器直接让你的模型跑同样的命题并实时渲染结果。密钥只存在你本地浏览器、只发往你自己填写的接口,不经过本站任何服务器。</p>
+  </section>
+
+  <main class="pg">
+    <div class="pg-card">
+      <div class="pg-grid2">
+        <label class="f"><span>Base URL</span><input id="pg-base" type="text" placeholder="https://api.openai.com/v1" autocomplete="off" spellcheck="false"></label>
+        <label class="f"><span>模型 Model</span><input id="pg-model" type="text" placeholder="gpt-4o" autocomplete="off" spellcheck="false"></label>
+      </div>
+      <label class="f"><span>API Key</span>
+        <span class="pg-key"><input id="pg-keyin" type="password" placeholder="sk-..." autocomplete="off" spellcheck="false"><button id="pg-eye" type="button" title="显示 / 隐藏">显示</button></span>
+      </label>
+      <div class="pg-row">
+        <label class="chk"><input id="pg-remember" type="checkbox"> 记住配置(仅存本地浏览器)</label>
+        <button id="pg-forget" type="button" class="pg-ghost">忘记密钥</button>
+      </div>
+      <p class="pg-sec">🔒 密钥仅保存在本机 <code>localStorage</code>,请求由你的浏览器直连你填写的接口;本站是纯静态页面,不收集、不转发密钥或数据。仅能连接<strong>开放跨域(CORS)</strong>的接口;本地服务(如 Ollama)需自行开启 CORS。</p>
+    </div>
+
+    <div class="pg-card">
+      <label class="f"><span>选题(预设提示词)</span><select id="pg-preset"></select></label>
+      <label class="f"><span>提示词 Prompt(可自由编辑)</span><textarea id="pg-text" rows="7" spellcheck="false"></textarea></label>
+      <div class="pg-actions">
+        <button id="pg-run" type="button" class="btn-primary">▶ 运行</button>
+        <button id="pg-stop" type="button" class="pg-ghost" disabled>■ 停止</button>
+        <span id="pg-status" class="pg-status"></span>
+      </div>
+    </div>
+
+    <div class="pg-card pg-outcard">
+      <div class="pg-pane-h"><span>预览 Preview</span>
+        <span class="pg-pane-btns">
+          <button id="pg-dl" type="button" class="pg-ghost" disabled>下载 HTML</button>
+          <button id="pg-open" type="button" class="pg-ghost" disabled>新标签打开</button>
+        </span>
+      </div>
+      <iframe id="pg-frame" class="pg-frame" sandbox="allow-scripts" title="模型输出预览"></iframe>
+      <details class="pg-raw"><summary>原始输出 / 日志</summary><pre id="pg-rawtext"></pre></details>
+    </div>
+  </main>
+
+  <footer>
+    <div class="wrap">
+      <span><a href="../">← 返回首页</a></span>
+      <span>Hosted on GitHub Pages · agentest.shimiao.work</span>
+    </div>
+  </footer>
+
+  <script id="zoo-prompts" type="application/json">${promptsJson}</script>
+  <script src="playground.js"></script>
+</body>
+</html>
+`;
+}
+
 // ---- write ----
 writeFileSync(join(ROOT, "index.html"), renderHub());
 let n = 0;
@@ -365,6 +485,11 @@ for (const cat of categories) {
   n++;
 }
 
+// Playground page (shell only; playground.js is hand-written and preserved).
+const pgDir = join(ROOT, "playground");
+mkdirSync(pgDir, { recursive: true });
+writeFileSync(join(pgDir, "index.html"), renderPlayground());
+
 // Inject the "返回首页" button into every curated version page (the raw model
 // outputs linked from each category). Index/hub pages already carry their own
 // navigation, so they are left alone.
@@ -374,5 +499,5 @@ for (const cat of categories) {
     if (injectHomeButton(join(ROOT, cat.slug, v.slug + ".html"))) btn++;
   }
 }
-console.log(`Generated hub + ${n} category pages (${categories.length} categories); home button on ${btn} version pages.`);
+console.log(`Generated hub + playground + ${n} category pages (${categories.length} categories); home button on ${btn} version pages; ${PRESET_PROMPTS.length} preset prompts.`);
 

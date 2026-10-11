@@ -129,6 +129,56 @@ footer .wrap{max-width:1120px;margin:0 auto;display:flex;flex-wrap:wrap;gap:12px
 footer span{font-size:13px;font-weight:300;color:var(--mute)}
 footer a{color:var(--accent)}
 
+/* hero CTA (hub) */
+.hero-cta{margin-top:34px;display:flex;flex-wrap:wrap;align-items:center;gap:16px}
+.btn-primary{display:inline-flex;align-items:center;gap:8px;padding:12px 22px;border-radius:10px;
+  background:var(--ink);color:#fff;font-size:15px;font-weight:400;letter-spacing:.01em;
+  transition:transform .18s ease,box-shadow .18s ease,background .18s ease}
+.btn-primary:hover{transform:translateY(-2px);box-shadow:0 14px 32px -14px rgba(0,0,0,.5)}
+.cta-note{font-size:13px;font-weight:300;color:var(--mute)}
+
+/* playground */
+.pg{max-width:1120px;margin:8px auto 96px;padding:0 32px;display:flex;flex-direction:column;gap:22px}
+.pg-card{border:1px solid var(--hairline);border-radius:14px;background:var(--canvas);padding:24px 26px;
+  display:flex;flex-direction:column;gap:16px}
+.pg-grid2{display:grid;gap:16px;grid-template-columns:1fr 1fr}
+.f{display:flex;flex-direction:column;gap:7px}
+.f>span{font-size:12px;font-weight:400;letter-spacing:.14em;text-transform:uppercase;color:var(--faint)}
+.f input,.f select,.f textarea{font-family:var(--font);font-size:14.5px;font-weight:300;color:var(--ink);
+  background:var(--soft);border:1px solid var(--hairline-2);border-radius:9px;padding:11px 13px;width:100%;
+  transition:border-color .18s,background .18s}
+.f input:focus,.f select:focus,.f textarea:focus{outline:none;border-color:var(--accent);background:#fff}
+.f textarea{resize:vertical;line-height:1.6;min-height:120px}
+.pg-key{display:flex;gap:8px}
+.pg-key input{flex:1}
+.pg-key button{flex:none;padding:0 14px;font-size:13px;font-weight:300;color:var(--mute);
+  background:var(--soft);border:1px solid var(--hairline-2);border-radius:9px;cursor:pointer;transition:color .18s,border-color .18s}
+.pg-key button:hover{color:var(--ink);border-color:var(--hairline-2)}
+.pg-row{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
+.chk{display:flex;align-items:center;gap:8px;font-size:14px;font-weight:300;color:var(--body)}
+.chk input{width:16px;height:16px;accent-color:var(--ink)}
+.pg-ghost{padding:9px 15px;font-size:13.5px;font-weight:400;color:var(--ink);background:#fff;cursor:pointer;
+  border:1px solid var(--hairline-2);border-radius:9px;transition:border-color .18s,background .18s,color .18s}
+.pg-ghost:hover:not(:disabled){border-color:var(--ink)}
+.pg-ghost:disabled{color:var(--faint);cursor:not-allowed;background:var(--soft)}
+.pg-sec{font-size:13px;font-weight:300;line-height:1.7;color:var(--mute);background:var(--soft);
+  border:1px solid var(--hairline);border-radius:10px;padding:12px 14px}
+.pg-sec code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;color:var(--body)}
+.pg-sec strong{font-weight:500;color:var(--body)}
+.pg-actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.pg-status{font-size:13.5px;font-weight:300;color:var(--mute)}
+.pg-status.ok{color:#0a7d33}
+.pg-status.err{color:#c23}
+.pg-outcard{gap:14px}
+.pg-pane-h{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.pg-pane-h>span:first-child{font-size:12px;font-weight:400;letter-spacing:.14em;text-transform:uppercase;color:var(--faint)}
+.pg-pane-btns{display:flex;gap:8px}
+.pg-frame{width:100%;height:460px;border:1px solid var(--hairline-2);border-radius:10px;background:#fff}
+.pg-raw summary{font-size:13px;font-weight:400;color:var(--mute);cursor:pointer}
+.pg-raw pre{margin-top:10px;max-height:260px;overflow:auto;background:var(--soft);border:1px solid var(--hairline);
+  border-radius:10px;padding:14px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;
+  line-height:1.6;color:var(--body);white-space:pre-wrap;word-break:break-word}
+
 /* mobile */
 @media (max-width:600px){
   .hero{padding:64px 20px 44px}
@@ -137,5 +187,8 @@ footer a{color:var(--accent)}
   .grid{padding:0 20px 80px;gap:18px;grid-template-columns:1fr}
   .lede{font-size:16px}
   .cat .cover.ph .em{font-size:72px}
+  .pg{padding:0 20px 72px}
+  .pg-grid2{grid-template-columns:1fr}
+  .pg-frame{height:360px}
   footer{padding:36px 20px}
 }
