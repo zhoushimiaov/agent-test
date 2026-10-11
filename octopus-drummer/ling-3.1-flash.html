@@ -1,0 +1,805 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Octopus Drummer</title>
+<style>
+  html, body { margin: 0; padding: 0; height: 100%; background: #05030a; overflow: hidden; }
+  canvas { display: block; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+'use strict';
+/* ============================================================
+   一只章鱼在打架子鼓 —— 单文件 Canvas 2D 动画
+   - 124 BPM，32 步（2 小节）循环鼓点，自动循环播放
+   - 8 条腕各管一件乐器：crash / hi-hat / snare / kick / tom1 / tom2 / floor / ride
+   - 打击特效：冲击波环、星芒、镲片火花、上浮音符
+   - 运镜：呼吸缩放 + 随 kick 的推近与震屏
+   ============================================================ */
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+
+const VW = 1280, VH = 720;          // 虚拟舞台分辨率
+const BPM = 124;
+const BEAT = 60 / BPM;
+const STEP = BEAT / 4;              // 16 分音符
+const LOOP = STEP * 32;             // 两小节循环
+const STRIKE = 0.24;                // 一次击打动画时长（秒）
+
+/* ---------------- 工具 ---------------- */
+const lerp = (a, b, k) => a + (b - a) * k;
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const easeOutCubic = k => 1 - Math.pow(1 - k, 3);
+const easeInOutCubic = k => k < .5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2;
+const easeOutBack = k => { const c = 1.70158, u = k - 1; return 1 + (c + 1) * u * u * u + c * u * u; };
+const pick = arr => arr[(Math.random() * arr.length) | 0];
+
+function shade(hex, amt) {
+  const n = parseInt(hex.slice(1), 16);
+  const r = clamp((n >> 16) + amt, 0, 255),
+        g = clamp(((n >> 8) & 255) + amt, 0, 255),
+        b = clamp((n & 255) + amt, 0, 255);
+  return `rgb(${r},${g},${b})`;
+}
+function rr(x, y, w, h, r) {          // 圆角矩形路径
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+function quad(sx, sy, cx, cy, tx, ty, u) {   // 二次贝塞尔取点
+  const a = (1 - u) * (1 - u), b = 2 * (1 - u) * u, c = u * u;
+  return { x: a * sx + b * cx + c * tx, y: a * sy + b * cy + c * ty };
+}
+function starPath(r) {                // 四角星芒
+  ctx.beginPath();
+  for (let i = 0; i < 8; i++) {
+    const a = i * Math.PI / 4 - Math.PI / 2;
+    const rad = i % 2 === 0 ? r : r * 0.3;
+    const px = Math.cos(a) * rad, py = Math.sin(a) * rad;
+    i ? ctx.lineTo(px, py) : ctx.moveTo(px, py);
+  }
+  ctx.closePath();
+}
+
+/* ---------------- 鼓组布局 ---------------- */
+const drums = [
+  { id: 'crash', type: 'cymbal', x: 400, y: 300, r: 78, tilt: -0.32, hx: 398, hy: 290, noteCol: '#ffe9a8' },
+  { id: 'ride',  type: 'cymbal', x: 878, y: 322, r: 92, tilt:  0.20, hx: 876, hy: 312, noteCol: '#ffc9a8' },
+  { id: 'tom2',  type: 'tom',    x: 700, y: 378, r: 48, tilt: 0, hx: 700, hy: 370, noteCol: '#9dff8a', shell: '#3f8f7a' },
+  { id: 'tom1',  type: 'tom',    x: 552, y: 388, r: 48, tilt: 0, hx: 552, hy: 380, noteCol: '#6ee7ff', shell: '#3f6fae' },
+  { id: 'hihat', type: 'hihat',  x: 285, y: 428, r: 62, tilt: 0, hx: 285, hy: 408, noteCol: '#a8f0ff' },
+  { id: 'floor', type: 'tom',    x: 832, y: 478, r: 64, tilt: 0, hx: 832, hy: 468, noteCol: '#d0a2ff', shell: '#7a3fae' },
+  { id: 'kick',  type: 'kick',   x: 640, y: 500, r: 95, tilt: 0, hx: 640, hy: 466, noteCol: '#ff6b6b', shell: '#c9402f' },
+  { id: 'snare', type: 'snare',  x: 420, y: 520, r: 56, tilt: 0, hx: 420, hy: 510, noteCol: '#ffd166', shell: '#aab2c0' },
+];
+const drumById = {};
+drums.forEach(d => drumById[d.id] = d);
+
+/* ---------------- 章鱼与八条腕 ---------------- */
+// 腕根锚点（沿章鱼身体下缘排布，左→右）
+const ANCHORS = [[703,425],[689,442],[670,454],[646,460],[622,458],[600,449],[583,439],[577,425]];
+// 每条腕：目标鼓、锚点、待击休息位偏移、手臂弯曲度
+const ARM_DEF = [
+  { drum: 'crash',  anchor: 6, rdx: -40, rdy:  -95, bowX: 70, bowY: 55, cyb: true  },
+  { drum: 'hihat',  anchor: 7, rdx: -15, rdy:  -85, bowX: 60, bowY: 50, cyb: true  },
+  { drum: 'snare',  anchor: 5, rdx: -30, rdy:  -70, bowX: 50, bowY: 45 },
+  { drum: 'kick',   anchor: 4, rdx:   6, rdy:  -55, bowX: 24, bowY: 26 },
+  { drum: 'tom1',   anchor: 3, rdx: -20, rdy:  -80, bowX: 40, bowY: 50 },
+  { drum: 'tom2',   anchor: 2, rdx:  25, rdy:  -85, bowX: 40, bowY: 50 },
+  { drum: 'floor',  anchor: 1, rdx:  30, rdy:  -75, bowX: 50, bowY: 45 },
+  { drum: 'ride',   anchor: 0, rdx:  35, rdy: -105, bowX: 70, bowY: 60, cyb: true  },
+];
+const arms = ARM_DEF.map((def, i) => {
+  const d = drumById[def.drum];
+  const a = ANCHORS[def.anchor];
+  return {
+    i, drum: d, sx: a[0], sy: a[1],
+    strike: { x: d.hx, y: d.hy },
+    rdx: def.rdx, rdy: def.rdy, bowX: def.bowX, bowY: def.bowY,
+    cyb: !!def.cyb, ph: i * 1.9, hitAt: -1e9, steps: []
+  };
+});
+
+/* ---------------- 鼓点节奏：32 步循环 ---------------- */
+const PATTERN = [
+  [0,1,3],[],[1],[7],[2,3,1],[],[1],[7],
+  [3,1,4],[],[1,5],[7,6],[2,3,1],[4],[1,5],[7,6],
+  [0,1,3],[],[1],[7],[2,3,1],[],[1],[7],
+  [3,1],[4],[1,5],[7],[2,3,1,6],[4],[1,5],[7,6],
+];
+arms.forEach(arm => {
+  PATTERN.forEach((ev, s) => { if (ev.includes(arm.i)) arm.steps.push(s); });
+});
+
+function timeToNextHit(arm, t) {
+  const tIn = t % LOOP;
+  let best = Infinity;
+  for (const s of arm.steps) {
+    const d = s * STEP - tIn;
+    if (d > 0.001 && d < best) best = d;
+  }
+  if (best === Infinity) best = LOOP - tIn + arm.steps[0] * STEP;
+  return best;
+}
+
+/* ---------------- 特效状态 ---------------- */
+const notes = [], rings = [], stars = [], sparks = [];
+let kickEnv = 0, crashEnv = 0, shake = 0;
+let lastHit = { x: 640, y: 300, at: -10 };
+let tNow = 0;
+
+function spawnFX(d) {
+  const hx = d.hx, hy = d.hy;
+  rings.push({ x: hx, y: hy, r0: d.r * 0.35, r1: d.r * 1.25, t0: tNow, dur: 0.5, col: d.noteCol });
+  stars.push({ x: hx, y: hy, t0: tNow, dur: 0.42, col: '#ffffff' });
+  const n = d.id === 'kick' ? 2 : 1;
+  for (let i = 0; i < n; i++) {
+    notes.push({
+      x: hx + (Math.random() - 0.5) * 24, y: hy - 12,
+      vx: (Math.random() - 0.5) * 34, vy: -(85 + Math.random() * 65),
+      glyph: pick(['♪', '♫', '♩', '♬']), size: 24 + Math.random() * 16,
+      color: d.noteCol, rot: (Math.random() - 0.5) * 0.5, vr: (Math.random() - 0.5) * 1.2,
+      ph: Math.random() * 6.28, t0: tNow, dur: 1.5
+    });
+  }
+  if (d.type === 'cymbal' || d.id === 'hihat') {
+    for (let i = 0; i < 10; i++) {
+      const a = -Math.PI / 2 + (Math.random() - 0.5) * 2.2;
+      const sp = 150 + Math.random() * 190;
+      sparks.push({ x: hx, y: hy, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, t0: tNow, dur: 0.45 + Math.random() * 0.2, col: '#ffedb0' });
+    }
+  }
+  if (d.id === 'kick') { kickEnv = 1; shake = 1; }
+  if (d.id === 'crash' || d.id === 'ride') { crashEnv = Math.max(crashEnv, 0.9); }
+  lastHit = { x: d.x, y: d.y - d.r * 0.35, at: tNow };
+}
+
+function fire(step) {
+  const idx = ((step % 32) + 32) % 32;
+  const at = step * STEP;
+  for (const ai of PATTERN[idx]) {
+    const arm = arms[ai];
+    arm.hitAt = at;
+    arm.drum.hitAt = at;
+    spawnFX(arm.drum);
+  }
+}
+
+/* ---------------- 腕的姿态 ---------------- */
+function armPose(arm, t) {
+  // 待击休息位 + 呼吸摆动
+  const rx = arm.strike.x + arm.rdx + Math.sin(t * 1.4 + arm.ph) * 7;
+  const ry = arm.strike.y + arm.rdy + Math.sin(t * 1.1 + arm.ph * 1.7) * 5;
+  let tx = rx, ty = ry;
+  // 击打：快速压下 → 回弹
+  const p = (t - arm.hitAt) / STRIKE;
+  if (p >= 0 && p < 1) {
+    if (p < 0.35) {
+      const k = easeOutCubic(p / 0.35);
+      tx = lerp(rx, arm.strike.x, k);
+      ty = lerp(ry, arm.strike.y, k);
+    } else {
+      const k = easeInOutCubic((p - 0.35) / 0.65);
+      tx = lerp(arm.strike.x, rx, k);
+      ty = lerp(arm.strike.y, ry, k);
+    }
+  }
+  // 击打前 0.16s 的预备抬腕
+  const ttn = timeToNextHit(arm, t);
+  if (ttn < 0.16 && p >= 1) {
+    const k = (0.16 - ttn) / 0.16;
+    ty -= 26 * k * k;
+    tx += arm.rdx * 0.15 * k;
+  }
+  // 控制点：向外弓形弯曲
+  const mx = (arm.sx + tx) / 2, my = (arm.sy + ty) / 2;
+  const side = mx < 640 ? -1 : 1;
+  const cx = mx + side * arm.bowX;
+  const cy = my - arm.bowY;
+  let dx = tx - cx, dy = ty - cy;
+  const m = Math.hypot(dx, dy) || 1;
+  return { sx: arm.sx, sy: arm.sy, cx, cy, tx, ty, dx: dx / m, dy: dy / m };
+}
+
+/* ---------------- 场景绘制 ---------------- */
+function drawBackground(t) {
+  const g = ctx.createLinearGradient(0, 0, 0, VH);
+  g.addColorStop(0, '#1d1132');
+  g.addColorStop(0.55, '#130b26');
+  g.addColorStop(1, '#0a0616');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, VW, VH);
+
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  const g2 = ctx.createRadialGradient(640, 320, 40, 640, 320, 420);
+  g2.addColorStop(0, 'rgba(126,74,214,0.20)');
+  g2.addColorStop(1, 'rgba(126,74,214,0)');
+  ctx.fillStyle = g2;
+  ctx.fillRect(0, 0, VW, VH);
+  // 漂浮光斑
+  for (let i = 0; i < 16; i++) {
+    const bx = (i * 173.3) % VW + Math.sin(t * 0.3 + i) * 18;
+    const by = 90 + (i * 97.7) % 380 + Math.cos(t * 0.24 + i * 2) * 14;
+    const br = 5 + (i * 37) % 15;
+    const ba = 0.05 + 0.035 * Math.sin(t * 0.6 + i * 1.3);
+    ctx.fillStyle = i % 3 === 0 ? `rgba(255,110,200,${ba})`
+                 : i % 3 === 1 ? `rgba(90,220,255,${ba})`
+                               : `rgba(160,110,255,${ba})`;
+    ctx.beginPath(); ctx.arc(bx, by, br, 0, 7); ctx.fill();
+  }
+  ctx.restore();
+}
+
+function drawFloor() {
+  const g = ctx.createLinearGradient(0, 528, 0, VH);
+  g.addColorStop(0, '#1e1335');
+  g.addColorStop(1, '#0b0616');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 528, VW, VH - 528);
+  // 鼓毯
+  ctx.fillStyle = 'rgba(72,38,110,0.30)';
+  ctx.beginPath(); ctx.ellipse(640, 566, 430, 58, 0, 0, 7); ctx.fill();
+  ctx.strokeStyle = 'rgba(150,100,210,0.25)'; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.ellipse(640, 566, 430, 58, 0, 0, 7); ctx.stroke();
+  // 地板透视线
+  ctx.strokeStyle = 'rgba(0,0,0,0.30)'; ctx.lineWidth = 2;
+  for (let i = 1; i <= 8; i++) {
+    const y = 528 + i * i * 2.7;
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(VW, y); ctx.stroke();
+  }
+  ctx.strokeStyle = 'rgba(255,255,255,0.045)';
+  for (let k = -6; k <= 6; k++) {
+    ctx.beginPath(); ctx.moveTo(640, 528); ctx.lineTo(640 + k * 200, VH); ctx.stroke();
+  }
+}
+
+function drawBeams(t, alpha) {
+  const defs = [
+    { x: 180,  col: '255,70,190',  ph: 0   },
+    { x: 640,  col: '255,200,90',  ph: 2.1 },
+    { x: 1100, col: '70,220,255',  ph: 4.2 },
+  ];
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  for (const d of defs) {
+    const sway = Math.sin(t * 0.33 + d.ph) * 150;
+    const x1 = 640 + sway;
+    const g = ctx.createLinearGradient(d.x, -40, x1, 580);
+    g.addColorStop(0, `rgba(${d.col},${alpha})`);
+    g.addColorStop(1, `rgba(${d.col},0)`);
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.moveTo(d.x - 16, -40);
+    ctx.lineTo(x1 - 160, 580);
+    ctx.lineTo(x1 + 160, 580);
+    ctx.lineTo(d.x + 16, -40);
+    ctx.closePath(); ctx.fill();
+    // 地面光池
+    const pulse = 0.7 + 0.3 * Math.sin(t * 2.1 + d.ph);
+    const g2 = ctx.createRadialGradient(x1, 566, 10, x1, 566, 190);
+    g2.addColorStop(0, `rgba(${d.col},${alpha * 0.55 * pulse})`);
+    g2.addColorStop(1, `rgba(${d.col},0)`);
+    ctx.fillStyle = g2;
+    ctx.beginPath(); ctx.ellipse(x1, 566, 190, 30, 0, 0, 7); ctx.fill();
+  }
+  ctx.restore();
+}
+
+function drawOctopus(t) {
+  const beatFrac = (t % BEAT) / BEAT;
+  const bounce = Math.pow(1 - beatFrac, 2.2);
+  const stepFrac = (t % STEP) / STEP;
+  const stepPulse = Math.exp(-stepFrac * 5);
+  const bob = -7 * bounce - 2 * stepPulse;
+  const sx = 1 + 0.05 * kickEnv, sy = 1 - 0.06 * kickEnv;
+
+  // 眨眼
+  const bc = t % 3.1;
+  const lid = bc > 2.94 ? Math.sin((bc - 2.94) / 0.16 * Math.PI) : 0;
+
+  // 瞳孔追踪最近被击打的鼓
+  const he = clamp(1 - (t - lastHit.at) / 0.7, 0, 1);
+  const pxo = clamp((lastHit.x - 640) * 0.05, -7, 7) * he;
+  const pyo = clamp((lastHit.y - 290) * 0.05, -5, 6) * he;
+
+  const mouthOpen = clamp((kickEnv - 0.3) / 0.7, 0, 1);
+
+  ctx.save();
+  ctx.translate(640, 298 + bob);
+  ctx.scale(sx, sy);
+
+  // 身体
+  let g = ctx.createRadialGradient(-20, 60, 20, 0, 100, 110);
+  g.addColorStop(0, '#a86fe0');
+  g.addColorStop(1, '#6b2fa0');
+  ctx.fillStyle = g;
+  ctx.beginPath(); ctx.ellipse(0, 102, 72, 62, 0, 0, 7); ctx.fill();
+
+  // 头
+  g = ctx.createRadialGradient(-28, -34, 12, 0, 0, 95);
+  g.addColorStop(0, '#cf9cf5');
+  g.addColorStop(0.55, '#a86fe0');
+  g.addColorStop(1, '#7a3fb0');
+  ctx.fillStyle = g;
+  ctx.beginPath(); ctx.arc(0, 0, 86, 0, 7); ctx.fill();
+
+  // 斑点
+  ctx.fillStyle = 'rgba(122,63,176,0.55)';
+  for (const [x, y, r] of [[-50,-38,9],[36,-52,7],[56,18,8],[-34,46,6],[12,-70,5]]) {
+    ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill();
+  }
+
+  // 腮红
+  ctx.fillStyle = 'rgba(255,140,200,0.5)';
+  ctx.beginPath(); ctx.ellipse(-52, 16, 10, 6, 0, 0, 7); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(52, 16, 10, 6, 0, 0, 7); ctx.fill();
+
+  // 眼睛 + 眉毛
+  for (const side of [-1, 1]) {
+    ctx.save();
+    ctx.translate(side * 30, -8);
+    ctx.scale(1, 1 - 0.85 * lid);
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath(); ctx.ellipse(0, 0, 15, 17, 0, 0, 7); ctx.fill();
+    ctx.fillStyle = '#241433';
+    ctx.beginPath(); ctx.arc(pxo, pyo, 6.5, 0, 7); ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,0.9)';
+    ctx.beginPath(); ctx.arc(pxo - 2, pyo - 2, 2, 0, 7); ctx.fill();
+    ctx.restore();
+    ctx.strokeStyle = '#4a1f78'; ctx.lineWidth = 5; ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(side * 30 - 12, -34 - 4 * bounce);
+    ctx.quadraticCurveTo(side * 30, -40 - 7 * bounce, side * 30 + 12, -33 - 4 * bounce);
+    ctx.stroke();
+  }
+
+  // 嘴（kick 时张开）
+  if (mouthOpen > 0.05) {
+    ctx.fillStyle = '#4a1f4d';
+    ctx.beginPath(); ctx.ellipse(0, 30, 9, 4 + 9 * mouthOpen, 0, 0, 7); ctx.fill();
+    ctx.fillStyle = '#ff8fa8';
+    ctx.beginPath(); ctx.ellipse(0, 32 + 4 * mouthOpen, 5, 3, 0, 0, 7); ctx.fill();
+  } else {
+    ctx.strokeStyle = '#4a1f4d'; ctx.lineWidth = 4; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.arc(0, 22, 12, 0.15 * Math.PI, 0.85 * Math.PI); ctx.stroke();
+  }
+
+  // 耳机
+  ctx.strokeStyle = '#2c2544'; ctx.lineWidth = 13; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.arc(0, 6, 95, Math.PI, 2 * Math.PI); ctx.stroke();
+  for (const side of [-1, 1]) {
+    ctx.fillStyle = '#39315a';
+    rr(side * 84 - 15, -16, 30, 46, 13); ctx.fill();
+    ctx.strokeStyle = '#241f3d'; ctx.lineWidth = 3;
+    rr(side * 84 - 15, -16, 30, 46, 13); ctx.stroke();
+    ctx.save();
+    ctx.shadowColor = '#5ff2ff'; ctx.shadowBlur = 6 + 16 * crashEnv;
+    ctx.strokeStyle = 'rgba(95,242,255,0.8)'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(side * 84, 7, 8, 0, 7); ctx.stroke();
+    ctx.restore();
+  }
+
+  ctx.restore();
+}
+
+function drawArm(arm, t) {
+  const p = armPose(arm, t);
+  ctx.lineCap = 'round';
+  ctx.strokeStyle = '#5b2b8f'; ctx.lineWidth = 17;
+  ctx.beginPath(); ctx.moveTo(p.sx, p.sy); ctx.quadraticCurveTo(p.cx, p.cy, p.tx, p.ty); ctx.stroke();
+  ctx.strokeStyle = '#7a3fb8'; ctx.lineWidth = 10;
+  ctx.beginPath(); ctx.moveTo(p.sx, p.sy); ctx.quadraticCurveTo(p.cx, p.cy, p.tx, p.ty); ctx.stroke();
+  // 吸盘
+  ctx.fillStyle = 'rgba(196,158,232,0.9)';
+  for (const u of [0.3, 0.5, 0.7]) {
+    const pt = quad(p.sx, p.sy, p.cx, p.cy, p.tx, p.ty, u);
+    const tx2 = 2 * (1 - u) * (p.cx - p.sx) + 2 * u * (p.tx - p.cx);
+    const ty2 = 2 * (1 - u) * (p.cy - p.sy) + 2 * u * (p.ty - p.cy);
+    const m = Math.hypot(tx2, ty2) || 1;
+    ctx.beginPath(); ctx.arc(pt.x + (-ty2 / m) * 4, pt.y + (tx2 / m) * 4, 3.1, 0, 7); ctx.fill();
+  }
+  arm._pose = p;
+}
+
+function drawMallet(arm, t) {
+  const p = arm._pose;
+  const cyb = arm.cyb;
+  const back = cyb ? 26 : 34;
+  const hitGlow = clamp(1 - (t - arm.hitAt) / 0.25, 0, 1);
+  ctx.save();
+  if (hitGlow > 0) { ctx.shadowColor = '#fff2b0'; ctx.shadowBlur = 16 * hitGlow; }
+  ctx.strokeStyle = cyb ? '#d8c49a' : '#caa06a';
+  ctx.lineWidth = cyb ? 4 : 5.5;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(p.tx - p.dx * back, p.ty - p.dy * back);
+  ctx.lineTo(p.tx, p.ty);
+  ctx.stroke();
+  ctx.fillStyle = cyb ? '#f6f9ff' : '#efe8d8';
+  ctx.beginPath(); ctx.arc(p.tx, p.ty, cyb ? 5.5 : 7.5, 0, 7); ctx.fill();
+  ctx.restore();
+}
+
+/* ---------------- 乐器绘制 ---------------- */
+function cymbalFace(x, y, r, tilt, wob) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(tilt);
+  ctx.scale(1 + wob * 0.05, 1 - wob * 0.15);
+  ctx.save();
+  ctx.scale(1, 0.45);
+  const g = ctx.createRadialGradient(0, 0, r * 0.08, 0, 0, r);
+  g.addColorStop(0, '#fff3c4');
+  g.addColorStop(0.45, '#e8c15a');
+  g.addColorStop(0.85, '#a8762a');
+  g.addColorStop(1, '#6e4a16');
+  ctx.fillStyle = g;
+  ctx.beginPath(); ctx.arc(0, 0, r, 0, 7); ctx.fill();
+  ctx.strokeStyle = 'rgba(90,60,15,0.35)'; ctx.lineWidth = 2;
+  for (const k of [0.45, 0.65, 0.85]) {
+    ctx.beginPath(); ctx.arc(0, 0, r * k, 0, 7); ctx.stroke();
+  }
+  const g2 = ctx.createRadialGradient(0, 0, 1, 0, 0, r * 0.26);
+  g2.addColorStop(0, '#fff8dc');
+  g2.addColorStop(1, '#c99b3f');
+  ctx.fillStyle = g2;
+  ctx.beginPath(); ctx.arc(0, 0, r * 0.26, 0, 7); ctx.fill();
+  ctx.restore();
+  ctx.restore();
+}
+
+function standTripod(x, yTop, yFloor, spread) {
+  ctx.strokeStyle = '#454b59'; ctx.lineWidth = 6; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(x, yTop); ctx.lineTo(x, yFloor); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x, yFloor); ctx.lineTo(x - spread, yFloor + 14); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x, yFloor); ctx.lineTo(x + spread, yFloor + 14); ctx.stroke();
+}
+
+function drawCymbal(d, t) {
+  const age = t - d.hitAt;
+  const wob = age < 3 ? Math.exp(-age * 6) * Math.sin(age * 36) : 0;
+  // 地面阴影
+  ctx.fillStyle = 'rgba(0,0,0,0.30)';
+  ctx.beginPath(); ctx.ellipse(d.x, 608, 60, 10, 0, 0, 7); ctx.fill();
+  standTripod(d.x, d.y + 8, 592, 26);
+  cymbalFace(d.x, d.y, d.r, d.tilt, wob);
+}
+
+function drawHihat(d, t) {
+  const age = t - d.hitAt;
+  const wob = age < 3 ? Math.exp(-age * 7) * Math.sin(age * 40) : 0;
+  ctx.fillStyle = 'rgba(0,0,0,0.30)';
+  ctx.beginPath(); ctx.ellipse(d.x, 608, 52, 9, 0, 0, 7); ctx.fill();
+  standTripod(d.x, d.y + 4, 592, 24);
+  cymbalFace(d.x, d.y + 2, d.r, 0, 0);           // 下镲
+  cymbalFace(d.x, d.y - 12 - wob * 8, d.r, 0.05, wob); // 上镲（微开，击打时抖动）
+}
+
+function drawTom(d, t) {
+  const age = t - d.hitAt;
+  const hit = Math.exp(-Math.max(age, 0) * 8);
+  ctx.fillStyle = 'rgba(0,0,0,0.30)';
+  ctx.beginPath(); ctx.ellipse(d.x, d.y + d.r + 62, d.r + 14, 9, 0, 0, 7); ctx.fill();
+  if (d.id === 'tom1' || d.id === 'tom2') {   // 吊镲架连到 kick
+    ctx.strokeStyle = '#3a3f4c'; ctx.lineWidth = 7; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(d.x, d.y + d.r * 0.55); ctx.lineTo(640, 420); ctx.stroke();
+  }
+  if (d.id === 'floor') {                      // 三脚架
+    ctx.strokeStyle = '#3a3f4c'; ctx.lineWidth = 6; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(d.x - 20, d.y + d.r * 0.75); ctx.lineTo(d.x - 44, 600); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(d.x + 20, d.y + d.r * 0.75); ctx.lineTo(d.x + 44, 600); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(d.x, d.y + d.r * 0.8); ctx.lineTo(d.x, 604); ctx.stroke();
+  }
+  const s = 1 + hit * 0.07;
+  ctx.save();
+  ctx.translate(d.x, d.y);
+  ctx.scale(s, 1 / Math.sqrt(s));
+  const r = d.r;
+  let g = ctx.createRadialGradient(-r * 0.3, -r * 0.35, r * 0.15, 0, 0, r);
+  g.addColorStop(0, shade(d.shell, 60));
+  g.addColorStop(0.6, d.shell);
+  g.addColorStop(1, shade(d.shell, -55));
+  ctx.fillStyle = g;
+  ctx.beginPath(); ctx.arc(0, 0, r, 0, 7); ctx.fill();
+  ctx.fillStyle = '#f4e9cd';
+  ctx.beginPath(); ctx.arc(0, 0, r * 0.78, 0, 7); ctx.fill();
+  g = ctx.createRadialGradient(0, 0, r * 0.3, 0, 0, r * 0.78);
+  g.addColorStop(0, 'rgba(0,0,0,0)');
+  g.addColorStop(1, 'rgba(60,40,20,0.18)');
+  ctx.fillStyle = g;
+  ctx.beginPath(); ctx.arc(0, 0, r * 0.78, 0, 7); ctx.fill();
+  ctx.strokeStyle = shade(d.shell, 40); ctx.lineWidth = 5;
+  ctx.beginPath(); ctx.arc(0, 0, r * 0.9, 0, 7); ctx.stroke();
+  ctx.fillStyle = shade(d.shell, -30);
+  for (let i = 0; i < 8; i++) {
+    const a = i * Math.PI / 4 + Math.PI / 8;
+    ctx.beginPath(); ctx.arc(Math.cos(a) * r * 0.97, Math.sin(a) * r * 0.97, 2.6, 0, 7); ctx.fill();
+  }
+  if (hit > 0.02) {
+    ctx.strokeStyle = `rgba(255,255,255,${hit * 0.55})`;
+    ctx.lineWidth = 2.5;
+    ctx.beginPath(); ctx.arc(0, 0, r * (0.72 + (1 - hit) * 0.3), 0, 7); ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawKick(d, t) {
+  ctx.fillStyle = 'rgba(0,0,0,0.35)';
+  ctx.beginPath(); ctx.ellipse(d.x, 606, 112, 17, 0, 0, 7); ctx.fill();
+  ctx.strokeStyle = '#3a3f4c'; ctx.lineWidth = 7; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(d.x - 50, d.y + 62); ctx.lineTo(d.x - 64, 602); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(d.x + 50, d.y + 62); ctx.lineTo(d.x + 64, 602); ctx.stroke();
+  const s = 1 + kickEnv * 0.05;
+  ctx.save();
+  ctx.translate(d.x, d.y);
+  ctx.scale(s, 2 - s);
+  const r = d.r;
+  let g = ctx.createRadialGradient(-r * 0.3, -r * 0.35, r * 0.2, 0, 0, r);
+  g.addColorStop(0, '#e05a44');
+  g.addColorStop(0.6, '#c9402f');
+  g.addColorStop(1, '#8f2a1e');
+  ctx.fillStyle = g;
+  ctx.beginPath(); ctx.arc(0, 0, r, 0, 7); ctx.fill();
+  ctx.fillStyle = '#f6ecd4';
+  ctx.beginPath(); ctx.arc(0, 0, r * 0.8, 0, 7); ctx.fill();
+  g = ctx.createRadialGradient(0, 0, r * 0.3, 0, 0, r * 0.8);
+  g.addColorStop(0, 'rgba(0,0,0,0)');
+  g.addColorStop(1, 'rgba(60,40,20,0.16)');
+  ctx.fillStyle = g;
+  ctx.beginPath(); ctx.arc(0, 0, r * 0.8, 0, 7); ctx.fill();
+  ctx.strokeStyle = '#7c2418'; ctx.lineWidth = 6;
+  ctx.beginPath(); ctx.arc(0, 0, r * 0.94, 0, 7); ctx.stroke();
+  ctx.strokeStyle = '#e8d9b8'; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.arc(0, 0, r * 0.82, 0, 7); ctx.stroke();
+  ctx.fillStyle = '#5e1c12';
+  for (let i = 0; i < 10; i++) {
+    const a = i * Math.PI / 5;
+    ctx.beginPath(); ctx.arc(Math.cos(a) * r * 0.99, Math.sin(a) * r * 0.99, 3, 0, 7); ctx.fill();
+  }
+  // 闪电标志
+  ctx.fillStyle = 'rgba(201,64,47,0.85)';
+  ctx.beginPath();
+  const B = [[-6,-24],[13,-24],[2,-2],[15,-2],[-11,26],[-2,2],[-15,2]];
+  B.forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y));
+  ctx.closePath(); ctx.fill();
+  if (kickEnv > 0.02) {
+    ctx.strokeStyle = `rgba(255,240,220,${kickEnv * 0.6})`;
+    ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(0, 0, r * (0.55 + (1 - kickEnv) * 0.4), 0, 7); ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawSnare(d, t) {
+  const age = t - d.hitAt;
+  const hit = Math.exp(-Math.max(age, 0) * 9);
+  ctx.fillStyle = 'rgba(0,0,0,0.30)';
+  ctx.beginPath(); ctx.ellipse(d.x, 602, 66, 10, 0, 0, 7); ctx.fill();
+  standTripod(d.x, d.y + d.r * 0.5, 586, 24);
+  const s = 1 + hit * 0.08;
+  ctx.save();
+  ctx.translate(d.x, d.y);
+  ctx.scale(s, 1 / Math.sqrt(s));
+  const r = d.r;
+  let g = ctx.createRadialGradient(-r * 0.3, -r * 0.35, r * 0.15, 0, 0, r);
+  g.addColorStop(0, '#f0f3f8');
+  g.addColorStop(0.55, '#aab2c0');
+  g.addColorStop(1, '#646c7c');
+  ctx.fillStyle = g;
+  ctx.beginPath(); ctx.arc(0, 0, r, 0, 7); ctx.fill();
+  ctx.fillStyle = '#f6ecd4';
+  ctx.beginPath(); ctx.arc(0, 0, r * 0.78, 0, 7); ctx.fill();
+  ctx.strokeStyle = '#c9402f'; ctx.lineWidth = 5;
+  ctx.beginPath(); ctx.arc(0, 0, r * 0.9, 0, 7); ctx.stroke();
+  ctx.strokeStyle = 'rgba(220,225,235,0.7)'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.arc(0, 0, r * 0.7, 0.3, Math.PI - 0.3); ctx.stroke();
+  if (hit > 0.02) {
+    ctx.strokeStyle = `rgba(255,255,255,${hit * 0.6})`;
+    ctx.lineWidth = 2.5;
+    ctx.beginPath(); ctx.arc(0, 0, r * (0.72 + (1 - hit) * 0.3), 0, 7); ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawDrum(d, t) {
+  if (d.type === 'cymbal') drawCymbal(d, t);
+  else if (d.type === 'hihat') drawHihat(d, t);
+  else if (d.type === 'kick') drawKick(d, t);
+  else if (d.type === 'snare') drawSnare(d, t);
+  else drawTom(d, t);
+}
+
+function drawCrowd(t) {
+  for (let i = 0; i < 15; i++) {
+    const x = 28 + i * 87 + (i % 2) * 22;
+    const ph = i * 0.37;
+    const bf = ((t / BEAT) + ph) % 1;
+    const b = Math.pow(1 - bf, 2.4);
+    const headY = 656 - 22 * b - (i % 4) * 7;
+    ctx.fillStyle = i % 5 === 3 ? '#1a0f2e' : '#130b22';
+    ctx.beginPath(); ctx.ellipse(x, 748, 45, 78, 0, 0, 7); ctx.fill();
+    ctx.beginPath(); ctx.arc(x, headY, 17, 0, 7); ctx.fill();
+    const hy = 600 - 34 * b - (i % 3) * 12;
+    ctx.strokeStyle = '#130b22'; ctx.lineWidth = 11; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(x - 22, headY + 34); ctx.quadraticCurveTo(x - 38, headY + 4, x - 34, hy); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x + 22, headY + 34); ctx.quadraticCurveTo(x + 38, headY + 4, x + 34, hy - (i % 2) * 8); ctx.stroke();
+    ctx.fillStyle = '#1a0f2e';
+    ctx.beginPath(); ctx.arc(x - 34, hy, 7, 0, 7); ctx.fill();
+    ctx.beginPath(); ctx.arc(x + 34, hy - (i % 2) * 8, 7, 0, 7); ctx.fill();
+    if (i % 4 === 1) {   // 荧光棒
+      const col = i % 8 === 1 ? '95,242,255' : '255,122,217';
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.strokeStyle = `rgba(${col},0.9)`;
+      ctx.shadowColor = `rgba(${col},1)`; ctx.shadowBlur = 14;
+      ctx.lineWidth = 4;
+      const gx = x + 34, gy = hy - (i % 2) * 8;
+      ctx.beginPath(); ctx.moveTo(gx, gy); ctx.lineTo(gx + 4, gy - 30); ctx.stroke();
+      ctx.restore();
+    }
+  }
+}
+
+function drawFX(t) {
+  for (const r of rings) {
+    const p = (t - r.t0) / r.dur;
+    if (p < 0 || p > 1) continue;
+    ctx.save();
+    ctx.globalAlpha = (1 - p) * 0.75;
+    ctx.strokeStyle = r.col;
+    ctx.lineWidth = 1 + 4 * (1 - p);
+    ctx.beginPath(); ctx.arc(r.x, r.y, lerp(r.r0, r.r1, easeOutCubic(p)), 0, 7); ctx.stroke();
+    ctx.restore();
+  }
+  for (const s of stars) {
+    const p = (t - s.t0) / s.dur;
+    if (p < 0 || p > 1) continue;
+    const rad = 8 + 30 * easeOutBack(Math.min(p * 1.7, 1));
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.globalAlpha = 1 - p;
+    ctx.translate(s.x, s.y);
+    ctx.rotate(p * 1.2);
+    ctx.fillStyle = s.col;
+    starPath(rad);
+    ctx.fill();
+    ctx.restore();
+  }
+  for (const s of sparks) {
+    const age = t - s.t0;
+    const p = age / s.dur;
+    if (p < 0 || p > 1) continue;
+    const x = s.x + s.vx * age;
+    const y = s.y + s.vy * age + 160 * age * age;
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.globalAlpha = 1 - p;
+    ctx.strokeStyle = s.col;
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(x - s.vx * 0.035, y - s.vy * 0.035 - 160 * age * 0.035);
+    ctx.stroke();
+    ctx.restore();
+  }
+  for (const n of notes) {
+    const age = t - n.t0;
+    const p = age / n.dur;
+    if (p < 0 || p > 1) continue;
+    const x = n.x + n.vx * age + Math.sin(age * 3 + n.ph) * 10;
+    const y = n.y + n.vy * age;
+    const a = p < 0.65 ? 1 : 1 - (p - 0.65) / 0.35;
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(n.rot + age * n.vr);
+    ctx.globalAlpha = a;
+    ctx.font = `bold ${n.size}px "Segoe UI Symbol", "Noto Music", serif`;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.shadowColor = n.color; ctx.shadowBlur = 14;
+    ctx.fillStyle = n.color;
+    ctx.fillText(n.glyph, 0, 0);
+    ctx.restore();
+  }
+}
+
+/* ---------------- 渲染主流程 ---------------- */
+function render(t) {
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  ctx.fillStyle = '#05030a';
+  ctx.fillRect(0, 0, canvas.width / DPR, canvas.height / DPR);
+  ctx.translate(offX, offY);
+  ctx.scale(fit, fit);
+
+  // 运镜：呼吸缩放 + kick 推近 + 轻摇
+  const zoom = 1 + 0.012 * Math.sin(t * 0.23) + 0.035 * kickEnv + 0.02 * crashEnv;
+  const rot = 0.008 * Math.sin(t * 0.17);
+  ctx.save();
+  ctx.translate(640, 380);
+  ctx.scale(zoom, zoom);
+  ctx.rotate(rot);
+  ctx.translate(-640, -380);
+  ctx.translate((Math.random() - 0.5) * 9 * shake, (Math.random() - 0.5) * 7 * shake);
+
+  drawBackground(t);
+  drawFloor();
+  drawBeams(t, 0.10);
+  drawOctopus(t);
+  // 按纵深（y 升序）逐件绘制：先画腕 → 再画鼓 → 最后画鼓槌尖端
+  const order = [...drums].sort((a, b) => a.y - b.y);
+  const armOf = {};
+  arms.forEach(a => armOf[a.drum.id] = a);
+  for (const d of order) {
+    drawArm(armOf[d.id], t);
+    drawDrum(d, t);
+    drawMallet(armOf[d.id], t);
+  }
+  drawCrowd(t);
+  drawBeams(t, 0.05);
+  drawFX(t);
+  ctx.restore();
+
+  // 暗角
+  const g = ctx.createRadialGradient(640, 360, 300, 640, 360, 720);
+  g.addColorStop(0, 'rgba(4,2,10,0)');
+  g.addColorStop(1, 'rgba(4,2,10,0.62)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, VW, VH);
+}
+
+/* ---------------- 自适应与主循环 ---------------- */
+let DPR = 1, fit = 1, offX = 0, offY = 0;
+function resize() {
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  canvas.width = innerWidth * DPR;
+  canvas.height = innerHeight * DPR;
+  canvas.style.width = innerWidth + 'px';
+  canvas.style.height = innerHeight + 'px';
+  fit = Math.min(innerWidth / VW, innerHeight / VH);
+  offX = (innerWidth - VW * fit) / 2;
+  offY = (innerHeight - VH * fit) / 2;
+}
+addEventListener('resize', resize);
+resize();
+
+function drop(arr, t) {
+  for (let i = arr.length - 1; i >= 0; i--) {
+    if (t - arr[i].t0 > arr[i].dur) arr.splice(i, 1);
+  }
+}
+
+let lastStep = -1;
+let lastFrame = performance.now();
+function frame(nowMs) {
+  requestAnimationFrame(frame);
+  const t = nowMs / 1000;
+  let dt = t - lastFrame / 1000;
+  lastFrame = nowMs;
+  if (dt > 0.25) { lastStep = Math.floor(t / STEP); dt = 0.016; }  // 切后台回来直接对齐，不补帧
+  if (dt < 0) dt = 0.016;
+  tNow = t;
+  const step = Math.floor(t / STEP);
+  if (step !== lastStep) {
+    for (let s = lastStep + 1; s <= step; s++) fire(s);
+    lastStep = step;
+  }
+  kickEnv *= Math.exp(-dt * 5.5);
+  crashEnv *= Math.exp(-dt * 3.2);
+  shake *= Math.exp(-dt * 7);
+  drop(notes, t); drop(rings, t); drop(stars, t); drop(sparks, t);
+  render(t);
+}
+requestAnimationFrame(frame);
+</script>
+<!--zc-home:start--><style>.zc-home-btn{position:fixed;top:16px;left:16px;z-index:2147483647;display:inline-flex;align-items:center;gap:6px;padding:8px 14px;font:500 13px/1.1 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Noto Sans SC",sans-serif;color:#111;background:rgba(255,255,255,.86);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);border:1px solid rgba(0,0,0,.08);border-radius:999px;text-decoration:none;box-shadow:0 2px 12px rgba(0,0,0,.2);transition:background .2s ease,transform .2s ease,box-shadow .2s ease}.zc-home-btn:hover{background:#fff;transform:translateY(-1px);box-shadow:0 4px 18px rgba(0,0,0,.26)}</style><a class="zc-home-btn" href="../">← 返回首页</a><!--zc-home:end-->
+</body>
+</html>

@@ -1,0 +1,1764 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Octopus Drummer</title>
+<style>
+  html,body{margin:0;padding:0;height:100%;background:#04060e;overflow:hidden;}
+  canvas{display:block;width:100vw;height:100vh;}
+</style>
+</head>
+<body>
+<canvas id="stage"></canvas>
+<script>
+(function () {
+'use strict';
+
+/* ==========================================================================
+   OCTOPUS DRUMMER
+   One canvas, no assets, no interaction. A procedural octopus perches behind
+   a seven-piece kit; each of its eight arms owns one instrument. A 16th-note
+   sequencer drives both the limb strikes and the impact FX from a single
+   clock, so the motion and the groove can never drift apart.
+   ========================================================================== */
+
+var cvs = document.getElementById('stage');
+var ctx = cvs.getContext('2d');
+
+var W = 1, H = 1, DPR = 1;
+
+function resize() {
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  W = window.innerWidth || document.documentElement.clientWidth;
+  H = window.innerHeight || document.documentElement.clientHeight;
+  cvs.width  = Math.max(1, Math.round(W * DPR));
+  cvs.height = Math.max(1, Math.round(H * DPR));
+  cvs.style.width  = W + 'px';
+  cvs.style.height = H + 'px';
+  fitView();
+}
+window.addEventListener('resize', resize);
+
+/* --------------------------------------------------------------------------
+   World space. y = 0 is the stage floor, +y is down, -y is up.
+   The box below is "what must always be visible".
+   -------------------------------------------------------------------------- */
+var FLOOR = 96;
+var BOX = { x0: -475, x1: 475, y0: -720, y1: 175 };
+var viewScale = 1;
+var cam = { zoom: 1, punch: 0, shake: 0, ox: 0, oy: 0, tilt: 0 };
+
+function fitView() {
+  var bw = BOX.x1 - BOX.x0;
+  var bh = BOX.y1 - BOX.y0;
+  viewScale = Math.min(W / bw, H / bh);
+}
+resize();
+
+var CX = (BOX.x0 + BOX.x1) * 0.5;
+var CY = (BOX.y0 + BOX.y1) * 0.5;
+
+/* Visible world rectangle. It grows with the window's aspect ratio so the
+   backdrop can paint a whole stage instead of stopping dead mid-air. */
+var VIS = { x0: BOX.x0, x1: BOX.x1, y0: BOX.y0, y1: BOX.y1 };
+function computeVisible() {
+  var s = viewScale * cam.zoom * (1 + cam.punch);
+  var hw = W / (2 * s), hh = H / (2 * s);
+  var cx = CX - cam.ox / s, cy = CY - cam.oy / s;
+  VIS.x0 = cx - hw; VIS.x1 = cx + hw;
+  VIS.y0 = cy - hh; VIS.y1 = cy + hh;
+}
+
+function applyCamera() {
+  var s = viewScale * cam.zoom * (1 + cam.punch);
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  ctx.fillStyle = '#03040a';
+  ctx.fillRect(0, 0, W, H);
+  computeVisible();
+  ctx.translate(W * 0.5 + cam.ox + cam.shake * (Math.random() - 0.5) * 2,
+                H * 0.5 + cam.oy + cam.shake * (Math.random() - 0.5) * 2);
+  ctx.rotate(cam.tilt);
+  ctx.scale(s, s);
+  ctx.translate(-CX, -CY);
+}
+
+/* --------------------------------------------------------------------------
+   Small math helpers
+   -------------------------------------------------------------------------- */
+var TAU = Math.PI * 2;
+function clamp(v, a, b) { return v < a ? a : (v > b ? b : v); }
+function lerp(a, b, t) { return a + (b - a) * t; }
+function rnd(a, b) { return a + Math.random() * (b - a); }
+function approach(cur, tgt, rate, dt) { return cur + (tgt - cur) * (1 - Math.exp(-rate * dt)); }
+function easeOutCubic(t) { return 1 - Math.pow(1 - t, 3); }
+function easeInQuad(t) { return t * t; }
+function bez(p0, p1, p2, p3, t) {
+  var u = 1 - t, uu = u * u, tt = t * t;
+  return uu * u * p0 + 3 * uu * t * p1 + 3 * u * tt * p2 + tt * t * p3;
+}
+
+/* Round-rect path helper (older engines lack ctx.roundRect) */
+function rr(x, y, w, h, r) {
+  r = Math.min(r, Math.abs(w) * 0.5, Math.abs(h) * 0.5);
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
+}
+
+/* --------------------------------------------------------------------------
+   Palette — a deep blue stage, a magenta/violet cephalopod, cream drumheads,
+   warm brass. Rim lights are cyan and amber so the silhouette always reads.
+   -------------------------------------------------------------------------- */
+var PAL = {
+  skinDark:  '#3d1052',
+  skinMid:   '#7b2aa8',
+  skinLit:   '#c46cf0',
+  skinHot:   '#ffd0fb',
+  sucker:    '#ffb6e2',
+  suckerDim: '#b4639f',
+  rimCool:   '#5fd8ff',
+  rimWarm:   '#ffb060',
+  headCream: '#f2e7d2',
+  headShade: '#c9b79a',
+  shellLo:   '#5d1420',
+  shellHi:   '#c8353f',
+  chromeA:   '#33405a',
+  chromeB:   '#e9f2ff',
+  chromeC:   '#8d9cb5',
+  brassLo:   '#8a6520',
+  brassHi:   '#f6e2a4',
+  brassHot:  '#fff6d8'
+};
+
+/* --------------------------------------------------------------------------
+   The kit. Each piece knows its own geometry, its rest squash and the point
+   where a stick lands on it.
+   -------------------------------------------------------------------------- */
+var kit = {
+  kick:  { x: 0,    y: -92,  r: 112, ry: 104, depth: 62, hx: -50, hy: -150 },
+  snare: { x: -186, y: -160, r: 66,  ry: 62,  depth: 52, hx: -178, hy: -178 },
+  tom1:  { x: -76,  y: -238, r: 52,  ry: 49,  depth: 58, hx: -72,  hy: -258 },
+  tom2:  { x: 66,   y: -252, r: 57,  ry: 54,  depth: 62, hx: 68,   hy: -274 },
+  floor: { x: 208,  y: -150, r: 76,  ry: 72,  depth: 74, hx: 210,  hy: -172 }
+};
+
+var cym = {
+  hihatTop: { x: -306, y: -266, r: 84 },
+  hihatBot: { x: -306, y: -250, r: 84 },
+  crash:    { x: -268, y: -380, r: 100, rot: -0.07 },
+  ride:     { x: 238,  y: -352, r: 108, rot: 0.06 }
+};
+
+Object.keys(kit).forEach(function (k) {
+  var d = kit[k];
+  d.name = k;
+  d.deform = 0;      // head squash 0..1
+  d.ripple = 0;      // concentric ring phase
+  d.flash = 0;       // head bloom 0..1
+  d.shake = 0;       // shell jitter
+  d.hitX = d.hx; d.hitY = d.hy;
+});
+Object.keys(cym).forEach(function (k) {
+  var c = cym[k];
+  c.name = k;
+  c.rot = c.rot || 0;
+  c.wob = 0;         // wobble energy 0..1
+  c.wobT = 0;
+  c.flash = 0;
+});
+var hh = { open: 0, openT: 0 };
+
+/* --------------------------------------------------------------------------
+   FX pools: spark particles, shock rings, floating notes.
+   -------------------------------------------------------------------------- */
+var sparks = [];
+var rings = [];
+var notes = [];
+var motes = [];
+var beams = [];
+
+(function seedAtmosphere() {
+  var i;
+  for (i = 0; i < 70; i++) {
+    motes.push({
+      x: rnd(BOX.x0, BOX.x1),
+      y: rnd(BOX.y0, FLOOR),
+      r: rnd(0.7, 3.4),
+      a: rnd(0.04, 0.28),
+      ph: rnd(0, TAU),
+      sp: rnd(0.12, 0.5),
+      hue: Math.random() < 0.5 ? PAL.rimCool : PAL.rimWarm
+    });
+  }
+  for (i = 0; i < 5; i++) {
+    beams.push({
+      x: rnd(-120, 120),
+      w: rnd(26, 96),
+      sp: rnd(0.1, 0.3),
+      ph: rnd(0, TAU),
+      a: rnd(0.03, 0.09),
+      c: Math.random() < 0.5 ? PAL.rimCool : PAL.rimWarm
+    });
+  }
+})();
+
+function spawnSparks(x, y, n, spread, hue, power) {
+  for (var i = 0; i < n; i++) {
+    var a = rnd(0, TAU);
+    var sp = rnd(0.25, 1) * power;
+    sparks.push({
+      x: x, y: y,
+      vx: Math.cos(a) * sp * spread,
+      vy: Math.sin(a) * sp * spread - power * 0.35,
+      g: rnd(140, 300),
+      life: 0, max: rnd(0.28, 0.62),
+      r: rnd(1.4, 3.6),
+      c: hue
+    });
+  }
+}
+function spawnRing(x, y, hue, r0, r1, life) {
+  rings.push({ x: x, y: y, r: r0, r1: r1, life: 0, max: life, c: hue });
+}
+function spawnNote(x, y, c, big) {
+  notes.push({
+    x: x, y: y,
+    vy: rnd(-62, -40),
+    vx: rnd(-16, 16),
+    ph: rnd(0, TAU),
+    sw: rnd(9, 20),
+    rot: rnd(-0.35, 0.35),
+    vr: rnd(-1.4, 1.4),
+    life: 0, max: rnd(1.7, 2.8),
+    s: big ? rnd(1.25, 1.5) : rnd(0.8, 1.15),
+    c: c
+  });
+}
+
+/* --------------------------------------------------------------------------
+   OCTOPUS BODY
+   -------------------------------------------------------------------------- */
+var body = {
+  x: 0, y: -508,
+  bob: 0, bobV: 0,
+  squash: 0,
+  breathe: 0,
+  blink: 0, blinkT: rnd(2.4, 5.0),
+  look: { x: 0, y: 0 },
+  lookT: { x: 0, y: 0 },
+  jaw: 0
+};
+var eyes = [
+  { x: -43, y: -30, r: 31 },
+  { x: 43,  y: -30, r: 31 }
+];
+
+/* --------------------------------------------------------------------------
+   ARMS — one per instrument. Each arm is a cubic-Bezier guide spline that the
+   octopus "tries" to follow; the chain is then length-normalised backwards
+   from the tip so the stick lands exactly where it should.
+
+   bow: -1 pushes the arc left, +1 right, 0 hangs straight.
+   -------------------------------------------------------------------------- */
+var STICK = 64;   // distance from grip to tip
+var SEGS  = 13;
+
+var armSpec = [
+  { inst: 'hihatTop', bow: -1.00, bowA: 62, first: 0.60 },
+  { inst: 'crash',    bow: -0.85, bowA: 54, first: 0.66 },
+  { inst: 'snare',    bow: -0.70, bowA: 58, first: 0.58 },
+  { inst: 'tom1',     bow: -0.55, bowA: 46, first: 0.62 },
+  { inst: 'kick',     bow: -0.30, bowA: 40, first: 0.56 },
+  { inst: 'kick',     bow:  0.30, bowA: 40, first: 0.56 },
+  { inst: 'tom2',     bow:  0.55, bowA: 44, first: 0.62 },
+  { inst: 'floor',    bow:  0.80, bowA: 58, first: 0.60 }
+];
+
+var arms = [];
+
+function anchorAt(i) {
+  var u = i / (armSpec.length - 1);
+  return {
+    x: -97 + 194 * u,
+    y: -422 - 24 * Math.sin(Math.PI * u)
+  };
+}
+
+/* Where a stick touches, and which way it comes from. */
+function hitInfo(spec, i) {
+  if (spec.inst === 'kick') {
+    var k = kit.kick;
+    return { x: k.hitX + (i === 4 ? -4 : 4), y: k.hitY, app: { x: i === 4 ? -0.18 : 0.20, y: -0.98 } };
+  }
+  if (spec.inst === 'hihatTop') return { x: -292, y: -276, app: { x: 0.62, y: -0.78 } };
+  if (spec.inst === 'crash')    return { x: -232, y: -398, app: { x: 0.55, y: -0.835 } };
+  var d = kit[spec.inst];
+  return { x: d.hitX, y: d.hitY, app: { x: spec.bow * 0.34, y: -0.94 } };
+}
+
+(function buildArms() {
+  for (var i = 0; i < armSpec.length; i++) {
+    var spec = armSpec[i];
+    var hi = hitInfo(spec, i);
+    var L = Math.hypot(hi.app.x, hi.app.y) || 1;
+    var app = { x: hi.app.x / L, y: hi.app.y / L };
+
+    var down = { x: hi.x + app.x * (STICK - 7), y: hi.y + app.y * (STICK - 7) };
+    var rest = { x: hi.x + app.x * (STICK + 46), y: hi.y + app.y * (STICK + 46) };
+
+    var a = anchorAt(i);
+    var segs = [];
+    for (var s = 0; s <= SEGS; s++) segs.push({ x: a.x, y: a.y });
+
+    var dDown = Math.hypot(down.x - a.x, down.y - a.y);
+    var dRest = Math.hypot(rest.x - a.x, rest.y - a.y);
+
+    arms.push({
+      idx: i,
+      spec: spec,
+      inst: spec.inst,
+      isKick: spec.inst === 'kick',
+      anchor: a,
+      hit: { x: hi.x, y: hi.y },
+      app: app,
+      down: down,
+      rest: rest,
+      pts: segs,
+      hand: { x: rest.x, y: rest.y },
+      state: 'idle',
+      dwell: 0,
+      struck: false,
+      bowAmp: 1,
+      idlePh: rnd(0, TAU),
+      idleSp: rnd(0.5, 0.95),
+      wob: 0, wobV: 0,
+      len: Math.max(dDown, dRest, 190) * 1.06 + 9
+    });
+  }
+})();
+
+/* Arm-to-velocity bookkeeping so a re-trigger mid-air still reads. */
+function fireArm(arm, vel) {
+  arm.state = 'down';
+  arm.dwell = 0;
+  arm.struck = false;
+  arm.vel = vel;
+  arm.bowAmp = 0.30;
+}
+
+/* --------------------------------------------------------------------------
+   THE GROOVE
+   4 bars of 16ths at 126bpm. Hands: hat 8ths, snare on 2 & 4, kick on 1 & 3,
+   two arms doubling the kick, toms for the turnaround in bar 4.
+   -------------------------------------------------------------------------- */
+var BPM = 126;
+var SIXT = 60 / BPM / 4;         // seconds per 16th
+var PATTERN = (function () {
+  var out = [];
+  for (var s = 0; s < 64; s++) {
+    var bar = s >> 4, st = s & 15;
+    var hits = [];
+    var inFill = (bar === 3 && st >= 8);
+
+    // hi-hat: straight 8ths, open on the off-beat "and of 2 / and of 4"
+    if (!inFill && st % 2 === 0) {
+      hits.push({ inst: 'hihatTop', vel: (st % 4 === 0) ? 1.0 : 0.62, open: (st === 6 || st === 14) });
+    }
+    // kick: 1 and 3, with a pickup in bar 2 and a late stab in the last bar
+    if (st === 0 || st === 8) hits.push({ inst: 'kick', vel: 1.0 });
+    if (bar === 1 && st === 6) hits.push({ inst: 'kick', vel: 0.78 });
+    if (bar === 3 && st === 15) hits.push({ inst: 'kick', vel: 0.72 });
+    // snare: 2 and 4 (skipped under the fill)
+    if ((st === 4 || st === 12) && !(bar === 3 && st === 12)) hits.push({ inst: 'snare', vel: 0.95 });
+    // crash on the downbeat of bars 1 and 3
+    if ((bar === 0 || bar === 2) && st === 0) hits.push({ inst: 'crash', vel: 1.0 });
+    // bar 4 turnaround
+    if (inFill) {
+      hits.push({ inst: st === 8 ? 'tom1' : st === 10 ? 'tom2' : 'floor', vel: 0.88 });
+    }
+    out.push(hits);
+  }
+  return out;
+})();
+
+var songT = 0, stepIdx = 0, nextStepT = 0;
+
+function stepClock(dt) {
+  songT += dt;
+  var guard = 0;
+  while (songT >= nextStepT && guard++ < 8) {
+    var hits = PATTERN[stepIdx];
+    for (var i = 0; i < hits.length; i++) {
+      var h = hits[i];
+      var slots = [];
+      for (var a = 0; a < arms.length; a++) if (arms[a].inst === h.inst) slots.push(arms[a]);
+      for (var j = 0; j < slots.length; j++) fireArm(slots[j], h.vel);
+      if (h.open !== undefined) hh.openT = h.open ? 1 : 0;
+      if (h.inst === 'hihatTop' && h.open) hh.openT = 1;
+      else if (h.inst === 'hihatTop') hh.openT = 0;
+    }
+    stepIdx = (stepIdx + 1) % 64;
+    nextStepT += SIXT;
+  }
+  if (guard >= 8) nextStepT = songT + SIXT;
+}
+
+/* --------------------------------------------------------------------------
+   LANDING AN IMPACT
+   -------------------------------------------------------------------------- */
+function landHit(inst, vel, x, y) {
+  if (inst === 'kick') {
+    var k = kit.kick;
+    k.deform = Math.max(k.deform, 0.95 * vel);
+    k.flash = 1.0 * vel;
+    k.shake = 3.2 * vel;
+    k.ripple = 0;
+    cam.shake = Math.min(9, cam.shake + 5.5 * vel);
+    cam.punch = Math.min(0.030, cam.punch + 0.022 * vel);
+    body.bobV -= 128 * vel;
+    body.jaw = 1;
+    spawnSparks(k.hitX, k.hitY, 18, 130, PAL.rimWarm, 250 * vel);
+    spawnRing(k.hitX, k.hitY, PAL.rimWarm, 8, 104, 0.42);
+    if (Math.random() < 0.5) spawnNote(x, y - 10, '#ffd08a', false);
+    return;
+  }
+  if (inst === 'snare') {
+    var d = kit.snare;
+    d.deform = Math.max(d.deform, 0.9 * vel);
+    d.flash = 1.0 * vel;
+    d.shake = 2.0 * vel;
+    d.ripple = 0;
+    cam.shake = Math.min(7, cam.shake + 2.6 * vel);
+    body.bobV -= 52 * vel;
+    spawnSparks(d.hitX, d.hitY, 14, 115, '#ffffff', 190 * vel);
+    spawnSparks(d.hitX, d.hitY, 6, 150, PAL.rimCool, 160 * vel);
+    spawnRing(d.hitX, d.hitY, '#cfe8ff', 6, 74, 0.36);
+    if (Math.random() < 0.55) spawnNote(x, y - 8, '#bfe6ff', false);
+    return;
+  }
+  if (kit[inst]) {
+    var t = kit[inst];
+    t.deform = Math.max(t.deform, 0.85 * vel);
+    t.flash = 0.9 * vel;
+    t.shake = 1.6 * vel;
+    t.ripple = 0;
+    spawnSparks(t.hitX, t.hitY, 9, 95, '#ffe0b4', 150 * vel);
+    spawnRing(t.hitX, t.hitY, '#ffca8a', 5, 56, 0.3);
+    return;
+  }
+  if (inst === 'hihatTop') {
+    cym.hihatTop.flash = 1;
+    cym.hihatTop.wob = Math.min(1.2, cym.hihatTop.wob + 0.55 * vel);
+    cym.hihatBot.wob = Math.min(1.0, cym.hihatBot.wob + 0.3 * vel);
+    hh.openT = 0;
+    spawnSparks(x, y, 5, 70, '#fff0c0', 120 * vel);
+    return;
+  }
+  if (inst === 'crash') {
+    var c = cym.crash;
+    c.flash = 1;
+    c.wob = Math.min(1.6, c.wob + 1.15 * vel);
+    cam.shake = Math.min(8, cam.shake + 2.4 * vel);
+    spawnSparks(x, y, 20, 160, '#ffe9a8', 210 * vel);
+    spawnRing(x, y, '#ffdf8a', 8, 130, 0.5);
+    spawnNote(x, y - 14, '#ffe08a', true);
+    spawnNote(x + rnd(-26, 26), y - 26, '#ffc46a', true);
+    return;
+  }
+}
+/* --------------------------------------------------------------------------
+   UPDATE — physics-ish state, all frame-rate independent
+   -------------------------------------------------------------------------- */
+function updateArm(a, dt, time) {
+  var target;
+  if (a.state === 'down') {
+    target = a.down;
+  } else {
+    var ip = a.idlePh;
+    var s = Math.sin(time * a.idleSp + ip);
+    var c = Math.cos(time * a.idleSp * 0.77 + ip * 1.6);
+    var lift = (a.state === 'up') ? 0 : 1;
+    target = {
+      x: a.rest.x + s * 9 * lift + a.wob * 6,
+      y: a.rest.y + c * 7 * lift
+    };
+  }
+
+  var rate = (a.state === 'down') ? 58 : 13.5;
+  a.hand.x = approach(a.hand.x, target.x, rate, dt);
+  a.hand.y = approach(a.hand.y, target.y, rate, dt);
+
+  // wobble spring on the released arm
+  a.wobV += -a.wob * 210 * dt;
+  a.wobV *= Math.exp(-7.5 * dt);
+  a.wob += a.wobV * dt;
+
+  // strike bookkeeping
+  if (a.state === 'down') {
+    var dd = Math.hypot(a.hand.x - a.down.x, a.hand.y - a.down.y);
+    if (!a.struck && dd < 11) {
+      a.struck = true;
+      landHit(a.inst, a.vel, a.hit.x, a.hit.y);
+      a.wobV = 34 + 40 * a.vel;
+      var towards = Math.atan2(a.hit.y - a.down.y, a.hit.x - a.down.x);
+      body.lookT.x = Math.cos(towards) * 8;
+      body.lookT.y = clamp(Math.sin(towards) * 10, -4, 9);
+    }
+    if (a.struck) {
+      a.dwell += dt;
+      if (a.dwell > 0.03) a.state = 'up';
+    }
+  } else if (a.state === 'up') {
+    if (Math.hypot(a.hand.x - a.rest.x, a.hand.y - a.rest.y) < 4) a.state = 'idle';
+  }
+
+  // Arc straightens on the strike, relaxes on the way back.
+  a.bowAmp = approach(a.bowAmp, (a.state === 'down') ? 0.42 : 1, (a.state === 'down') ? 34 : 9, dt);
+
+  solveArm(a);
+}
+
+/* Cubic guide spline from the shoulder to the grip gives the pose; a short
+   FABRIK relaxation then makes every bone the same size with the tip exact,
+   so the stick can never float off the head. */
+function solveArm(a) {
+  var n = a.pts.length, i, k;
+  var p0x = a.anchor.x, p0y = a.anchor.y + body.bob;
+  var hx = a.hand.x, hy = a.hand.y;
+  var bow = a.spec.bow * a.spec.bowA * a.bowAmp;
+  var dx = hx - p0x, dy = hy - p0y;
+  var dist = Math.hypot(dx, dy) || 1;
+
+  var c1x = p0x + bow * 1.05 + dx * 0.10;
+  var c1y = p0y + Math.min(46, dist * 0.34);
+  var c2x = hx + bow * 0.62 + dx * 0.04;
+  var c2y = hy - Math.max(26, dist * 0.26) + a.spec.bowA * a.bowAmp * 0.22;
+
+  for (i = 0; i < n; i++) {
+    var t = i / (n - 1);
+    a.pts[i].x = bez(p0x, c1x, c2x, hx, t);
+    a.pts[i].y = bez(p0y, c1y, c2y, hy, t);
+  }
+
+  var seg = a.len / (n - 1);
+  for (k = 0; k < 3; k++) {
+    a.pts[n - 1].x = hx;
+    a.pts[n - 1].y = hy;
+    for (i = n - 2; i >= 0; i--) {
+      var vx = a.pts[i].x - a.pts[i + 1].x;
+      var vy = a.pts[i].y - a.pts[i + 1].y;
+      var m = Math.hypot(vx, vy) || 1;
+      a.pts[i].x = a.pts[i + 1].x + vx / m * seg;
+      a.pts[i].y = a.pts[i + 1].y + vy / m * seg;
+    }
+    a.pts[0].x = p0x;
+    a.pts[0].y = p0y;
+    for (i = 1; i < n; i++) {
+      var ux = a.pts[i].x - a.pts[i - 1].x;
+      var uy = a.pts[i].y - a.pts[i - 1].y;
+      var mm = Math.hypot(ux, uy) || 1;
+      a.pts[i].x = a.pts[i - 1].x + ux / mm * seg;
+      a.pts[i].y = a.pts[i - 1].y + uy / mm * seg;
+    }
+  }
+
+  // Final pass: tip exact, and the tiny shoulder residual spread along the arm.
+  a.pts[n - 1].x = hx;
+  a.pts[n - 1].y = hy;
+  for (i = n - 2; i >= 0; i--) {
+    var qx = a.pts[i].x - a.pts[i + 1].x;
+    var qy = a.pts[i].y - a.pts[i + 1].y;
+    var qm = Math.hypot(qx, qy) || 1;
+    a.pts[i].x = a.pts[i + 1].x + qx / qm * seg;
+    a.pts[i].y = a.pts[i + 1].y + qy / qm * seg;
+  }
+  var ex = p0x - a.pts[0].x, ey = p0y - a.pts[0].y;
+  if (ex || ey) {
+    for (i = 0; i < n; i++) {
+      var f = 1 - i / (n - 1);
+      a.pts[i].x += ex * f;
+      a.pts[i].y += ey * f;
+    }
+  }
+  a.pts[n - 1].x = hx;
+  a.pts[n - 1].y = hy;
+}
+
+function updateBody(dt, time) {
+  body.breathe = Math.sin(time * 1.15) * 3.2 + Math.sin(time * 2.3 + 1.1) * 1.1;
+  body.bobV += (-body.bob * 240 - body.bobV * 13) * dt;
+  body.bob += body.bobV * dt;
+  body.bob = clamp(body.bob, -26, 16);
+
+  body.look.x = approach(body.look.x, body.lookT.x, 6, dt);
+  body.look.y = approach(body.look.y, body.lookT.y, 6, dt);
+
+  body.blinkT -= dt;
+  if (body.blinkT <= 0) { body.blink = 1; body.blinkT = rnd(2.6, 5.4); }
+  if (body.blink > 0) body.blink = Math.max(0, body.blink - dt * 6.5);
+
+  body.jaw = Math.max(0, body.jaw - dt * 3.4);
+
+  // Feeling it: head sways with the hats, leans on accents.
+  body.squash = approach(body.squash, Math.sin(time * 2.1) * 0.5 + 0.5, 8, dt);
+}
+
+function updateKit(dt, time) {
+  Object.keys(kit).forEach(function (k) {
+    var d = kit[k];
+    if (d.deform > 0) {
+      d.deform *= Math.exp(-8.2 * dt);
+      if (d.deform < 0.002) d.deform = 0;
+    }
+    if (d.flash > 0) { d.flash *= Math.exp(-11 * dt); if (d.flash < 0.004) d.flash = 0; }
+    if (d.shake > 0) { d.shake *= Math.exp(-14 * dt); if (d.shake < 0.02) d.shake = 0; }
+    d.ripple += dt * 2.4;
+    if (d.ripple > 1) d.ripple = 0;
+  });
+  Object.keys(cym).forEach(function (k) {
+    var c = cym[k];
+    c.wob *= Math.exp(-2.0 * dt);
+    c.wobT += dt;
+    if (c.flash > 0) { c.flash *= Math.exp(-9 * dt); if (c.flash < 0.004) c.flash = 0; }
+  });
+  hh.open = approach(hh.open, hh.openT, hh.openT > 0 ? 26 : 34, dt);
+
+  var kk = kit.kick;
+  var amp = kk.deform;
+  if (amp > 0.02) {
+    cam.punch = Math.min(0.034, cam.punch + amp * 0.004);
+  }
+}
+
+function updateFx(dt) {
+  var i;
+  for (i = sparks.length - 1; i >= 0; i--) {
+    var p = sparks[i];
+    p.life += dt;
+    if (p.life >= p.max) { sparks.splice(i, 1); continue; }
+    p.vy += p.g * dt;
+    p.vx *= Math.exp(-2.2 * dt);
+    p.x += p.vx * dt;
+    p.y += p.vy * dt;
+  }
+  for (i = rings.length - 1; i >= 0; i--) {
+    var r = rings[i];
+    r.life += dt;
+    if (r.life >= r.max) rings.splice(i, 1);
+  }
+  for (i = notes.length - 1; i >= 0; i--) {
+    var n = notes[i];
+    n.life += dt;
+    if (n.life >= n.max) { notes.splice(i, 1); continue; }
+    n.ph += dt * 3.0;
+    n.x += (n.vx + Math.sin(n.ph) * n.sw * 0.35) * dt;
+    n.y += n.vy * dt;
+    n.vy *= Math.exp(-0.32 * dt);
+    n.rot += n.vr * dt;
+  }
+  for (i = 0; i < motes.length; i++) {
+    var m = motes[i];
+    m.x += Math.sin(m.ph) * m.sp * 0.35 * dt * 6;
+    m.y -= m.sp * dt * 9;
+    m.ph += dt * 0.5;
+    if (m.y < BOX.y0 - 20) { m.y = FLOOR - 4; m.x = rnd(BOX.x0, BOX.x1); }
+  }
+}
+
+function updateCamera(dt, time) {
+  cam.shake *= Math.exp(-6.5 * dt);
+  if (cam.shake < 0.03) cam.shake = 0;
+  cam.punch *= Math.exp(-9.5 * dt);
+  var targetZoom = 1.035 + Math.sin(time * 0.21) * 0.014 + Math.sin(time * 0.53 + 2.0) * 0.006;
+  cam.zoom = approach(cam.zoom, targetZoom, 1.2, dt);
+  cam.ox = Math.sin(time * 0.19) * 11 + Math.sin(time * 0.41 + 1.3) * 4;
+  cam.oy = Math.sin(time * 0.155 + 0.7) * 7 + Math.cos(time * 0.37) * 3;
+  cam.tilt = Math.sin(time * 0.13) * 0.004;
+}
+
+/* --------------------------------------------------------------------------
+   DRAW HELPERS
+   -------------------------------------------------------------------------- */
+function chromeRod(x1, y1, x2, y2, w, alpha) {
+  var g = ctx.createLinearGradient(x1 - w, 0, x1 + w, 0);
+  g.addColorStop(0.00, PAL.chromeA);
+  g.addColorStop(0.30, PAL.chromeB);
+  g.addColorStop(0.55, PAL.chromeC);
+  g.addColorStop(1.00, PAL.chromeA);
+  ctx.globalAlpha = alpha === undefined ? 1 : alpha;
+  ctx.strokeStyle = g;
+  ctx.lineWidth = w;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(x1, y1);
+  ctx.lineTo(x2, y2);
+  ctx.stroke();
+  ctx.globalAlpha = 1;
+}
+
+/* A drum seen from the front with real depth: back rim, shell band, front head. */
+function drawDrum(d) {
+  var jx = d.shake ? (Math.random() - 0.5) * d.shake : 0;
+  var jy = d.shake ? (Math.random() - 0.5) * d.shake : 0;
+  var x = d.x + jx, y = d.y + jy;
+  var r = d.r, ry = d.ry, dep = d.depth;
+  var def = d.deform;
+
+  // contact shadow
+  var sh = ctx.createRadialGradient(x, FLOOR - 6, r * 0.2, x, FLOOR - 6, r * 1.7);
+  sh.addColorStop(0, 'rgba(0,0,0,0.5)');
+  sh.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = sh;
+  ctx.beginPath();
+  ctx.ellipse(x, FLOOR - 4, r * 1.55, r * 0.3, 0, 0, TAU);
+  ctx.fill();
+
+  ctx.save();
+  ctx.translate(x, y);
+
+  // --- back head rim (the far rim of the cylinder) -------------------------
+  ctx.beginPath();
+  ctx.ellipse(0, -dep * 0.52, r * 0.995, ry * 0.995, 0, 0, TAU);
+  var bg = ctx.createLinearGradient(-r, -r, r, r);
+  bg.addColorStop(0, PAL.shellLo);
+  bg.addColorStop(0.5, '#2a0a12');
+  bg.addColorStop(1, PAL.shellLo);
+  ctx.fillStyle = bg;
+  ctx.fill();
+
+  // --- shell band ---------------------------------------------------------
+  ctx.beginPath();
+  ctx.moveTo(-r, -dep * 0.52);
+  ctx.lineTo(-r, 0);
+  ctx.lineTo(r, 0);
+  ctx.lineTo(r, -dep * 0.52);
+  ctx.closePath();
+  var sg = ctx.createLinearGradient(-r, 0, r, 0);
+  sg.addColorStop(0.00, '#380a14');
+  sg.addColorStop(0.16, PAL.shellLo);
+  sg.addColorStop(0.42, PAL.shellHi);
+  sg.addColorStop(0.60, '#e4595c');
+  sg.addColorStop(0.82, PAL.shellLo);
+  sg.addColorStop(1.00, '#2c0810');
+  ctx.fillStyle = sg;
+  ctx.fill();
+
+  // drum-shadow ellipse under the shell top (rounds the cylinder off)
+  ctx.beginPath();
+  ctx.ellipse(0, -dep * 0.52, r, ry, 0, 0, Math.PI);
+  ctx.fillStyle = 'rgba(0,0,0,0.25)';
+  ctx.fill();
+
+  // --- lugs ---------------------------------------------------------------
+  var lugs = 8;
+  for (var i = 0; i < lugs; i++) {
+    var a = (i / lugs) * TAU;
+    var lx = Math.cos(a) * (r + 3);
+    var ly = Math.sin(a) * ry * 0.5 - dep * 0.2;
+    if (Math.sin(a) > 0.28) continue; // hidden behind
+    ctx.beginPath();
+    ctx.ellipse(lx, ly, 3.6, 9, 0, 0, TAU);
+    var lg = ctx.createLinearGradient(lx - 4, 0, lx + 4, 0);
+    lg.addColorStop(0, PAL.chromeA);
+    lg.addColorStop(0.4, PAL.chromeB);
+    lg.addColorStop(1, PAL.chromeC);
+    ctx.fillStyle = lg;
+    ctx.fill();
+  }
+
+  // --- hoop + head --------------------------------------------------------
+  var sq = 1 - def * 0.26;
+  var wd = 1 + def * 0.07;
+
+  ctx.save();
+  ctx.translate(0, -def * 7);
+  ctx.scale(wd, sq);
+
+  // hoop
+  ctx.beginPath();
+  ctx.ellipse(0, 0, r + 3.5, ry + 3.5, 0, 0, TAU);
+  var hg = ctx.createLinearGradient(-r, -ry, r * 0.6, ry);
+  hg.addColorStop(0, PAL.chromeC);
+  hg.addColorStop(0.28, PAL.chromeB);
+  hg.addColorStop(0.62, PAL.chromeC);
+  hg.addColorStop(1, PAL.chromeA);
+  ctx.fillStyle = hg;
+  ctx.fill();
+
+  // head skin
+  ctx.beginPath();
+  ctx.ellipse(0, 0, r, ry, 0, 0, TAU);
+  var hd = ctx.createRadialGradient(-r * 0.35, -ry * 0.45, r * 0.08, 0, 0, r * 1.3);
+  hd.addColorStop(0.00, '#fffbf2');
+  hd.addColorStop(0.45, PAL.headCream);
+  hd.addColorStop(0.82, PAL.headShade);
+  hd.addColorStop(1.00, '#8d7c62');
+  ctx.fillStyle = hd;
+  ctx.fill();
+
+  // worn centre ring on the bass drum
+  if (d.name === 'kick') {
+    ctx.beginPath();
+    ctx.ellipse(0, 0, r * 0.86, ry * 0.86, 0, 0, TAU);
+    ctx.strokeStyle = 'rgba(150,90,60,0.18)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.ellipse(0, 0, r * 0.30, ry * 0.30, 0, 0, TAU);
+    ctx.fillStyle = 'rgba(160,40,50,0.30)';
+    ctx.fill();
+    ctx.beginPath();
+    ctx.ellipse(0, 0, r * 0.22, ry * 0.22, 0, 0, TAU);
+    ctx.strokeStyle = 'rgba(255,225,180,0.35)';
+    ctx.lineWidth = 2.5;
+    ctx.stroke();
+  }
+
+  // specular sheen top-left
+  ctx.save();
+  ctx.beginPath();
+  ctx.ellipse(0, 0, r, ry, 0, 0, TAU);
+  ctx.clip();
+  var sp = ctx.createLinearGradient(-r, -ry, r * 0.2, ry * 0.4);
+  sp.addColorStop(0, 'rgba(255,255,255,0.42)');
+  sp.addColorStop(0.45, 'rgba(255,255,255,0.05)');
+  sp.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = sp;
+  ctx.fillRect(-r, -ry, r * 2, ry * 2);
+  ctx.restore();
+
+  // impact ripple + bloom
+  if (def > 0.01) {
+    var rp = d.ripple;
+    ctx.strokeStyle = 'rgba(255,240,210,' + (0.5 * (1 - rp) * def) + ')';
+    ctx.lineWidth = 3 * (1 - rp) + 1;
+    ctx.beginPath();
+    ctx.ellipse(d.hitX - d.x, d.hitY - d.y, r * (0.12 + rp * 0.86), ry * (0.12 + rp * 0.86), 0, 0, TAU);
+    ctx.stroke();
+  }
+  if (d.flash > 0.01) {
+    ctx.globalCompositeOperation = 'lighter';
+    var fl = ctx.createRadialGradient(d.hitX - d.x, d.hitY - d.y, 1, d.hitX - d.x, d.hitY - d.y, r * 1.1);
+    fl.addColorStop(0, 'rgba(255,226,170,' + (0.62 * d.flash) + ')');
+    fl.addColorStop(1, 'rgba(255,180,80,0)');
+    ctx.fillStyle = fl;
+    ctx.fillRect(-r * 1.2, -ry * 1.2, r * 2.4, ry * 2.4);
+    ctx.globalCompositeOperation = 'source-over';
+  }
+
+  ctx.restore(); // head
+  ctx.restore(); // drum
+}
+
+/* A cymbal is a thin tilted disc: ellipse body, lathe rings, bell, wobble. */
+function drawCymbal(c, scaleWob) {
+  var wob = c.wob * (scaleWob === undefined ? 1 : scaleWob);
+  var ry = c.r * 0.30 * (1 + Math.sin(c.wobT * 34) * 0.06 * wob);
+  var lift = Math.sin(c.wobT * 34 + 0.6) * 5.5 * wob;
+  var rot = c.rot + Math.sin(c.wobT * 27) * 0.035 * wob;
+
+  // stand shadow / glow
+  if (wob > 0.03) {
+    ctx.globalCompositeOperation = 'lighter';
+    var gl = ctx.createRadialGradient(c.x, c.y, 1, c.x, c.y, c.r * 1.25);
+    gl.addColorStop(0, 'rgba(255,224,150,' + (0.30 * wob) + ')');
+    gl.addColorStop(1, 'rgba(255,190,90,0)');
+    ctx.fillStyle = gl;
+    ctx.beginPath();
+    ctx.ellipse(c.x, c.y, c.r * 1.25, c.r * 0.45, 0, 0, TAU);
+    ctx.fill();
+    ctx.globalCompositeOperation = 'source-over';
+  }
+
+  ctx.save();
+  ctx.translate(c.x, c.y + lift);
+  ctx.rotate(rot);
+  ctx.scale(1, 1 + 0.012 * wob);
+
+  // disc
+  ctx.beginPath();
+  ctx.ellipse(0, 0, c.r, ry, 0, 0, TAU);
+  var g = ctx.createLinearGradient(-c.r, -ry, c.r * 0.7, ry);
+  g.addColorStop(0.00, PAL.brassLo);
+  g.addColorStop(0.20, PAL.brassHi);
+  g.addColorStop(0.44, '#d9b45c');
+  g.addColorStop(0.63, PAL.brassHot);
+  g.addColorStop(0.85, '#c99a3c');
+  g.addColorStop(1.00, PAL.brassLo);
+  ctx.fillStyle = g;
+  ctx.fill();
+
+  // lathe rings
+  ctx.save();
+  ctx.beginPath();
+  ctx.ellipse(0, 0, c.r, ry, 0, 0, TAU);
+  ctx.clip();
+  for (var i = 1; i <= 6; i++) {
+    var f = i / 7;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, c.r * f, ry * f, 0, 0, TAU);
+    ctx.strokeStyle = 'rgba(90,60,10,' + (0.10 + 0.13 * (1 - f)) + ')';
+    ctx.lineWidth = 1.1;
+    ctx.stroke();
+  }
+  // bright sweep
+  var sw = ctx.createLinearGradient(-c.r, 0, c.r, 0);
+  sw.addColorStop(0, 'rgba(255,255,255,0)');
+  sw.addColorStop(0.30, 'rgba(255,255,255,0.34)');
+  sw.addColorStop(0.42, 'rgba(255,255,255,0)');
+  ctx.fillStyle = sw;
+  ctx.fillRect(-c.r, -ry, c.r * 2, ry * 2);
+  ctx.restore();
+
+  // edge highlight
+  ctx.beginPath();
+  ctx.ellipse(0, 0, c.r, ry, 0, 0, TAU);
+  ctx.strokeStyle = 'rgba(255,246,214,0.55)';
+  ctx.lineWidth = 1.6;
+  ctx.stroke();
+
+  // bell
+  ctx.beginPath();
+  ctx.ellipse(0, 0, c.r * 0.185, ry * 0.40, 0, 0, TAU);
+  var bgl = ctx.createLinearGradient(-c.r * 0.2, 0, c.r * 0.2, 0);
+  bgl.addColorStop(0, '#b8862c');
+  bgl.addColorStop(0.45, '#ffeeb8');
+  bgl.addColorStop(1, '#9a6d1e');
+  ctx.fillStyle = bgl;
+  ctx.fill();
+
+  if (c.flash > 0.01) {
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.beginPath();
+    ctx.ellipse(0, 0, c.r * 1.02, ry * 1.05, 0, 0, TAU);
+    ctx.fillStyle = 'rgba(255,240,190,' + (0.30 * c.flash) + ')';
+    ctx.fill();
+    ctx.globalCompositeOperation = 'source-over';
+  }
+  ctx.restore();
+}
+/* Trace a smoothed polyline through the supplied points. */
+function tracePath(list, startIdx, endIdx, close) {
+  var i;
+  if (startIdx === undefined) startIdx = 0;
+  if (endIdx === undefined) endIdx = list.length - 1;
+  ctx.moveTo(list[startIdx].x, list[startIdx].y);
+  for (i = startIdx; i < endIdx - 1; i++) {
+    var mx = (list[i].x + list[i + 1].x) * 0.5;
+    var my = (list[i].y + list[i + 1].y) * 0.5;
+    ctx.quadraticCurveTo(list[i].x, list[i].y, mx, my);
+  }
+  ctx.lineTo(list[endIdx].x, list[endIdx].y);
+  if (close) ctx.closePath();
+}
+
+/* --------------------------------------------------------------------------
+   ARMS
+   -------------------------------------------------------------------------- */
+var _l = [], _r = [], _w = [];
+
+function drawArm(a) {
+  var pts = a.pts, n = pts.length, i;
+  var cx = body.x, cy = body.y + body.bob * 0.35;
+
+  _l.length = 0; _r.length = 0; _w.length = 0;
+  for (i = 0; i < n; i++) {
+    var p = pts[i];
+    var q = pts[i === 0 ? 0 : i - 1];
+    var s = pts[i === n - 1 ? n - 1 : i + 1];
+    var dx = s.x - q.x, dy = s.y - q.y;
+    var m = Math.hypot(dx, dy) || 1; dx /= m; dy /= m;
+    var nx = -dy, ny = dx;
+    if (nx * (p.x - cx) + ny * (p.y - cy) < 0) { nx = -nx; ny = -ny; }
+    var u = i / (n - 1);
+    var w = 25.5 * Math.pow(1 - u, 0.62) + 5.2;   // 30.7 -> 5.2
+    _w.push(w);
+    _l.push({ x: p.x + nx * w * 0.5, y: p.y + ny * w * 0.5, nx: nx, ny: ny });
+    _r.push({ x: p.x - nx * w * 0.5, y: p.y - ny * w * 0.5 });
+  }
+
+  var tipDx = pts[n - 1].x - pts[n - 2].x;
+  var tipDy = pts[n - 1].y - pts[n - 2].y;
+  var tm = Math.hypot(tipDx, tipDy) || 1;
+
+  // ---- body of the limb ----
+  ctx.beginPath();
+  tracePath(_l, 0, n - 1, false);
+  ctx.quadraticCurveTo(
+    pts[n - 1].x + tipDx / tm * _w[n - 1] * 0.85,
+    pts[n - 1].y + tipDy / tm * _w[n - 1] * 0.85,
+    _r[n - 1].x, _r[n - 1].y);
+  for (i = n - 2; i >= 0; i--) ctx.lineTo(_r[i].x, _r[i].y);
+  ctx.closePath();
+
+  var g = ctx.createLinearGradient(pts[0].x, pts[0].y - 30, pts[n - 1].x, pts[n - 1].y + 30);
+  g.addColorStop(0.00, PAL.skinDark);
+  g.addColorStop(0.22, PAL.skinMid);
+  g.addColorStop(0.62, '#8f36bd');
+  g.addColorStop(0.90, PAL.skinLit);
+  g.addColorStop(1.00, '#e2a4ff');
+  ctx.fillStyle = g;
+  ctx.fill();
+
+  ctx.save();
+  ctx.clip();
+
+  // ---- suckers along the outer edge ----
+  for (i = 5; i < n - 1; i += 1) {
+    var lp = _l[i];
+    var u = i / (n - 1);
+    var sr = (1.5 + 2.6 * (1 - u));
+    ctx.beginPath();
+    ctx.ellipse(lp.x + lp.nx * sr * 0.15, lp.y + lp.ny * sr * 0.15,
+                sr, sr * 0.72, Math.atan2(lp.ny, lp.nx), 0, TAU);
+    ctx.fillStyle = u > 0.72 ? 'rgba(255,214,242,0.85)' : 'rgba(255,183,226,0.55)';
+    ctx.fill();
+  }
+
+  // ---- interior shading so the tube reads as round ----
+  ctx.beginPath();
+  tracePath(_r, 0, n - 1, false);
+  for (i = n - 1; i >= 0; i--) ctx.lineTo(_l[i].x, _l[i].y);
+  ctx.closePath();
+  var sh = ctx.createLinearGradient(0, -30, 0, 60);
+  sh.addColorStop(0, 'rgba(20,0,34,0.42)');
+  sh.addColorStop(0.45, 'rgba(20,0,34,0)');
+  ctx.fillStyle = sh;
+  ctx.fill();
+
+  // ---- rim lights: cool on the left, warm on the right ----
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.beginPath();
+  tracePath(_r, 0, n - 1, false);
+  ctx.strokeStyle = 'rgba(95,216,255,0.30)';
+  ctx.lineWidth = 3.4;
+  ctx.lineJoin = 'round';
+  ctx.stroke();
+  ctx.beginPath();
+  tracePath(_l, 0, n - 1, false);
+  ctx.strokeStyle = 'rgba(255,150,90,0.22)';
+  ctx.lineWidth = 2.6;
+  ctx.stroke();
+  ctx.globalCompositeOperation = 'source-over';
+
+  // ---- skin speckles ----
+  for (i = 2; i < n - 1; i += 2) {
+    var pp = pts[i];
+    var off = (i % 4 === 0) ? 5 : -5;
+    ctx.beginPath();
+    ctx.ellipse(pp.x + _l[i].nx * off, pp.y + _l[i].ny * off, 2.1, 1.5, 0, 0, TAU);
+    ctx.fillStyle = 'rgba(255,210,255,0.16)';
+    ctx.fill();
+  }
+  ctx.restore();
+
+  // outline
+  ctx.beginPath();
+  tracePath(_l, 0, n - 1, false);
+  ctx.quadraticCurveTo(
+    pts[n - 1].x + tipDx / tm * _w[n - 1] * 0.85,
+    pts[n - 1].y + tipDy / tm * _w[n - 1] * 0.85,
+    _r[n - 1].x, _r[n - 1].y);
+  for (i = n - 2; i >= 0; i--) ctx.lineTo(_r[i].x, _r[i].y);
+  ctx.closePath();
+  ctx.strokeStyle = 'rgba(28,2,44,0.55)';
+  ctx.lineWidth = 1.6;
+  ctx.stroke();
+}
+
+function drawStick(a) {
+  var hx = a.hand.x, hy = a.hand.y;
+  var dx = -a.app.x, dy = -a.app.y;
+  var tx = hx + dx * STICK, ty = hy + dy * STICK;
+  var ang = Math.atan2(dy, dx);
+  var pw = Math.hypot(-a.app.y, a.app.x);
+  var nx = -dy / pw, ny = dx / pw;
+
+  // shadow on the head just before contact
+  if (a.state === 'down') {
+    ctx.beginPath();
+    ctx.ellipse(a.hit.x, a.hit.y, 16, 6, ang, 0, TAU);
+    ctx.fillStyle = 'rgba(0,0,0,0.22)';
+    ctx.fill();
+  }
+
+  ctx.save();
+  ctx.translate(hx, hy);
+  ctx.rotate(ang);
+  // shaft
+  ctx.beginPath();
+  ctx.moveTo(-16, -4.1);
+  ctx.lineTo(STICK - 2, -2.3);
+  ctx.quadraticCurveTo(STICK + 2.4, 0, STICK - 2, 2.3);
+  ctx.lineTo(-16, 4.1);
+  ctx.quadraticCurveTo(-19, 0, -16, -4.1);
+  ctx.closePath();
+  var wg = ctx.createLinearGradient(0, -4, 0, 4);
+  wg.addColorStop(0, '#8a6a38');
+  wg.addColorStop(0.30, '#f3dfae');
+  wg.addColorStop(0.58, '#d8bb84');
+  wg.addColorStop(1, '#6f5227');
+  ctx.fillStyle = wg;
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(60,40,14,0.5)';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+  // tip bead
+  ctx.beginPath();
+  ctx.arc(STICK + 0.4, 0, 3.1, 0, TAU);
+  ctx.fillStyle = '#fff0cf';
+  ctx.fill();
+  ctx.restore();
+
+  // grip: the arm tip wraps the shaft
+  ctx.beginPath();
+  ctx.ellipse(hx, hy, 9.5, 7.4, ang, 0, TAU);
+  ctx.fillStyle = PAL.skinLit;
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(40,4,60,0.5)';
+  ctx.lineWidth = 1.4;
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.ellipse(hx - 3, hy - 2.5, 4, 2.6, ang, 0, TAU);
+  ctx.fillStyle = 'rgba(255,220,255,0.5)';
+  ctx.fill();
+}
+
+/* --------------------------------------------------------------------------
+   OCTOPUS BODY
+   -------------------------------------------------------------------------- */
+function drawBody(time) {
+  var bob = body.bob;
+  var br = body.breathe;
+  var bx = body.x;
+  var by = body.y + bob + br * 0.35;
+
+  // aura
+  ctx.globalCompositeOperation = 'lighter';
+  var ag = ctx.createRadialGradient(bx, by, 20, bx, by, 260);
+  ag.addColorStop(0, 'rgba(150,60,220,0.30)');
+  ag.addColorStop(0.45, 'rgba(90,30,170,0.12)');
+  ag.addColorStop(1, 'rgba(60,10,120,0)');
+  ctx.fillStyle = ag;
+  ctx.beginPath();
+  ctx.ellipse(bx, by, 270, 250, 0, 0, TAU);
+  ctx.fill();
+  ctx.globalCompositeOperation = 'source-over';
+
+  ctx.save();
+  ctx.translate(bx, by);
+  var sqk = 1 + Math.sin(time * 2.1) * 0.012;
+  ctx.scale(sqk, 1 / sqk);
+
+  // ---- interbrachial web, sweeps down to meet the shoulders ----
+  ctx.beginPath();
+  ctx.moveTo(-98, 34);
+  ctx.bezierCurveTo(-104, 86, -74, 92, -70, 78);
+  ctx.bezierCurveTo(-48, 92, -18, 92, 0, 80);
+  ctx.bezierCurveTo(18, 92, 48, 92, 70, 78);
+  ctx.bezierCurveTo(74, 92, 104, 86, 98, 34);
+  ctx.bezierCurveTo(60, 66, -60, 66, -98, 34);
+  ctx.closePath();
+  var wg2 = ctx.createLinearGradient(0, 30, 0, 96);
+  wg2.addColorStop(0, '#5c1a7d');
+  wg2.addColorStop(0.55, '#43115c');
+  wg2.addColorStop(1, '#2c0a3f');
+  ctx.fillStyle = wg2;
+  ctx.fill();
+
+  // ---- mantle ----
+  ctx.beginPath();
+  ctx.moveTo(-96, 34);
+  ctx.bezierCurveTo(-114, -26, -80, -116, 0, -128);
+  ctx.bezierCurveTo(80, -116, 114, -26, 96, 34);
+  ctx.bezierCurveTo(66, 62, -66, 62, -96, 34);
+  ctx.closePath();
+
+  var bg2 = ctx.createRadialGradient(-34, -78, 14, 6, 6, 168);
+  bg2.addColorStop(0.00, '#e9a6ff');
+  bg2.addColorStop(0.18, PAL.skinLit);
+  bg2.addColorStop(0.48, PAL.skinMid);
+  bg2.addColorStop(0.78, '#54177a');
+  bg2.addColorStop(1.00, PAL.skinDark);
+  ctx.fillStyle = bg2;
+  ctx.fill();
+
+  ctx.save();
+  ctx.clip();
+
+  // chromatophore blotches
+  var blots = [
+    [-58, -70, 30, 19, 0.4], [40, -88, 34, 20, -0.3], [4, -20, 46, 24, 0.1],
+    [-70, 4, 22, 15, 0.6], [62, -12, 26, 16, -0.5], [-12, -104, 26, 13, 0.2],
+    [26, 20, 30, 16, -0.2], [-86, -34, 16, 12, 0.9]
+  ];
+  for (var i = 0; i < blots.length; i++) {
+    var b = blots[i];
+    var pulse = 0.55 + 0.45 * Math.sin(time * 0.9 + i * 1.7);
+    ctx.beginPath();
+    ctx.ellipse(b[0], b[1], b[2] * (0.92 + 0.08 * pulse), b[3] * (0.92 + 0.08 * pulse), b[4], 0, TAU);
+    ctx.fillStyle = 'rgba(255,170,255,' + (0.06 + 0.07 * b[2] / 30 * pulse) + ')';
+    ctx.fill();
+  }
+  // dark dorsal shading
+  var dsh = ctx.createLinearGradient(0, -130, 0, 60);
+  dsh.addColorStop(0, 'rgba(255,220,255,0.20)');
+  dsh.addColorStop(0.35, 'rgba(60,0,90,0)');
+  dsh.addColorStop(1, 'rgba(20,0,34,0.55)');
+  ctx.fillStyle = dsh;
+  ctx.fillRect(-120, -132, 240, 200);
+
+  // rim light, cool left / warm right
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.beginPath();
+  ctx.moveTo(-96, 34);
+  ctx.bezierCurveTo(-114, -26, -80, -116, 0, -128);
+  ctx.strokeStyle = 'rgba(95,216,255,0.42)';
+  ctx.lineWidth = 5;
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(0, -128);
+  ctx.bezierCurveTo(80, -116, 114, -26, 96, 34);
+  ctx.strokeStyle = 'rgba(255,150,80,0.30)';
+  ctx.lineWidth = 4;
+  ctx.stroke();
+  ctx.globalCompositeOperation = 'source-over';
+
+  // mantle ridge
+  ctx.beginPath();
+  ctx.moveTo(-46, -112);
+  ctx.quadraticCurveTo(0, -88, 46, -112);
+  ctx.strokeStyle = 'rgba(255,210,255,0.16)';
+  ctx.lineWidth = 3;
+  ctx.stroke();
+  ctx.restore();
+
+  // ---- siphon ----
+  ctx.save();
+  ctx.translate(74, 22);
+  ctx.rotate(0.5 + Math.sin(time * 3.1) * 0.06);
+  ctx.beginPath();
+  ctx.moveTo(-9, -7);
+  ctx.quadraticCurveTo(22, -12, 26, 0);
+  ctx.quadraticCurveTo(22, 12, -9, 7);
+  ctx.closePath();
+  var sg2 = ctx.createLinearGradient(0, -10, 0, 10);
+  sg2.addColorStop(0, '#8a34b4');
+  sg2.addColorStop(0.5, '#5a1a78');
+  sg2.addColorStop(1, '#33094a');
+  ctx.fillStyle = sg2;
+  ctx.fill();
+  ctx.restore();
+
+  // ---- eyes ----
+  for (var e = 0; e < 2; e++) {
+    var ey = eyes[e];
+    var ex = ey.x;
+    var lookX = body.look.x + e * 0.6;
+    var lookY = body.look.y;
+    var r = ey.r;
+
+    // socket shading
+    ctx.beginPath();
+    ctx.ellipse(ex, ey.y, r * 1.24, r * 1.24, 0, 0, TAU);
+    ctx.fillStyle = 'rgba(38,4,58,0.5)';
+    ctx.fill();
+
+    // sclera
+    ctx.beginPath();
+    ctx.ellipse(ex, ey.y, r, r * 1.03, 0, 0, TAU);
+    var eg = ctx.createRadialGradient(ex - r * 0.3, ey.y - r * 0.4, r * 0.1, ex, ey.y, r * 1.25);
+    eg.addColorStop(0, '#ffffff');
+    eg.addColorStop(0.6, '#f0e8ff');
+    eg.addColorStop(1, '#bda9d6');
+    ctx.fillStyle = eg;
+    ctx.fill();
+
+    // iris + pupil
+    var px = ex + lookX, py = ey.y + lookY;
+    ctx.beginPath();
+    ctx.arc(px, py, r * 0.50, 0, TAU);
+    var ig = ctx.createRadialGradient(px - 4, py - 5, 2, px, py, r * 0.55);
+    ig.addColorStop(0, '#7ce8ff');
+    ig.addColorStop(0.55, '#1d8fc4');
+    ig.addColorStop(1, '#0a2f52');
+    ctx.fillStyle = ig;
+    ctx.fill();
+
+    ctx.beginPath();
+    ctx.arc(px, py, r * 0.255, 0, TAU);
+    ctx.fillStyle = '#08060f';
+    ctx.fill();
+
+    // catchlights
+    ctx.beginPath();
+    ctx.arc(px - r * 0.20, py - r * 0.24, r * 0.135, 0, TAU);
+    ctx.fillStyle = 'rgba(255,255,255,0.95)';
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(px + r * 0.20, py + r * 0.22, r * 0.07, 0, TAU);
+    ctx.fillStyle = 'rgba(255,255,255,0.45)';
+    ctx.fill();
+
+    // eyelid
+    if (body.blink > 0.01) {
+      var bl = clamp(body.blink, 0, 1);
+      ctx.save();
+      ctx.beginPath();
+      ctx.ellipse(ex, ey.y, r, r * 1.03, 0, 0, TAU);
+      ctx.clip();
+      ctx.fillStyle = '#6b2694';
+      ctx.fillRect(ex - r, ey.y - r * 1.1, r * 2, r * 1.1 * bl);
+      ctx.fillStyle = 'rgba(0,0,0,0.35)';
+      ctx.fillRect(ex - r, ey.y - r * 1.1 + r * 1.1 * bl - 2.5, r * 2, 2.5);
+      ctx.restore();
+    }
+
+    // brow highlight
+    ctx.beginPath();
+    ctx.ellipse(ex, ey.y - r * 0.78, r * 0.60, r * 0.18, 0, Math.PI, TAU);
+    ctx.fillStyle = 'rgba(255,235,255,0.35)';
+    ctx.fill();
+  }
+
+  // ---- mouth: a smug little line that opens on the kick ----
+  var jaw = body.jaw;
+  ctx.beginPath();
+  ctx.moveTo(-20, 54);
+  ctx.quadraticCurveTo(0, 62 + jaw * 9, 20, 54);
+  ctx.quadraticCurveTo(0, 50 - jaw * 2, -20, 54);
+  ctx.closePath();
+  ctx.fillStyle = 'rgba(38,4,52,0.85)';
+  ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(-18, 55.5);
+  ctx.quadraticCurveTo(0, 60 + jaw * 7, 18, 55.5);
+  ctx.strokeStyle = 'rgba(255,190,240,0.35)';
+  ctx.lineWidth = 1.6;
+  ctx.stroke();
+
+  // blush
+  ctx.globalCompositeOperation = 'lighter';
+  for (var c = -1; c <= 1; c += 2) {
+    ctx.beginPath();
+    ctx.ellipse(c * 56, 30, 20, 11, 0, 0, TAU);
+    ctx.fillStyle = 'rgba(255,110,190,0.16)';
+    ctx.fill();
+  }
+  ctx.globalCompositeOperation = 'source-over';
+
+  ctx.restore();
+}
+
+/* --------------------------------------------------------------------------
+   HARDWARE
+   -------------------------------------------------------------------------- */
+function drawStands() {
+  var legA = 'rgba(120,132,152,0.9)';
+  function tripod(x, y, spread) {
+    chromeRod(x, y, x - spread, y + 22, 3.4, 0.85);
+    chromeRod(x, y, x + spread, y + 22, 3.4, 0.85);
+    chromeRod(x, y, x, y + 24, 3.2, 0.7);
+  }
+  // hi-hat
+  chromeRod(-306, FLOOR, -306, -238, 5.2);
+  tripod(-306, FLOOR - 4, 46);
+  // snare basket
+  chromeRod(-186, FLOOR, -186, -112, 5.0);
+  tripod(-186, FLOOR - 4, 50);
+  chromeRod(-186, -112, -238, -146, 3.2);
+  chromeRod(-186, -112, -134, -146, 3.2);
+  chromeRod(-186, -112, -186, -132, 3.0);
+  // floor tom legs
+  chromeRod(208, FLOOR - 6, 152, -68, 4.4, 0.85);
+  chromeRod(208, FLOOR - 6, 264, -68, 4.4, 0.85);
+  chromeRod(208, FLOOR - 6, 208, -66, 4.2, 0.7);
+  // crash boom
+  chromeRod(-268, FLOOR, -268, -300, 4.8);
+  tripod(-268, FLOOR - 4, 44);
+  chromeRod(-268, -300, -258, -372, 4.0, 0.95);
+  // ride
+  chromeRod(238, FLOOR, 238, -260, 4.8);
+  tripod(238, FLOOR - 4, 46);
+  chromeRod(238, -260, 234, -348, 4.0, 0.95);
+  // tom post off the bass drum
+  chromeRod(0, -186, 0, -214, 7.0);
+  chromeRod(0, -200, -58, -216, 3.4);
+  chromeRod(0, -204, 50, -228, 3.4);
+  ctx.globalAlpha = 1;
+}
+
+/* --------------------------------------------------------------------------
+   STAGE
+   -------------------------------------------------------------------------- */
+function drawBackdrop(time) {
+  var vx0 = VIS.x0 - 30, vx1 = VIS.x1 + 30;
+  var vy0 = Math.min(VIS.y0 - 30, BOX.y0 - 30);
+  var vy1 = Math.max(VIS.y1 + 30, FLOOR + 220);
+
+  var g = ctx.createLinearGradient(0, vy0, 0, FLOOR + 120);
+  g.addColorStop(0.00, '#05060f');
+  g.addColorStop(0.30, '#0a0d20');
+  g.addColorStop(0.62, '#0d1026');
+  g.addColorStop(1.00, '#05060e');
+  ctx.fillStyle = g;
+  ctx.fillRect(vx0, vy0, vx1 - vx0, vy1 - vy0);
+
+  // distant rig, amp walls: pure silhouette so the outer margins are staged
+  drawRig(vx0, vx1);
+  drawAmpStack(-790, FLOOR + 4, 1);
+  drawAmpStack(790, FLOOR + 4, -1);
+
+  ctx.globalCompositeOperation = 'lighter';
+
+  // haze behind the kit
+  var hz = ctx.createRadialGradient(0, -330, 30, 0, -330, 620);
+  hz.addColorStop(0, 'rgba(120,60,220,0.20)');
+  hz.addColorStop(0.45, 'rgba(70,45,160,0.10)');
+  hz.addColorStop(1, 'rgba(20,10,60,0)');
+  ctx.fillStyle = hz;
+  ctx.beginPath();
+  ctx.ellipse(0, -330, 640, 460, 0, 0, TAU);
+  ctx.fill();
+
+  // drifting side light beams
+  for (var i = 0; i < beams.length; i++) {
+    var b = beams[i];
+    var bx = b.x + Math.sin(time * b.sp + b.ph) * 190;
+    var topW = b.w * (0.7 + 0.3 * Math.sin(time * b.sp * 1.7 + b.ph));
+    var gg = ctx.createLinearGradient(0, vy0, 0, FLOOR + 10);
+    var col = b.c === PAL.rimCool ? '120,215,255' : '255,170,90';
+    gg.addColorStop(0, 'rgba(' + col + ',' + (b.a * 1.4) + ')');
+    gg.addColorStop(0.55, 'rgba(' + col + ',' + (b.a * 0.5) + ')');
+    gg.addColorStop(1, 'rgba(' + col + ',0)');
+    ctx.fillStyle = gg;
+    ctx.beginPath();
+    ctx.moveTo(bx - topW * 0.5, vy0);
+    ctx.lineTo(bx + topW * 0.5, vy0);
+    ctx.lineTo(bx + topW * 2.6, FLOOR + 10);
+    ctx.lineTo(bx - topW * 2.6, FLOOR + 10);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  // floating motes
+  for (var m = 0; m < motes.length; m++) {
+    var mo = motes[m];
+    ctx.beginPath();
+    ctx.arc(mo.x, mo.y, mo.r, 0, TAU);
+    ctx.fillStyle = mo.hue === PAL.rimCool
+      ? 'rgba(150,225,255,' + mo.a + ')'
+      : 'rgba(255,205,150,' + mo.a + ')';
+    ctx.fill();
+  }
+  ctx.globalCompositeOperation = 'source-over';
+}
+
+/* A lighting truss with a row of cans, sitting far upstage. */
+function drawRig(vx0, vx1) {
+  var y = -690;
+  ctx.fillStyle = '#070810';
+  ctx.fillRect(vx0, y - 16, vx1 - vx0, 9);
+  ctx.fillRect(vx0, y + 7, vx1 - vx0, 6);
+  ctx.strokeStyle = '#0a0c16';
+  ctx.lineWidth = 4;
+  for (var x = vx0; x < vx1; x += 46) {
+    ctx.beginPath();
+    ctx.moveTo(x, y - 14);
+    ctx.lineTo(x + 46, y + 11);
+    ctx.moveTo(x + 46, y - 14);
+    ctx.lineTo(x, y + 11);
+    ctx.stroke();
+  }
+  // cans
+  for (var c = vx0 + 60; c < vx1 - 40; c += 150) {
+    ctx.fillStyle = '#08090f';
+    ctx.beginPath();
+    ctx.moveTo(c - 15, y + 13);
+    ctx.lineTo(c + 15, y + 13);
+    ctx.lineTo(c + 21, y + 32);
+    ctx.lineTo(c - 21, y + 32);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = 'rgba(255,190,120,0.10)';
+    ctx.beginPath();
+    ctx.ellipse(c, y + 33, 20, 6, 0, 0, TAU);
+    ctx.fill();
+  }
+}
+
+/* Wedge of speaker cabinets flanking the stage, in near-silhouette. */
+function drawAmpStack(x, baseY, side) {
+  var w = 150, h = 210;
+  for (var i = 0; i < 3; i++) {
+    var y = baseY - h - i * (h + 6);
+    ctx.fillStyle = i === 0 ? '#0b0c14' : '#090a11';
+    ctx.fillRect(x - w / 2, y, w, h);
+    ctx.strokeStyle = 'rgba(150,190,255,0.10)';
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(x - w / 2 + 1, y + 1, w - 2, h - 2);
+    // speaker cone
+    ctx.fillStyle = '#05060b';
+    ctx.beginPath();
+    ctx.ellipse(x, y + h * 0.52, w * 0.30, w * 0.30, 0, 0, TAU);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255,190,140,0.07)';
+    ctx.stroke();
+    // rim light down the inner edge
+    ctx.strokeStyle = 'rgba(120,205,255,0.13)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(x + side * w / 2, y + 4);
+    ctx.lineTo(x + side * w / 2, y + h - 4);
+    ctx.stroke();
+  }
+}
+
+function drawFloor(time) {
+  var vx0 = VIS.x0 - 30, vx1 = VIS.x1 + 30;
+  var deckW = 940;
+
+  // riser deck: the band's staging, with a lip that catches the light
+  var fg = ctx.createLinearGradient(0, FLOOR - 26, 0, FLOOR + 150);
+  fg.addColorStop(0.00, '#12142a');
+  fg.addColorStop(0.10, '#0c0e1d');
+  fg.addColorStop(0.45, '#080914');
+  fg.addColorStop(1.00, '#04050b');
+  ctx.fillStyle = fg;
+  ctx.fillRect(-deckW / 2, FLOOR - 2, deckW, 300);
+
+  // everything outside the deck is the dark downstage void
+  ctx.fillStyle = '#03040a';
+  ctx.fillRect(vx0, FLOOR + 2, (-deckW / 2) - vx0, 300);
+  ctx.fillRect(deckW / 2, FLOOR + 2, vx1 - deckW / 2, 300);
+
+  // deck edge highlight
+  ctx.fillStyle = 'rgba(255,225,180,0.10)';
+  ctx.fillRect(-deckW / 2, FLOOR - 3, deckW, 2);
+  ctx.fillStyle = 'rgba(0,0,0,0.55)';
+  ctx.fillRect(-deckW / 2, FLOOR + 2, deckW, 5);
+
+  ctx.globalCompositeOperation = 'lighter';
+  // warm pool of light
+  var pool = ctx.createRadialGradient(0, FLOOR + 6, 20, 0, FLOOR + 6, 470);
+  pool.addColorStop(0, 'rgba(255,190,120,0.22)');
+  pool.addColorStop(0.45, 'rgba(180,110,200,0.11)');
+  pool.addColorStop(1, 'rgba(40,10,80,0)');
+  ctx.fillStyle = pool;
+  ctx.beginPath();
+  ctx.ellipse(0, FLOOR + 8, 480, 96, 0, 0, TAU);
+  ctx.fill();
+
+  // kick glow bouncing off the deck
+  var kg = ctx.createRadialGradient(0, FLOOR + 4, 10, 0, FLOOR + 4, 210);
+  var pulse = 0.10 + kit.kick.deform * 0.34;
+  kg.addColorStop(0, 'rgba(255,170,110,' + pulse + ')');
+  kg.addColorStop(1, 'rgba(255,120,60,0)');
+  ctx.fillStyle = kg;
+  ctx.beginPath();
+  ctx.ellipse(0, FLOOR + 6, 220, 54, 0, 0, TAU);
+  ctx.fill();
+  ctx.globalCompositeOperation = 'source-over';
+}
+
+function drawHiHat(time) {
+  var top = cym.hihatTop, bot = cym.hihatBot;
+  var gap = 17 + hh.open * 27;
+  bot.y = -252;
+
+  // rod continues up through the clutch
+  chromeRod(-306, -252, -306, -268 - gap - 26, 2.4, 0.9);
+
+  var save = top.y;
+  top.y = -252 - gap;
+  drawCymbal(bot, 0.35);
+  drawCymbal(top, 0.75);
+  // clutch collar
+  ctx.beginPath();
+  ctx.ellipse(-306, top.y - 13, 7, 6, 0, 0, TAU);
+  var cg = ctx.createLinearGradient(-312, 0, -300, 0);
+  cg.addColorStop(0, PAL.chromeA);
+  cg.addColorStop(0.4, PAL.chromeB);
+  cg.addColorStop(1, PAL.chromeC);
+  ctx.fillStyle = cg;
+  ctx.fill();
+  top.y = save;
+}
+
+/* --------------------------------------------------------------------------
+   RENDER
+   -------------------------------------------------------------------------- */
+function drawSparks() {
+  ctx.globalCompositeOperation = 'lighter';
+  for (var i = 0; i < sparks.length; i++) {
+    var p = sparks[i];
+    var k = 1 - p.life / p.max;
+    var a = k * k;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.r * (0.4 + k * 0.8), 0, TAU);
+    ctx.fillStyle = hexA(p.c, a);
+    ctx.fill();
+    // motion streak
+    ctx.beginPath();
+    ctx.moveTo(p.x, p.y);
+    ctx.lineTo(p.x - p.vx * 0.016, p.y - p.vy * 0.016);
+    ctx.strokeStyle = hexA(p.c, a * 0.55);
+    ctx.lineWidth = p.r * 0.9;
+    ctx.lineCap = 'round';
+    ctx.stroke();
+  }
+  ctx.globalCompositeOperation = 'source-over';
+}
+
+function drawRings() {
+  ctx.globalCompositeOperation = 'lighter';
+  for (var i = 0; i < rings.length; i++) {
+    var r = rings[i];
+    var t = r.life / r.max;
+    var rad = lerp(r.r, r.r1, easeOutCubic(t));
+    var a = (1 - t) * (1 - t) * 0.7;
+    ctx.beginPath();
+    ctx.arc(r.x, r.y, rad, 0, TAU);
+    ctx.strokeStyle = hexA(r.c, a);
+    ctx.lineWidth = 3.6 * (1 - t) + 0.8;
+    ctx.stroke();
+  }
+  ctx.globalCompositeOperation = 'source-over';
+}
+
+function drawNotes() {
+  ctx.globalCompositeOperation = 'lighter';
+  for (var i = 0; i < notes.length; i++) {
+    var n = notes[i];
+    var t = n.life / n.max;
+    var a = Math.min(1, t * 6) * (1 - t) * (1 - t) * 0.95;
+    ctx.save();
+    ctx.translate(n.x, n.y);
+    ctx.rotate(n.rot);
+    ctx.scale(n.s, n.s);
+    ctx.globalAlpha = a;
+    ctx.fillStyle = n.c;
+    ctx.strokeStyle = n.c;
+    // head
+    ctx.beginPath();
+    ctx.ellipse(-3.5, 12, 7.2, 5.4, -0.38, 0, TAU);
+    ctx.fill();
+    // stem
+    ctx.beginPath();
+    ctx.moveTo(3.3, 12);
+    ctx.lineTo(3.3, -14);
+    ctx.lineWidth = 2.4;
+    ctx.stroke();
+    // flag
+    ctx.beginPath();
+    ctx.moveTo(3.3, -14);
+    ctx.bezierCurveTo(15, -8, 16, 0, 5.5, 5.5);
+    ctx.bezierCurveTo(11, 0.5, 10.5, -6, 3.3, -6.5);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+    ctx.globalAlpha = 1;
+  }
+  ctx.globalCompositeOperation = 'source-over';
+}
+
+function drawVignette() {
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  var g = ctx.createRadialGradient(W * 0.5, H * 0.5, Math.min(W, H) * 0.30,
+                                   W * 0.5, H * 0.5, Math.max(W, H) * 0.80);
+  g.addColorStop(0, 'rgba(0,0,0,0)');
+  g.addColorStop(0.64, 'rgba(0,0,0,0.22)');
+  g.addColorStop(1, 'rgba(0,0,0,0.72)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, H);
+
+  // faint top scrim, kept shallow so the performer never goes muddy
+  var s = ctx.createLinearGradient(0, 0, 0, H * 0.10);
+  s.addColorStop(0, 'rgba(0,0,0,0.30)');
+  s.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = s;
+  ctx.fillRect(0, 0, W, H * 0.10);
+}
+
+/* hex "#rrggbb" -> rgba() */
+var _hexCache = {};
+function hexA(hex, a) {
+  var v = _hexCache[hex];
+  if (!v) {
+    v = [parseInt(hex.substr(1, 2), 16), parseInt(hex.substr(3, 2), 16), parseInt(hex.substr(5, 2), 16)];
+    _hexCache[hex] = v;
+  }
+  return 'rgba(' + v[0] + ',' + v[1] + ',' + v[2] + ',' + clamp(a, 0, 1) + ')';
+}
+
+function render(time) {
+  applyCamera();
+  drawBackdrop(time);
+  drawFloor(time);
+  drawStands();
+  drawBody(time);
+
+  // kit: back row first
+  drawDrum(kit.floor);
+  drawDrum(kit.tom1);
+  drawDrum(kit.tom2);
+  drawDrum(kit.snare);
+  drawDrum(kit.kick);
+
+  drawCymbal(cym.ride);
+  drawCymbal(cym.crash);
+  drawHiHat(time);
+
+  // arms on top of the kit
+  for (var i = 0; i < arms.length; i++) drawArm(arms[i]);
+  for (var j = 0; j < arms.length; j++) drawStick(arms[j]);
+
+  drawSparks();
+  drawRings();
+  drawNotes();
+  drawVignette();
+}
+
+/* --------------------------------------------------------------------------
+   LOOP
+   -------------------------------------------------------------------------- */
+var last = 0, clock = 0;
+
+function frame(now) {
+  if (!last) last = now;
+  var dt = (now - last) / 1000;
+  last = now;
+  if (!isFinite(dt) || dt < 0) dt = 0;
+  dt = Math.min(dt, 0.05);
+  clock += dt;
+
+  stepClock(dt);
+  for (var i = 0; i < arms.length; i++) updateArm(arms[i], dt, clock);
+  updateBody(dt, clock);
+  updateKit(dt, clock);
+  updateFx(dt);
+  updateCamera(dt, clock);
+
+  render(clock);
+  requestAnimationFrame(frame);
+}
+
+// Prime the FX so the first downbeat already has a sparkle trail.
+nextStepT = 0;
+requestAnimationFrame(frame);
+
+})();
+
+</script>
+<!--zc-home:start--><style>.zc-home-btn{position:fixed;top:16px;left:16px;z-index:2147483647;display:inline-flex;align-items:center;gap:6px;padding:8px 14px;font:500 13px/1.1 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Noto Sans SC",sans-serif;color:#111;background:rgba(255,255,255,.86);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);border:1px solid rgba(0,0,0,.08);border-radius:999px;text-decoration:none;box-shadow:0 2px 12px rgba(0,0,0,.2);transition:background .2s ease,transform .2s ease,box-shadow .2s ease}.zc-home-btn:hover{background:#fff;transform:translateY(-1px);box-shadow:0 4px 18px rgba(0,0,0,.26)}</style><a class="zc-home-btn" href="../">← 返回首页</a><!--zc-home:end-->
+</body>
+</html>

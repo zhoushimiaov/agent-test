@@ -1,0 +1,270 @@
+{
+  "generatedAt": "2026-10-11T11:22:55.429Z",
+  "model": "jev-1.13.0",
+  "weights": {
+    "arms": 35,
+    "drumming": 25,
+    "kit": 20,
+    "beauty": 20
+  },
+  "dimLabels": {
+    "arms": "八腕分配",
+    "drumming": "打击协调",
+    "kit": "鼓组完整",
+    "beauty": "整体美感"
+  },
+  "results": [
+    {
+      "slug": "ling-3.1-flash",
+      "total": 88,
+      "dims": {
+        "arms": {
+          "score": 2.41,
+          "confidence": 0.4,
+          "frac": 0.803
+        },
+        "drumming": {
+          "score": 2.9,
+          "confidence": 0.9,
+          "frac": 0.967
+        },
+        "kit": {
+          "score": 2.62,
+          "confidence": 0.6,
+          "frac": 0.873
+        },
+        "beauty": {
+          "score": 2.73,
+          "confidence": 0.74,
+          "frac": 0.91
+        }
+      },
+      "jev": "jev-1.13.0",
+      "rank": 1
+    },
+    {
+      "slug": "deepseek-4.1-flash",
+      "total": 82,
+      "dims": {
+        "arms": {
+          "score": 2.67,
+          "confidence": 0.68,
+          "frac": 0.89
+        },
+        "drumming": {
+          "score": 1.9,
+          "confidence": 0,
+          "frac": 0.633
+        },
+        "kit": {
+          "score": 2.8,
+          "confidence": 0.81,
+          "frac": 0.933
+        },
+        "beauty": {
+          "score": 2.47,
+          "confidence": 0.48,
+          "frac": 0.823
+        }
+      },
+      "jev": "jev-1.13.0",
+      "rank": 2
+    },
+    {
+      "slug": "tierflow-pro",
+      "total": 78,
+      "dims": {
+        "arms": {
+          "score": 2.66,
+          "confidence": 0.67,
+          "frac": 0.887
+        },
+        "drumming": {
+          "score": 1.91,
+          "confidence": 0,
+          "frac": 0.637
+        },
+        "kit": {
+          "score": 2.63,
+          "confidence": 0.64,
+          "frac": 0.877
+        },
+        "beauty": {
+          "score": 2.08,
+          "confidence": 0.9,
+          "frac": 0.693
+        }
+      },
+      "jev": "jev-1.13.0",
+      "rank": 3
+    },
+    {
+      "slug": "mimo-2.6-flash",
+      "total": 62,
+      "dims": {
+        "arms": {
+          "score": 1.72,
+          "confidence": 0.7,
+          "frac": 0.573
+        },
+        "drumming": {
+          "score": 1.49,
+          "confidence": 0.49,
+          "frac": 0.497
+        },
+        "kit": {
+          "score": 2.39,
+          "confidence": 0.39,
+          "frac": 0.797
+        },
+        "beauty": {
+          "score": 2.05,
+          "confidence": 0.94,
+          "frac": 0.683
+        }
+      },
+      "jev": "jev-1.13.0",
+      "rank": 4
+    },
+    {
+      "slug": "muse-spark",
+      "total": 51,
+      "dims": {
+        "arms": {
+          "score": 1.29,
+          "confidence": 0.68,
+          "frac": 0.43
+        },
+        "drumming": {
+          "score": 0.9,
+          "confidence": 0.7,
+          "frac": 0.3
+        },
+        "kit": {
+          "score": 2.05,
+          "confidence": 0.7,
+          "frac": 0.683
+        },
+        "beauty": {
+          "score": 2.15,
+          "confidence": 0.85,
+          "frac": 0.717
+        }
+      },
+      "jev": "jev-1.13.0",
+      "rank": 5
+    },
+    {
+      "slug": "gemini-3.8-flash",
+      "total": 50,
+      "dims": {
+        "arms": {
+          "score": 1,
+          "confidence": 1,
+          "frac": 0.333
+        },
+        "drumming": {
+          "score": 0.93,
+          "confidence": 0.57,
+          "frac": 0.31
+        },
+        "kit": {
+          "score": 2.92,
+          "confidence": 0.93,
+          "frac": 0.973
+        },
+        "beauty": {
+          "score": 1.67,
+          "confidence": 0.67,
+          "frac": 0.557
+        }
+      },
+      "jev": "jev-1.13.0",
+      "rank": 6
+    },
+    {
+      "slug": "opus-4.8",
+      "total": 44,
+      "dims": {
+        "arms": {
+          "score": 1.14,
+          "confidence": 0.87,
+          "frac": 0.38
+        },
+        "drumming": {
+          "score": 0.43,
+          "confidence": 0.57,
+          "frac": 0.143
+        },
+        "kit": {
+          "score": 2.05,
+          "confidence": 0.05,
+          "frac": 0.683
+        },
+        "beauty": {
+          "score": 2,
+          "confidence": 0.98,
+          "frac": 0.667
+        }
+      },
+      "jev": "jev-1.13.0",
+      "rank": 7
+    },
+    {
+      "slug": "glm-5.3-flash",
+      "total": 43,
+      "dims": {
+        "arms": {
+          "score": 1.37,
+          "confidence": 0.63,
+          "frac": 0.457
+        },
+        "drumming": {
+          "score": 1.43,
+          "confidence": 0.52,
+          "frac": 0.477
+        },
+        "kit": {
+          "score": 1.15,
+          "confidence": 0.84,
+          "frac": 0.383
+        },
+        "beauty": {
+          "score": 1.08,
+          "confidence": 0.92,
+          "frac": 0.36
+        }
+      },
+      "jev": "jev-1.13.0",
+      "rank": 8
+    },
+    {
+      "slug": "glm-5.3",
+      "total": 42,
+      "dims": {
+        "arms": {
+          "score": 1,
+          "confidence": 1,
+          "frac": 0.333
+        },
+        "drumming": {
+          "score": 0.85,
+          "confidence": 0.84,
+          "frac": 0.283
+        },
+        "kit": {
+          "score": 1.41,
+          "confidence": 0.59,
+          "frac": 0.47
+        },
+        "beauty": {
+          "score": 2.01,
+          "confidence": 0.98,
+          "frac": 0.67
+        }
+      },
+      "jev": "jev-1.13.0",
+      "rank": 9
+    }
+  ]
+}

@@ -1,0 +1,1338 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Octopus on Drums</title>
+<style>
+  html,body{margin:0;padding:0;height:100%;background:#05030b;overflow:hidden;}
+  canvas{display:block;width:100vw;height:100vh;}
+</style>
+</head>
+<body>
+<canvas id="stage"></canvas>
+<script>
+(function () {
+'use strict';
+
+/* ============================================================
+   Octopus on Drums — single-file canvas animation
+   A procedural octopus plays an 8-piece kit. Every tentacle is
+   bound to one instrument; a 16th-note sequencer drives both the
+   limb strikes and the hit FX, so motion and rhythm never drift.
+   ============================================================ */
+
+var cvs = document.getElementById('stage');
+var ctx = cvs.getContext('2d');
+
+var VW = 1600, VH = 900;          // virtual design space
+var DPR = 1, cw = 0, ch = 0, vs = 1, vx = 0, vy = 0;
+var MAX_PIXELS = 3.2e6;           // keeps software rasterisers responsive
+
+// Bounding box of the subject (kit + octopus) inside the virtual canvas.
+// Scaling fits THIS box, not the canvas, so the kit reads large at any
+// window shape instead of shrinking inside a letterbox.
+var SUBJ = { cx: 786, cy: 490, hw: 452, hh: 342 };
+var CAM_Y = 55;                   // camera looks below the virtual centre
+var FIT = 0.92;                   // fraction of the frame the subject fills
+
+function resize() {
+  var d = Math.min(window.devicePixelRatio || 1, 2);
+  cw = window.innerWidth; ch = window.innerHeight;
+  // back off the device pixel ratio on very large viewports
+  while (d > 1 && cw * ch * d * d > MAX_PIXELS) d -= 0.25;
+  DPR = Math.max(1, d);
+  cvs.width = Math.round(cw * DPR);
+  cvs.height = Math.round(ch * DPR);
+  cvs.style.width = cw + 'px';
+  cvs.style.height = ch + 'px';
+  vs = Math.min(cw * FIT / (SUBJ.hw * 2), ch * FIT / (SUBJ.hh * 2));
+  vx = cw / 2 - SUBJ.cx * vs;
+  vy = ch / 2 - (SUBJ.cy + CAM_Y) * vs;
+  buildVignette();
+}
+window.addEventListener('resize', resize);
+
+/* the visible slice of virtual space, so big fills stay bounded */
+function visRect() {
+  return [-vx / vs, -vy / vs, cw / vs, ch / vs];
+}
+
+/* vignette is static per layout: render it once into an offscreen canvas */
+var vigCvs = document.createElement('canvas');
+var vigReady = false;
+function buildVignette() {
+  var w = Math.max(2, Math.round(cw)), h = Math.max(2, Math.round(ch));
+  vigCvs.width = w; vigCvs.height = h;
+  var g2 = vigCvs.getContext('2d');
+  var g = g2.createRadialGradient(w / 2, h * 0.46, Math.min(w, h) * 0.28,
+    w / 2, h * 0.5, Math.max(w, h) * 0.78);
+  g.addColorStop(0, 'rgba(0,0,0,0)');
+  g.addColorStop(0.65, 'rgba(4,2,10,0.28)');
+  g.addColorStop(1, 'rgba(3,1,8,0.82)');
+  g2.fillStyle = g;
+  g2.fillRect(0, 0, w, h);
+  vigReady = true;
+}
+resize();
+
+/* ---------------- math ---------------- */
+var TAU = Math.PI * 2;
+function clamp(v, a, b) { return v < a ? a : v > b ? b : v; }
+function lerp(a, b, t) { return a + (b - a) * t; }
+function rnd(a, b) { return a + Math.random() * (b - a); }
+
+/* ---------------- clock / sequencer ---------------- */
+var BPM = 128;
+var SPB = 60 / BPM;
+var STEP = SPB / 4;                 // 16th note
+var PHRASE_STEPS = 64;              // 4 bars
+var PHRASE_DUR = PHRASE_STEPS * STEP;
+
+var songTime = 0, stepIdx = 0, stepClock = 0;
+
+/* instrument slots -------------------------------------------------- */
+var A_CRASH = 0, A_HIHAT = 1, A_SNARE = 2, A_KICK = 3,
+    A_TOM1 = 4, A_TOM2 = 5, A_FLOOR = 6, A_RIDE = 7;
+
+var P = {
+  crash: { x: 440, y: 336 },
+  hihat: { x: 420, y: 468 },
+  snare: { x: 566, y: 664 },
+  kick:  { x: 730, y: 660 },
+  tom1:  { x: 652, y: 528 },
+  tom2:  { x: 880, y: 520 },
+  floor: { x: 1016, y: 686 },
+  ride:  { x: 1090, y: 462 }
+};
+
+function buildPhrase() {
+  var steps = [], armHits = [], i, j;
+  for (i = 0; i < PHRASE_STEPS; i++) steps.push(null);
+  for (i = 0; i < 8; i++) armHits.push([]);
+
+  function push(step, arm, vel) {
+    if (!steps[step]) steps[step] = [];
+    steps[step].push({ arm: arm, vel: vel });
+    armHits[arm].push({ t: step * STEP, vel: vel });
+  }
+
+  for (var bar = 0; bar < 4; bar++) {
+    var b = bar * 16;
+
+    // hi-hat: straight 8ths, accented on the beat
+    for (j = 0; j < 16; j += 2) push(b + j, A_HIHAT, j % 4 === 0 ? 1.0 : 0.6);
+    // ride: 8ths, opposite accent
+    for (j = 0; j < 16; j += 2) push(b + j, A_RIDE, j % 4 === 2 ? 0.8 : 0.45);
+    // kick: 1, "and of 2", 3
+    push(b + 0, A_KICK, 1.0);
+    push(b + 6, A_KICK, 0.92);
+    push(b + 10, A_KICK, 0.95);
+    if (bar % 2 === 1) push(b + 14, A_KICK, 0.75);
+    // snare backbeat
+    push(b + 4, A_SNARE, 0.95);
+    push(b + 12, A_SNARE, 1.0);
+    // tom fill at the end of every other bar
+    if (bar % 2 === 1) {
+      push(b + 12, A_TOM1, 0.7);
+      push(b + 13, A_TOM2, 0.78);
+      push(b + 14, A_FLOOR, 0.85);
+      push(b + 15, A_TOM1, 0.72);
+    }
+    // crash to open every other bar
+    if (bar % 2 === 0) push(b + 0, A_CRASH, 0.9);
+    // foot chick with the backbeat
+    if (!steps[b + 4]) steps[b + 4] = [];
+    steps[b + 4].push({ chick: true });
+    if (!steps[b + 12]) steps[b + 12] = [];
+    steps[b + 12].push({ chick: true });
+  }
+
+  for (i = 0; i < 8; i++) armHits[i].sort(function (p, q) { return p.t - q.t; });
+  return { steps: steps, armHits: armHits };
+}
+var phrase = buildPhrase();
+
+/* nearest strike in time for an arm, wrapped to +-half phrase.
+   negative = upcoming (wind-up), positive = past (recoil) */
+function nearestDelta(arm, phraseTime) {
+  var arr = phrase.armHits[arm], best = 99, bestV = 0.6, i, d;
+  for (i = 0; i < arr.length; i++) {
+    d = phraseTime - arr[i].t;
+    d -= PHRASE_DUR * Math.round(d / PHRASE_DUR);
+    if (Math.abs(d) < Math.abs(best)) { best = d; bestV = arr[i].vel; }
+  }
+  return { d: best, vel: bestV };
+}
+
+/* ---------------- scene entities ---------------- */
+var KICK = { x: 770, y: 700, rx: 140, ry: 126, depth: 96 };
+var SNARE = { x: 558, y: 668, rx: 78, ry: 34, h: 64 };
+var TOM1 = { x: 650, y: 524, rx: 64, ry: 28, h: 58 };
+var TOM2 = { x: 866, y: 516, rx: 70, ry: 30, h: 62 };
+var FLOOR = { x: 1006, y: 688, rx: 90, ry: 40, h: 104 };
+var HIHAT = { x: 400, y: 468, r: 66, ry: 15 };
+var CRASH = { x: 480, y: 330, r: 106, ry: 27 };
+var RIDE = { x: 1116, y: 462, r: 122, ry: 30 };
+
+var FLOOR_Y = 800;
+
+/* per-instrument energy state */
+var D = {};
+function reg(name, hitX, hitY) {
+  D[name] = { energy: 0, hitT: -9, hx: hitX, hy: hitY, open: 0 };
+}
+reg('kick', 730, 660);
+reg('snare', 566, 664);
+reg('tom1', 652, 528);
+reg('tom2', 880, 520);
+reg('floor', 1016, 686);
+reg('hihat', 418, 462);
+reg('crash', 440, 336);
+reg('ride', 1090, 462);
+
+var NAME_OF_ARM = ['crash', 'hihat', 'snare', 'kick', 'tom1', 'tom2', 'floor', 'ride'];
+
+/* ---------------- tentacles ---------------- */
+/* base ring sits inside the mantle so arms emerge from under the body */
+function baseAt(deg) {
+  var a = deg * Math.PI / 180;
+  return [760 + 132 * Math.cos(a), 360 + 46 * Math.sin(a)];
+}
+
+var ARMS = [
+  // crash — leftmost, bare tip
+  { name: 'crash', deg: 175, ctrl: [-20, -62], dir: [0.16, 0.99], stick: false },
+  // hi-hat — stick
+  { name: 'hihat', deg: 155, ctrl: [0, -56], dir: [0.10, 0.995], stick: true },
+  // snare — stick
+  { name: 'snare', deg: 125, ctrl: [-34, -26], dir: [0.10, 0.995], stick: true },
+  // kick — presses the front head
+  { name: 'kick', deg: 100, ctrl: [52, -12], dir: [0.34, 0.94], stick: false },
+  // rack tom 1
+  { name: 'tom1', deg: 78, ctrl: [-12, -52], dir: [0.06, 1.0], stick: false },
+  // rack tom 2
+  { name: 'tom2', deg: 55, ctrl: [46, -32], dir: [0.06, 1.0], stick: false },
+  // floor tom
+  { name: 'floor', deg: 30, ctrl: [46, -16], dir: [0.12, 0.99], stick: false },
+  // ride
+  { name: 'ride', deg: 8, ctrl: [12, -52], dir: [0.22, 0.975], stick: false }
+];
+
+var STICK_LEN = 88, GRIP = 22;   // hand grips 22px from the butt end
+var STICK_REACH = STICK_LEN - GRIP;
+
+ARMS.forEach(function (a, i) {
+  a.idx = i;
+  a.base = baseAt(a.deg);
+  var c = P[a.name];
+  a.contact = [c.x, c.y];
+  a.hover = a.stick ? STICK_REACH + 3 : 6;
+  a.tipRest = [c.x - a.dir[0] * a.hover, c.y - a.dir[1] * a.hover];
+  a.tip = a.tipRest.slice();
+  a.w0 = 27; a.w1 = 5.5;
+  a.lift = 24; a.press = a.stick ? 15 : 11;
+  a.waveK = 4.2 + (i % 3) * 0.7;
+  a.wavePhase = i * 1.31;
+  a.waveSpeed = 1.5 + (i % 4) * 0.22;
+  a.off = 0;
+  a.wob = 0;
+});
+
+/* ---------------- camera ---------------- */
+var cam = { zoom: 1, x: 0, y: 0, shake: 0 };
+var pulse = 0;        // global beat glow
+var accent = 0;       // decays after crash/kick
+var squint = 0;       // octopus expression
+var fillGlow = 0;     // rises during tom fills
+
+/* ---------------- FX pools ---------------- */
+var rings = [], sparks = [], notes = [], dust = [];
+
+function initDust() {
+  dust.length = 0;
+  for (var i = 0; i < 90; i++) {
+    var front = Math.random() < 0.3;
+    dust.push({
+      x: rnd(-100, VW + 100), y: rnd(-50, VH + 50),
+      r: front ? rnd(2, 4.6) : rnd(0.8, 2.4),
+      a: front ? rnd(0.05, 0.14) : rnd(0.06, 0.22),
+      v: rnd(4, 16), ph: rnd(0, TAU), front: front
+    });
+  }
+}
+initDust();
+
+function spawnRing(x, y, rx, ry, col, w, life) {
+  rings.push({ x: x, y: y, rx: rx, ry: ry, t: 0, life: life, col: col, w: w });
+}
+function spawnSparks(x, y, n, col, pow, spread) {
+  for (var i = 0; i < n; i++) {
+    var a = rnd(0, TAU), s = rnd(0.35, 1) * pow;
+    sparks.push({
+      x: x, y: y,
+      vx: Math.cos(a) * s * (spread || 1),
+      vy: Math.sin(a) * s * 0.72 - rnd(30, 120),
+      t: 0, life: rnd(0.35, 0.95), col: col,
+      r: rnd(1.4, 3.6), g: rnd(260, 460)
+    });
+  }
+}
+var NOTE_GLYPHS = ['\u266A', '\u266B', '\u2669'];
+var NOTE_COLS = ['#ffd166', '#ff5fa2', '#4fe3ff', '#c08cff', '#8affc1'];
+function spawnNote(x, y, big) {
+  notes.push({
+    x: x + rnd(-16, 16), y: y + rnd(-14, 6),
+    vx: rnd(-26, 26), vy: rnd(-96, -52),
+    t: 0, life: rnd(1.1, 1.9),
+    g: NOTE_GLYPHS[(Math.random() * NOTE_GLYPHS.length) | 0],
+    col: NOTE_COLS[(Math.random() * NOTE_COLS.length) | 0],
+    rot: rnd(-0.5, 0.5), vr: rnd(-1.4, 1.4),
+    size: big ? rnd(34, 50) : rnd(24, 36)
+  });
+}
+
+/* ---------------- events ---------------- */
+function hitPiece(name, vel) {
+  var d = D[name];
+  if (!d) return;
+  d.energy = Math.min(1.3, d.energy + vel);
+  d.hitT = songTime;
+
+  var isCym = (name === 'crash' || name === 'ride' || name === 'hihat');
+  if (isCym) {
+    spawnRing(d.hx, d.hy, 20, 6, 'rgba(255,226,160,', 2.5, 0.42);
+    spawnSparks(d.hx, d.hy, 5, '#ffd98a', 130, 1.2);
+  } else {
+    spawnRing(d.hx, d.hy, 14, 8, 'rgba(255,255,255,', 3, 0.38);
+    spawnSparks(d.hx, d.hy, 6, name === 'kick' ? '#ff8fae' : '#ffe0b8', 150, 1);
+  }
+  if (vel > 0.85) spawnNote(d.hx, d.hy - 10, vel > 0.95);
+
+  pulse = Math.min(1.4, pulse + vel * 0.55);
+  if (name === 'kick') {
+    cam.shake += 3.4 * vel;
+    cam.zoom += 0.012 * vel;
+    accent = Math.min(1.3, accent + 0.5 * vel);
+    squint = Math.min(0.55, squint + 0.22 * vel);
+  } else if (name === 'snare') {
+    cam.shake += 2.1 * vel;
+    cam.zoom += 0.006 * vel;
+    squint = Math.min(0.5, squint + 0.16 * vel);
+  } else if (name === 'crash') {
+    cam.shake += 2.6 * vel;
+    accent = Math.min(1.5, accent + 0.85 * vel);
+    cam.zoom += 0.008 * vel;
+  } else {
+    cam.shake += 1.0 * vel;
+  }
+}
+
+function fireStep(list) {
+  for (var i = 0; i < list.length; i++) {
+    var e = list[i];
+    if (e.chick) { D.hihat.open = 1; continue; }
+    hitPiece(NAME_OF_ARM[e.arm], e.vel);
+  }
+}
+
+function advanceClock(dt) {
+  songTime += dt;
+  // recover gracefully if the tab was throttled
+  if (songTime - stepClock > 0.6) {
+    stepIdx = Math.ceil(songTime / STEP);
+    stepClock = stepIdx * STEP;
+  }
+  var guard = 0;
+  while (stepClock <= songTime && guard++ < 96) {
+    var list = phrase.steps[stepIdx % PHRASE_STEPS];
+    if (list) fireStep(list);
+    stepIdx++;
+    stepClock = stepIdx * STEP;
+  }
+}
+
+/* ---------------- drawing helpers ---------------- */
+function ell(x, y, rx, ry, rot) {
+  ctx.beginPath();
+  ctx.ellipse(x, y, Math.max(rx, 0.01), Math.max(ry, 0.01), rot || 0, 0, TAU);
+}
+function grad(x0, y0, x1, y1, stops) {
+  var g = ctx.createLinearGradient(x0, y0, x1, y1);
+  for (var i = 0; i < stops.length; i++) g.addColorStop(stops[i][0], stops[i][1]);
+  return g;
+}
+function rgrad(x, y, r, stops) {
+  var g = ctx.createRadialGradient(x, y, 0, x, y, Math.max(r, 1));
+  for (var i = 0; i < stops.length; i++) g.addColorStop(stops[i][0], stops[i][1]);
+  return g;
+}
+
+/* ---------------- background / stage ---------------- */
+function drawBackground(t) {
+  ctx.fillStyle = '#05030b';
+  ctx.fillRect(0, 0, cw, ch);
+
+  ctx.save();
+  ctx.translate(vx, vy);
+  ctx.scale(vs, vs);
+
+  var vr = visRect();
+
+  // deep backdrop wash
+  ctx.fillStyle = rgrad(770, 250, 1180, [
+    [0, 'rgba(74,28,110,0.85)'],
+    [0.42, 'rgba(36,16,66,0.72)'],
+    [1, 'rgba(8,5,18,0)']
+  ]);
+  ctx.fillRect(vr[0], vr[1], vr[2], vr[3]);
+
+  // anamorphic back streak
+  var st = 0.28 + accent * 0.5 + pulse * 0.12;
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.fillStyle = rgrad(770, 300, 780, [
+    [0, 'rgba(255,80,170,' + (0.16 * st).toFixed(3) + ')'],
+    [0.5, 'rgba(120,60,220,' + (0.07 * st).toFixed(3) + ')'],
+    [1, 'rgba(0,0,0,0)']
+  ]);
+  ctx.save();
+  ctx.translate(770, 300);
+  ctx.scale(1, 0.14);
+  ctx.beginPath(); ctx.arc(0, 0, 780, 0, TAU); ctx.fill();
+  ctx.restore();
+  ctx.globalCompositeOperation = 'source-over';
+
+  // floor
+  var fy = FLOOR_Y;
+  ctx.fillStyle = grad(0, fy - 40, 0, VH, [
+    [0, 'rgba(20,10,38,0)'],
+    [0.35, 'rgba(18,9,34,0.75)'],
+    [1, 'rgba(7,4,14,0.95)']
+  ]);
+  ctx.fillRect(vr[0], fy - 40, vr[2], VH - fy + 440);
+
+  // floor glow pool under the kit
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.fillStyle = rgrad(770, fy + 30, 620, [
+    [0, 'rgba(120,40,150,' + (0.20 + pulse * 0.14 + accent * 0.16).toFixed(3) + ')'],
+    [1, 'rgba(0,0,0,0)']
+  ]);
+  ctx.save();
+  ctx.translate(770, fy + 30);
+  ctx.scale(1, 0.22);
+  ctx.beginPath(); ctx.arc(0, 0, 620, 0, TAU); ctx.fill();
+  ctx.restore();
+  ctx.globalCompositeOperation = 'source-over';
+
+  ctx.restore();
+}
+
+/* warm bounce from the lit drum heads and brass onto the floor, so the
+   kit reads as standing on a stage rather than floating in the dark */
+function drawGroundFx() {
+  var pools = [
+    { x: 770, y: FLOOR_Y + 26, r: 215, ry: 36, col: '255,226,182', a: 0.11 },
+    { x: 558, y: FLOOR_Y + 22, r: 112, ry: 22, col: '255,216,190', a: 0.06 },
+    { x: 1006, y: FLOOR_Y + 22, r: 124, ry: 24, col: '255,216,190', a: 0.06 },
+    { x: 400, y: FLOOR_Y + 20, r: 92, ry: 18, col: '255,228,164', a: 0.07 },
+    { x: 480, y: FLOOR_Y + 20, r: 80, ry: 16, col: '255,228,164', a: 0.05 },
+    { x: 1116, y: FLOOR_Y + 20, r: 98, ry: 18, col: '255,228,164', a: 0.07 }
+  ];
+  ctx.globalCompositeOperation = 'lighter';
+  for (var i = 0; i < pools.length; i++) {
+    var p = pools[i];
+    ctx.fillStyle = rgrad(p.x, p.y, p.r, [
+      [0, 'rgba(' + p.col + ',' + (p.a * (1 + pulse * 0.5)).toFixed(3) + ')'],
+      [1, 'rgba(' + p.col + ',0)']
+    ]);
+    ctx.save();
+    ctx.translate(p.x, p.y);
+    ctx.scale(1, p.ry / p.r);
+    ctx.beginPath(); ctx.arc(0, 0, p.r, 0, TAU); ctx.fill();
+    ctx.restore();
+  }
+  ctx.globalCompositeOperation = 'source-over';
+}
+
+function drawLightCones(t) {
+  var vr = visRect();
+  ctx.globalCompositeOperation = 'lighter';
+  var cones = [
+    { x: 470 + Math.sin(t * 0.23) * 250, col: '255,45,140', a: 0.15 + accent * 0.14 },
+    { x: 1080 + Math.sin(t * 0.19 + 2.1) * 230, col: '60,220,255', a: 0.12 + accent * 0.10 },
+    { x: 800 + Math.sin(t * 0.11 + 4.0) * 190, col: '190,120,255', a: 0.10 + pulse * 0.08 }
+  ];
+  for (var i = 0; i < cones.length; i++) {
+    var c = cones[i];
+    var top = vr[1] - 60, bot = FLOOR_Y + 60;
+    var topW = 26, botW = 300;
+    var g = grad(c.x, top, c.x, bot, [
+      [0, 'rgba(' + c.col + ',' + c.a.toFixed(3) + ')'],
+      [0.55, 'rgba(' + c.col + ',' + (c.a * 0.42).toFixed(3) + ')'],
+      [1, 'rgba(' + c.col + ',0)']
+    ]);
+    ctx.beginPath();
+    ctx.moveTo(c.x - topW, top);
+    ctx.lineTo(c.x - botW, bot);
+    ctx.lineTo(c.x + botW, bot);
+    ctx.lineTo(c.x + topW, top);
+    ctx.closePath();
+    ctx.fillStyle = g;
+    ctx.fill();
+  }
+  ctx.globalCompositeOperation = 'source-over';
+}
+
+function drawDust(front) {
+  ctx.globalCompositeOperation = 'lighter';
+  for (var i = 0; i < dust.length; i++) {
+    var d = dust[i];
+    if (d.front !== front) continue;
+    var x = d.x + Math.sin(songTime * 0.3 + d.ph) * 14;
+    ctx.fillStyle = 'rgba(210,180,255,' + d.a.toFixed(3) + ')';
+    ctx.beginPath(); ctx.arc(x, d.y, d.r, 0, TAU); ctx.fill();
+  }
+  ctx.globalCompositeOperation = 'source-over';
+}
+
+/* ---------------- hardware: stands & throne ---------------- */
+function chrome(x0, y0, x1, y1, w) {
+  ctx.strokeStyle = grad(x0, y0, x1, y1, [
+    [0, '#6d7f9e'], [0.35, '#dfeaff'], [0.6, '#8fa2c4'], [1, '#4d5c78']
+  ]);
+  ctx.lineWidth = w;
+  ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
+}
+function tripod(x, y, spread, footY) {
+  chrome(x, y, x - spread, footY, 4);
+  chrome(x, y, x + spread, footY, 4);
+  chrome(x, y, x, footY + 6, 4);
+}
+
+function drawThrone() {
+  ctx.fillStyle = '#120c1e';
+  ell(760, 452, 122, 30);
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(120,90,180,0.35)';
+  ctx.lineWidth = 3; ctx.stroke();
+  chrome(700, 466, 660, FLOOR_Y + 20, 6);
+  chrome(820, 466, 862, FLOOR_Y + 20, 6);
+  chrome(760, 470, 760, FLOOR_Y + 26, 6);
+}
+
+function drawStands() {
+  // crash stand
+  tripod(480, 340, 62, FLOOR_Y + 24);
+  chrome(480, 340, 480, 306, 5);
+  // ride stand
+  tripod(1116, 470, 68, FLOOR_Y + 24);
+  chrome(1116, 470, 1116, 436, 5);
+  // hi-hat stand
+  tripod(400, 486, 58, FLOOR_Y + 24);
+  chrome(400, 500, 400, 430, 6);
+  // snare stand
+  tripod(558, 700, 66, FLOOR_Y + 24);
+  chrome(558, 690, 558, 668, 5);
+  // floor tom legs
+  chrome(940, 740, 918, FLOOR_Y + 28, 6);
+  chrome(1072, 740, 1096, FLOOR_Y + 28, 6);
+  chrome(1006, 748, 1006, FLOOR_Y + 30, 6);
+  // tom mount post off the kick
+  chrome(770, 578, 770, 500, 7);
+  chrome(770, 520, 700, 512, 5);
+  chrome(770, 516, 852, 508, 5);
+}
+
+/* ---------------- cymbals ---------------- */
+function drawCymbal(c, energy, hitT, col, tilt, wobScale) {
+  var age = songTime - hitT;
+  var baseRy = c.ry || c.r * 0.25;
+  var wob = age < 2.2 ? Math.sin(age * 34) * Math.exp(-age * 4.2) * energy : 0;
+  var ry = baseRy * (1 + wob * 0.11 * wobScale);
+  var rot = tilt + wob * 0.035 * wobScale;
+
+  ctx.save();
+  ctx.translate(c.x, c.y);
+  ctx.rotate(rot);
+
+  // body
+  ctx.beginPath(); ctx.ellipse(0, 0, c.r, ry, 0, 0, TAU);
+  ctx.fillStyle = rgrad(-c.r * 0.3, -ry * 0.6, c.r * 1.5, [
+    [0, '#fff3c4'], [0.24, '#f5d488'], [0.55, '#c9a253'],
+    [0.82, '#8e6c31'], [1, '#5d451e']
+  ]);
+  ctx.fill();
+
+  // lathe grooves
+  ctx.save();
+  ctx.beginPath(); ctx.ellipse(0, 0, c.r, ry, 0, 0, TAU); ctx.clip();
+  ctx.strokeStyle = 'rgba(90,64,22,0.22)';
+  ctx.lineWidth = 1.6;
+  for (var i = 1; i <= 5; i++) {
+    var k = i / 6;
+    ctx.beginPath(); ctx.ellipse(0, 0, c.r * k, ry * k, 0, 0, TAU); ctx.stroke();
+  }
+  // specular sweep
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.fillStyle = rgrad(-c.r * 0.36, -ry * 0.9, c.r * 0.9, [
+    [0, 'rgba(255,255,240,0.42)'], [1, 'rgba(255,255,240,0)']
+  ]);
+  ctx.beginPath(); ctx.ellipse(-c.r * 0.3, -ry * 0.3, c.r * 0.72, ry * 1.4, -0.25, 0, TAU); ctx.fill();
+  ctx.restore();
+
+  // bell
+  ctx.beginPath(); ctx.ellipse(0, -ry * 0.12, c.r * 0.24, Math.max(ry * 0.62, 3), 0, 0, TAU);
+  ctx.fillStyle = rgrad(-c.r * 0.06, -ry * 0.3, c.r * 0.3, [
+    [0, '#fffbe6'], [0.5, '#e6c47a'], [1, '#a37b34']
+  ]);
+  ctx.fill();
+
+  // rim
+  ctx.beginPath(); ctx.ellipse(0, 0, c.r, ry, 0, 0, TAU);
+  ctx.strokeStyle = 'rgba(255,244,206,' + (0.42 + energy * 0.4).toFixed(3) + ')';
+  ctx.lineWidth = 2.4; ctx.stroke();
+
+  // hit flash ring
+  if (age < 0.35) {
+    var f = 1 - age / 0.35;
+    ctx.beginPath(); ctx.ellipse(0, 0, c.r * (1 + (1 - f) * 0.06), ry * (1 + (1 - f) * 0.3), 0, 0, TAU);
+    ctx.strokeStyle = col + (0.75 * f * energy).toFixed(3) + ')';
+    ctx.lineWidth = 5 * f + 1;
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawHihat() {
+  var d = D.hihat;
+  // the pedal "chick" pulls the top cymbal down onto the bottom one
+  var sep = lerp(11, 2.5, d.open);
+  var tilt = -0.10;
+  var topY = HIHAT.y + 12 - sep;
+  drawCymbal({ x: HIHAT.x, y: HIHAT.y + 12, r: HIHAT.r, ry: 13 },
+    d.energy * 0.45, -9, 'rgba(255,236,180,', tilt, 0.45);
+  drawCymbal({ x: HIHAT.x, y: topY, r: HIHAT.r, ry: 13 },
+    d.energy, d.hitT, 'rgba(255,236,180,', tilt, 1);
+  // clutch holding the top cymbal onto the rod
+  ctx.save();
+  ctx.translate(HIHAT.x, 446);
+  ctx.fillStyle = grad(0, -10, 0, 12, [[0, '#e6eefc'], [0.45, '#9fb0d0'], [1, '#5a6a86']]);
+  ctx.beginPath();
+  ctx.moveTo(-9, -8); ctx.lineTo(-7, 12); ctx.lineTo(7, 12); ctx.lineTo(9, -8);
+  ctx.closePath(); ctx.fill();
+  ctx.fillStyle = '#cfdcf2';
+  ctx.beginPath(); ctx.ellipse(0, -9, 11, 4, 0, 0, TAU); ctx.fill();
+  ctx.restore();
+}
+
+/* ---------------- drums ---------------- */
+function headRipple(x, y, rx, ry, d) {
+  var age = songTime - d.hitT;
+  if (age > 0.5 || d.energy < 0.02) return;
+  ctx.save();
+  ctx.beginPath(); ctx.ellipse(x, y, rx, ry, 0, 0, TAU); ctx.clip();
+  for (var k = 0; k < 3; k++) {
+    var a = age - k * 0.05;
+    if (a <= 0) continue;
+    var r = a * 400;
+    var al = Math.max(0, 0.42 * (1 - a / 0.4)) * d.energy;
+    if (al <= 0.004) continue;
+    ctx.beginPath(); ctx.arc(d.hx, d.hy, r, 0, TAU);
+    ctx.strokeStyle = 'rgba(255,255,255,' + al.toFixed(3) + ')';
+    ctx.lineWidth = 3.2;
+    ctx.stroke();
+  }
+  // contact shadow
+  var cf = Math.max(0, 1 - age / 0.22);
+  ctx.fillStyle = rgrad(d.hx, d.hy, 46 * (0.5 + cf), [
+    [0, 'rgba(60,30,20,' + (0.3 * cf * d.energy).toFixed(3) + ')'], [1, 'rgba(60,30,20,0)']
+  ]);
+  ctx.beginPath(); ctx.arc(d.hx, d.hy, 46 * (0.5 + cf), 0, TAU); ctx.fill();
+  ctx.restore();
+}
+
+/* cylindrical drum seen from the front: top head is an ellipse */
+function drawShellDrum(dr, d, shellCol, headCol, ringCol) {
+  var e = d.energy;
+  var squash = 1 - 0.05 * e;
+  var y = dr.y + (1 - squash) * dr.ry * 0.5;
+  var rx = dr.rx, ry = dr.ry * squash, h = dr.h;
+  var by = y + h;
+
+  // shell body
+  ctx.beginPath();
+  ctx.moveTo(dr.x + rx, y);
+  ctx.ellipse(dr.x, by, rx, ry, 0, 0, Math.PI, false);
+  ctx.lineTo(dr.x - rx, y);
+  ctx.ellipse(dr.x, y, rx, ry, 0, Math.PI, 0, true);
+  ctx.closePath();
+  ctx.fillStyle = grad(dr.x - rx, y, dr.x + rx, by, [
+    [0, shellCol[0]], [0.28, shellCol[1]], [0.62, shellCol[2]], [1, shellCol[3]]
+  ]);
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(8,6,16,0.55)';
+  ctx.lineWidth = 2; ctx.stroke();
+
+  // stage rim light so the shell separates from the dark backdrop
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(dr.x - rx, y);
+  ctx.lineTo(dr.x - rx, by);
+  ctx.strokeStyle = 'rgba(110,200,255,0.40)';
+  ctx.lineWidth = 2.6; ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(dr.x + rx, y);
+  ctx.lineTo(dr.x + rx, by);
+  ctx.strokeStyle = 'rgba(255,110,190,0.38)';
+  ctx.lineWidth = 2.6; ctx.stroke();
+  ctx.restore();
+
+  // bottom rim (front arc)
+  ctx.beginPath();
+  ctx.ellipse(dr.x, by, rx, ry, 0, 0, Math.PI, false);
+  ctx.strokeStyle = grad(dr.x - rx, by, dr.x + rx, by, [
+    [0, 'rgba(150,168,200,0.25)'], [0.5, ringCol], [1, 'rgba(150,168,200,0.25)']
+  ]);
+  ctx.lineWidth = 4; ctx.stroke();
+
+  // top head
+  ell(dr.x, y, rx, ry);
+  ctx.fillStyle = grad(dr.x, y - ry, dr.x, y + ry, [
+    [0, headCol[0]], [0.55, headCol[1]], [1, headCol[2]]
+  ]);
+  ctx.fill();
+  headRipple(dr.x, y, rx, ry, d);
+
+  // hoop
+  ctx.beginPath(); ctx.ellipse(dr.x, y, rx, ry, 0, 0, TAU);
+  ctx.strokeStyle = grad(dr.x - rx, y - ry, dr.x + rx, y + ry, [
+    [0, '#8ea3c8'], [0.4, '#eef4ff'], [0.72, '#9fb0d0'], [1, '#5d6d8c']
+  ]);
+  ctx.lineWidth = 7; ctx.stroke();
+  ctx.beginPath(); ctx.ellipse(dr.x, y, rx - 3.5, ry - 3.5, 0, 0, TAU);
+  ctx.strokeStyle = 'rgba(255,255,255,' + (0.22 + e * 0.5).toFixed(3) + ')';
+  ctx.lineWidth = 1.6; ctx.stroke();
+
+  // lugs
+  var n = 6;
+  for (var i = 0; i < n; i++) {
+    var a = (i / n) * TAU + 0.35;
+    var lx = dr.x + Math.cos(a) * (rx + 1);
+    var ly = y + Math.sin(a) * (ry + 1) + h * 0.32;
+    ctx.fillStyle = grad(lx, ly - 8, lx, ly + 8, [[0, '#dfe9fa'], [1, '#6b7c9c']]);
+    ctx.beginPath();
+    ctx.roundRect ? ctx.roundRect(lx - 5, ly - 9, 10, 18, 3) : ctx.rect(lx - 5, ly - 9, 10, 18);
+    ctx.fill();
+  }
+}
+
+function drawKick() {
+  var d = D.kick;
+  var e = d.energy;
+  var sq = 1 - 0.045 * e;
+  var x = KICK.x, y = KICK.y, rx = KICK.rx, ry = KICK.ry * sq, dep = KICK.depth;
+
+  // shell + back rim
+  ctx.beginPath();
+  ctx.moveTo(x + rx, y - dep);
+  ctx.ellipse(x, y - dep, rx, ry, 0, 0, Math.PI, true);
+  ctx.lineTo(x - rx, y - dep);
+  ctx.closePath();
+  ctx.fillStyle = grad(x - rx, y - dep - ry, x + rx, y, [
+    [0, '#20304f'], [0.35, '#2c4468'], [1, '#141d31']
+  ]);
+  ctx.fill();
+  ctx.fillStyle = grad(x, y - dep - ry, x, y - dep, [[0, '#2b3f60'], [1, '#182339']]);
+  ctx.fillRect(x - rx, y - dep, rx * 2, dep);
+  // rim light along the top of the back rim
+  ctx.beginPath();
+  ctx.ellipse(x, y - dep, rx, ry, 0, Math.PI, 0, true);
+  ctx.strokeStyle = 'rgba(110,200,255,0.32)';
+  ctx.lineWidth = 3; ctx.stroke();
+
+  // spurs
+  chrome(x - rx * 0.82, y + ry * 0.35, x - rx * 1.16, FLOOR_Y + 26, 6);
+  chrome(x + rx * 0.82, y + ry * 0.35, x + rx * 1.16, FLOOR_Y + 26, 6);
+
+  // front head
+  ell(x, y, rx, ry);
+  ctx.fillStyle = rgrad(x - rx * 0.3, y - ry * 0.4, rx * 1.7, [
+    [0, '#fff6e8'], [0.4, '#f0e2cd'], [0.78, '#d8c5aa'], [1, '#b7a288']
+  ]);
+  ctx.fill();
+  headRipple(x, y, rx, ry, d);
+
+  // port hole
+  ell(x + rx * 0.46, y + ry * 0.5, rx * 0.19, ry * 0.19);
+  ctx.fillStyle = '#0a0710'; ctx.fill();
+  ctx.strokeStyle = 'rgba(255,255,255,0.25)'; ctx.lineWidth = 3; ctx.stroke();
+
+  // logo
+  ctx.save();
+  ctx.translate(x, y - ry * 0.12);
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.font = '900 54px "Arial Black", Impact, system-ui, sans-serif';
+  ctx.fillStyle = 'rgba(255,45,110,0.88)';
+  ctx.fillText('OCTO', 0, 0);
+  ctx.font = '700 17px system-ui, sans-serif';
+  ctx.fillStyle = 'rgba(60,40,90,0.75)';
+  ctx.fillText('B A S S   D R U M', 0, 34);
+  ctx.restore();
+
+  // front hoop
+  ell(x, y, rx, ry);
+  ctx.strokeStyle = grad(x - rx, y - ry, x + rx, y + ry, [
+    [0, '#8ea3c8'], [0.35, '#eef4ff'], [0.7, '#93a5c6'], [1, '#55647f']
+  ]);
+  ctx.lineWidth = 12; ctx.stroke();
+  ell(x, y, rx - 7, ry - 7);
+  ctx.strokeStyle = 'rgba(255,255,255,' + (0.16 + e * 0.45).toFixed(3) + ')';
+  ctx.lineWidth = 2.4; ctx.stroke();
+
+  // tension rods
+  var n = 14;
+  for (var i = 0; i < n; i++) {
+    var a = (i / n) * TAU;
+    var tx = x + Math.cos(a) * (rx + 3), ty = y + Math.sin(a) * (ry + 3);
+    ctx.fillStyle = grad(tx, ty - 10, tx, ty + 10, [[0, '#e8f0ff'], [1, '#63738f']]);
+    ctx.beginPath(); ctx.ellipse(tx, ty, 4, 10, a, 0, TAU); ctx.fill();
+  }
+}
+
+/* ---------------- arms ---------------- */
+function widthAt(a, u) {
+  return lerp(a.w0, a.w1, Math.pow(u, 0.85)) * (1 + 0.09 * Math.sin(u * Math.PI));
+}
+
+function armPoints(a, t) {
+  var P0 = a.base, P2 = a.tip;
+  var mx = (P0[0] + P2[0]) / 2 + a.ctrl[0];
+  var my = (P0[1] + P2[1]) / 2 + a.ctrl[1];
+  var dx = P2[0] - P0[0], dy = P2[1] - P0[1];
+  var len = Math.hypot(dx, dy) || 1;
+  var nx = -dy / len, ny = dx / len;
+  var wAmp = Math.min(len * 0.115, 30);
+  var N = 26, pts = [];
+  for (var i = 0; i <= N; i++) {
+    var u = i / N, mu = 1 - u;
+    var x = mu * mu * P0[0] + 2 * mu * u * mx + u * u * P2[0];
+    var y = mu * mu * P0[1] + 2 * mu * u * my + u * u * P2[1];
+    var w = Math.sin(u * a.waveK - a.wavePhase + t * a.waveSpeed) * wAmp * Math.pow(u, 1.7);
+    x += nx * w; y += ny * w;
+    var s = u * u;
+    x += a.dir[0] * a.off * s;
+    y += a.dir[1] * a.off * s;
+    pts.push([x, y]);
+  }
+  return pts;
+}
+
+function drawArm(a, t) {
+  var pts = armPoints(a, t);
+  var n = pts.length;
+  var L = [], R = [], i;
+  for (i = 0; i < n; i++) {
+    var p = pts[i];
+    var q = pts[Math.min(i + 1, n - 1)];
+    var r = pts[Math.max(i - 1, 0)];
+    var tx = q[0] - r[0], ty = q[1] - r[1];
+    var tl = Math.hypot(tx, ty) || 1; tx /= tl; ty /= tl;
+    var px = -ty, py = tx;
+    var w = widthAt(a, i / (n - 1));
+    L.push([p[0] + px * w, p[1] + py * w]);
+    R.push([p[0] - px * w, p[1] - py * w]);
+  }
+
+  ctx.beginPath();
+  ctx.moveTo(L[0][0], L[0][1]);
+  for (i = 1; i < n; i++) ctx.lineTo(L[i][0], L[i][1]);
+  for (i = n - 1; i >= 0; i--) ctx.lineTo(R[i][0], R[i][1]);
+  ctx.closePath();
+
+  var g = grad(a.base[0], a.base[1], a.tip[0], a.tip[1], [
+    [0, '#c9469f'], [0.3, '#a83aa8'], [0.62, '#7b2fb0'], [1, '#54209a']
+  ]);
+  // cheap outer glow: a fat translucent restroke of the same silhouette
+  ctx.strokeStyle = 'rgba(255,64,158,0.16)';
+  ctx.lineWidth = 9;
+  ctx.lineJoin = 'round';
+  ctx.stroke();
+  ctx.fillStyle = g;
+  ctx.fill();
+
+  // underside shade + top highlight
+  ctx.beginPath();
+  ctx.moveTo(R[0][0], R[0][1]);
+  for (i = 1; i < n; i++) ctx.lineTo(R[i][0], R[i][1]);
+  ctx.strokeStyle = 'rgba(40,10,70,0.45)';
+  ctx.lineWidth = 3; ctx.lineJoin = 'round'; ctx.stroke();
+
+  ctx.beginPath();
+  ctx.moveTo(L[0][0], L[0][1]);
+  for (i = 1; i < n; i++) ctx.lineTo(L[i][0], L[i][1]);
+  ctx.strokeStyle = 'rgba(255,190,235,0.34)';
+  ctx.lineWidth = 3.2; ctx.stroke();
+
+  // suckers
+  for (i = 1; i < n - 1; i++) {
+    var u = i / (n - 1);
+    if (u < 0.16 || u > 0.94) continue;
+    var w2 = widthAt(a, u);
+    if (w2 < 4) continue;
+    var su = ((i * 3) % 7) / 7 * 0.5 + 0.5;
+    var sxp = lerp(pts[i][0], R[i][0], su * 0.62);
+    var syp = lerp(pts[i][1], R[i][1], su * 0.62);
+    var sr = w2 * 0.24;
+    ctx.fillStyle = 'rgba(255,205,235,' + (0.5 * (1 - u * 0.6)).toFixed(3) + ')';
+    ctx.beginPath(); ctx.arc(sxp, syp, sr, 0, TAU); ctx.fill();
+    ctx.strokeStyle = 'rgba(120,40,110,0.35)';
+    ctx.lineWidth = 1; ctx.stroke();
+  }
+
+  // tip cap / grip
+  var tip = pts[n - 1];
+  ctx.fillStyle = '#c9469f';
+  ctx.beginPath(); ctx.arc(tip[0], tip[1], widthAt(a, 1) + 3, 0, TAU); ctx.fill();
+
+  if (a.stick) drawStick(a, tip);
+}
+
+function drawStick(a, tip) {
+  var dx = a.dir[0], dy = a.dir[1];
+  var bx = tip[0] + dx * STICK_REACH;   // bead end
+  var by = tip[1] + dy * STICK_REACH;
+  var ux = tip[0] - dx * GRIP;          // butt end
+  var uy = tip[1] - dy * GRIP;
+
+  ctx.strokeStyle = grad(ux, uy, bx, by, [
+    [0, '#8d6a41'], [0.18, '#d8b184'], [0.6, '#f0d3ab'], [1, '#e8c69a']
+  ]);
+  ctx.lineWidth = 9.5;
+  ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(ux, uy); ctx.lineTo(bx, by); ctx.stroke();
+
+  // highlight
+  ctx.strokeStyle = 'rgba(255,248,232,0.65)';
+  ctx.lineWidth = 2.8;
+  ctx.beginPath();
+  ctx.moveTo(ux - dy * 1.6, uy + dx * 1.6);
+  ctx.lineTo(bx - dy * 1.4, by + dx * 1.4);
+  ctx.stroke();
+
+  // grip band
+  ctx.strokeStyle = 'rgba(70,40,30,0.55)';
+  ctx.lineWidth = 8;
+  ctx.beginPath();
+  ctx.moveTo(ux + dx * 4, uy + dy * 4);
+  ctx.lineTo(ux + dx * 16, uy + dy * 16);
+  ctx.stroke();
+
+  // bead
+  ctx.fillStyle = '#fff2d6';
+  ctx.beginPath(); ctx.arc(bx, by, 4.6, 0, TAU); ctx.fill();
+}
+
+/* ---------------- octopus ---------------- */
+function drawMantle(t, cx, cy, rx, ry, rot) {
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate(rot);
+
+  // silhouette
+  function path() {
+    ctx.beginPath();
+    ctx.moveTo(-rx, ry * 0.34);
+    ctx.bezierCurveTo(-rx * 1.03, -ry * 0.92, rx * 1.03, -ry * 0.92, rx, ry * 0.34);
+    ctx.bezierCurveTo(rx * 0.78, ry * 1.05, -rx * 0.78, ry * 1.05, -rx, ry * 0.34);
+    ctx.closePath();
+  }
+
+  // dorsal fins
+  ctx.save();
+  ctx.rotate(-0.5);
+  ctx.beginPath();
+  ctx.moveTo(-rx * 0.72, -ry * 0.55);
+  ctx.quadraticCurveTo(-rx * 1.25, -ry * 1.15, -rx * 0.82, -ry * 0.1);
+  ctx.quadraticCurveTo(-rx * 0.9, -ry * 0.45, -rx * 0.72, -ry * 0.55);
+  ctx.closePath();
+  ctx.fillStyle = grad(-rx, -ry, -rx * 0.6, 0, [[0, '#ff8ec4'], [1, '#b93f9d']]);
+  ctx.fill();
+  ctx.restore();
+  ctx.save();
+  ctx.rotate(0.5);
+  ctx.beginPath();
+  ctx.moveTo(rx * 0.72, -ry * 0.55);
+  ctx.quadraticCurveTo(rx * 1.25, -ry * 1.15, rx * 0.82, -ry * 0.1);
+  ctx.quadraticCurveTo(rx * 0.9, -ry * 0.45, rx * 0.72, -ry * 0.55);
+  ctx.closePath();
+  ctx.fillStyle = grad(rx, -ry, rx * 0.6, 0, [[0, '#ff8ec4'], [1, '#b93f9d']]);
+  ctx.fill();
+  ctx.restore();
+
+  // body — soft halo first (cheaper than shadowBlur on a large path)
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.fillStyle = rgrad(0, 0, rx * 2.1, [
+    [0, 'rgba(255,70,170,0.20)'],
+    [0.45, 'rgba(190,50,200,0.10)'],
+    [1, 'rgba(120,40,190,0)']
+  ]);
+  ctx.beginPath(); ctx.arc(0, 0, rx * 2.1, 0, TAU); ctx.fill();
+  ctx.globalCompositeOperation = 'source-over';
+
+  path();
+  ctx.fillStyle = rgrad(-rx * 0.35, -ry * 0.55, rx * 1.75, [
+    [0, '#ff9ad0'], [0.2, '#f4639f'], [0.5, '#c1349b'], [0.78, '#7c2496'], [1, '#4a1478']
+  ]);
+  ctx.fill();
+
+  // mottling
+  ctx.save();
+  path(); ctx.clip();
+  ctx.fillStyle = 'rgba(255,150,205,0.16)';
+  for (var i = 0; i < 5; i++) {
+    var a = i * 1.9;
+    ctx.beginPath();
+    ctx.ellipse(Math.cos(a) * rx * 0.5, -ry * 0.3 + Math.sin(a * 1.7) * ry * 0.45,
+      rx * (0.12 + (i % 3) * 0.05), ry * 0.09, a, 0, TAU);
+    ctx.fill();
+  }
+  // wet sheen
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.fillStyle = rgrad(-rx * 0.42, -ry * 0.62, rx * 0.85, [
+    [0, 'rgba(255,255,255,0.5)'], [0.45, 'rgba(255,220,245,0.14)'], [1, 'rgba(255,255,255,0)']
+  ]);
+  ctx.beginPath();
+  ctx.ellipse(-rx * 0.38, -ry * 0.58, rx * 0.46, ry * 0.3, -0.45, 0, TAU);
+  ctx.fill();
+  ctx.restore();
+
+  // rim lights: clip first, then build the silhouette so the stroke survives.
+  // Kept to the upper body — light on this stage comes from above.
+  ctx.save();
+  ctx.beginPath(); ctx.rect(-rx * 1.4, -ry * 1.5, rx * 1.36, ry * 2); ctx.clip();
+  path();
+  ctx.strokeStyle = 'rgba(165,240,255,' + (0.26 + pulse * 0.16).toFixed(3) + ')';
+  ctx.lineWidth = 5.5;
+  ctx.stroke();
+  ctx.restore();
+
+  ctx.save();
+  ctx.beginPath(); ctx.rect(rx * 0.04, -ry * 1.5, rx * 1.36, ry * 2); ctx.clip();
+  path();
+  ctx.strokeStyle = 'rgba(255,110,190,' + (0.55 + accent * 0.35).toFixed(3) + ')';
+  ctx.lineWidth = 5;
+  ctx.stroke();
+  ctx.restore();
+
+  path();
+  ctx.strokeStyle = 'rgba(255,255,255,0.14)';
+  ctx.lineWidth = 1.6;
+  ctx.stroke();
+
+  ctx.restore();
+}
+
+function drawEye(ex, ey, rx, ry, gaze, lid) {
+  // socket shadow
+  ctx.fillStyle = 'rgba(60,10,60,0.32)';
+  ell(ex, ey + 3, rx * 1.1, ry * 1.1); ctx.fill();
+
+  // sclera
+  ctx.save();
+  ell(ex, ey, rx, ry);
+  ctx.fillStyle = grad(ex, ey - ry, ex, ey + ry, [
+    [0, '#fffdf8'], [0.6, '#f7ece0'], [1, '#ddc9bb']
+  ]);
+  ctx.fill();
+  ctx.clip();
+
+  // iris
+  var ix = ex + gaze[0] * rx * 0.30, iy = ey + gaze[1] * ry * 0.26;
+  var pr = rx * 0.52;
+  ctx.fillStyle = rgrad(ix - pr * 0.3, iy - pr * 0.35, pr * 1.3, [
+    [0, '#3b1c58'], [0.55, '#22103a'], [1, '#0d0618']
+  ]);
+  ctx.beginPath(); ctx.arc(ix, iy, pr, 0, TAU); ctx.fill();
+  // iris ring
+  ctx.strokeStyle = 'rgba(255,120,200,0.55)';
+  ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.arc(ix, iy, pr * 0.92, 0, TAU); ctx.stroke();
+  // catchlights
+  ctx.fillStyle = 'rgba(255,255,255,0.95)';
+  ctx.beginPath(); ctx.arc(ix - pr * 0.34, iy - pr * 0.4, pr * 0.24, 0, TAU); ctx.fill();
+  ctx.fillStyle = 'rgba(255,255,255,0.6)';
+  ctx.beginPath(); ctx.arc(ix + pr * 0.3, iy + pr * 0.34, pr * 0.13, 0, TAU); ctx.fill();
+  // lower ambient light
+  ctx.fillStyle = 'rgba(255,150,220,0.22)';
+  ctx.beginPath(); ctx.ellipse(ix, iy + pr * 0.7, pr * 0.7, pr * 0.3, 0, 0, TAU); ctx.fill();
+
+  // upper lid
+  var lidY = ey - ry + ry * 2 * clamp(lid, 0, 1);
+  ctx.beginPath();
+  ctx.moveTo(ex - rx - 2, ey - ry - 2);
+  ctx.lineTo(ex + rx + 2, ey - ry - 2);
+  ctx.lineTo(ex + rx + 2, lidY);
+  ctx.quadraticCurveTo(ex, lidY + ry * 0.42, ex - rx - 2, lidY);
+  ctx.closePath();
+  ctx.fillStyle = grad(ex, ey - ry, ex, ey + ry, [
+    [0, '#e2549f'], [0.5, '#b93f9d'], [1, '#8a2f9a']
+  ]);
+  ctx.fill();
+  ctx.restore();
+
+  // lid crease + outline
+  ctx.beginPath();
+  ctx.moveTo(ex - rx - 2, ey - ry + ry * 2 * clamp(lid, 0, 1));
+  ctx.quadraticCurveTo(ex, ey - ry + ry * 2 * clamp(lid, 0, 1) + ry * 0.42,
+    ex + rx + 2, ey - ry + ry * 2 * clamp(lid, 0, 1));
+  ctx.strokeStyle = 'rgba(70,15,70,0.55)';
+  ctx.lineWidth = 3; ctx.stroke();
+
+  ell(ex, ey, rx, ry);
+  ctx.strokeStyle = 'rgba(70,15,70,0.75)';
+  ctx.lineWidth = 3.4; ctx.stroke();
+
+  // brow bump
+  ctx.beginPath();
+  ctx.moveTo(ex - rx * 0.8, ey - ry * 0.78);
+  ctx.quadraticCurveTo(ex, ey - ry * 1.36, ex + rx * 0.8, ey - ry * 0.78);
+  ctx.strokeStyle = 'rgba(255,175,228,0.42)';
+  ctx.lineWidth = 4.4; ctx.lineCap = 'round'; ctx.stroke();
+}
+
+function drawOctopus(t) {
+  var kickE = D.kick.energy, snareE = D.snare.energy;
+  var bob = Math.sin(t * (TAU / SPB) * 2) * 2.6;
+  var cy = 300 + bob + kickE * 5 + snareE * -2;
+  var cx = 760 + Math.sin(t * 0.42) * 4;
+  var rot = Math.sin(t * (TAU / SPB)) * 0.026 - kickE * 0.01;
+  var rx = 155 * (1 - kickE * 0.018);
+  var ry = 132 * (1 + kickE * 0.022);
+
+  drawMantle(t, cx, cy, rx, ry, rot);
+
+  var gazeT = 0.5 + 0.5 * Math.sin(t * 0.33);
+  var gaze = [lerp(-0.85, 0.85, gazeT), lerp(0.25, 0.62, 0.5 + 0.5 * Math.sin(t * 0.21 + 1))];
+  var blinkPhase = (t % 4.6) / 4.6;
+  var blink = blinkPhase > 0.965 ? Math.sin((blinkPhase - 0.965) / 0.035 * Math.PI) : 0;
+  var lid = Math.max(blink, squint * 0.42 + Math.max(0, Math.sin(t * (TAU / SPB))) * 0.05);
+
+  var ex1 = cx - 58, ey1 = cy - 38;
+  var ex2 = cx + 58, ey2 = cy - 38;
+  drawEye(ex1, ey1, 52, 48, gaze, lid);
+  drawEye(ex2, ey2, 52, 48, gaze, lid);
+
+  // blush
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.fillStyle = rgrad(cx - 96, cy + 4, 40, [[0, 'rgba(255,90,170,0.22)'], [1, 'rgba(255,90,170,0)']]);
+  ctx.beginPath(); ctx.arc(cx - 96, cy + 4, 40, 0, TAU); ctx.fill();
+  ctx.fillStyle = rgrad(cx + 96, cy + 4, 40, [[0, 'rgba(255,90,170,0.22)'], [1, 'rgba(255,90,170,0)']]);
+  ctx.beginPath(); ctx.arc(cx + 96, cy + 4, 40, 0, TAU); ctx.fill();
+  ctx.globalCompositeOperation = 'source-over';
+}
+
+/* ---------------- FX ---------------- */
+function updateFX(dt) {
+  var i, p;
+  for (i = rings.length - 1; i >= 0; i--) {
+    p = rings[i]; p.t += dt;
+    if (p.t >= p.life) rings.splice(i, 1);
+  }
+  for (i = sparks.length - 1; i >= 0; i--) {
+    p = sparks[i]; p.t += dt;
+    p.vy += p.g * dt;
+    p.vx *= 0.985; p.vy *= 0.985;
+    p.x += p.vx * dt; p.y += p.vy * dt;
+    if (p.t >= p.life) sparks.splice(i, 1);
+  }
+  for (i = notes.length - 1; i >= 0; i--) {
+    p = notes[i]; p.t += dt;
+    p.x += p.vx * dt;
+    p.y += p.vy * dt;
+    p.vy *= 0.99;
+    p.rot += p.vr * dt;
+    if (p.t >= p.life) notes.splice(i, 1);
+  }
+  for (i = 0; i < dust.length; i++) {
+    p = dust[i];
+    p.y -= p.v * dt;
+    if (p.y < -60) { p.y = VH + 40; p.x = rnd(-100, VW + 100); }
+  }
+}
+
+function drawFX() {
+  var i, p, k, al;
+  // rings
+  ctx.globalCompositeOperation = 'lighter';
+  for (i = 0; i < rings.length; i++) {
+    p = rings[i];
+    k = p.t / p.life;
+    al = Math.pow(1 - k, 1.7);
+    var rr = p.rx * (1 + k * 5.5);
+    ctx.beginPath();
+    ctx.ellipse(p.x, p.y, rr, p.ry * (1 + k * 4.2), 0, 0, TAU);
+    ctx.strokeStyle = p.col + (al * 0.8).toFixed(3) + ')';
+    ctx.lineWidth = p.w * (1 - k) + 0.6;
+    ctx.stroke();
+  }
+  // sparks
+  for (i = 0; i < sparks.length; i++) {
+    p = sparks[i];
+    k = p.t / p.life;
+    al = Math.pow(1 - k, 1.4);
+    ctx.fillStyle = p.col;
+    ctx.globalAlpha = al;
+    ctx.beginPath(); ctx.arc(p.x, p.y, p.r * (1 - k * 0.55), 0, TAU); ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+  ctx.globalCompositeOperation = 'source-over';
+
+  // notes
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  for (i = 0; i < notes.length; i++) {
+    p = notes[i];
+    k = p.t / p.life;
+    al = k < 0.16 ? k / 0.16 : Math.pow(1 - (k - 0.16) / 0.84, 1.5);
+    ctx.save();
+    ctx.translate(p.x, p.y + Math.sin(p.t * 3 + p.rot) * 6);
+    ctx.rotate(p.rot);
+    ctx.fillStyle = p.col;
+    // glow pass, then the crisp glyph — avoids per-note shadowBlur
+    ctx.globalAlpha = clamp(al, 0, 1) * 0.22;
+    ctx.font = '700 ' + (p.size * 1.35).toFixed(0) + 'px "Segoe UI Symbol", system-ui, sans-serif';
+    ctx.fillText(p.g, 0, 0);
+    ctx.globalAlpha = clamp(al, 0, 1);
+    ctx.font = '700 ' + p.size.toFixed(0) + 'px "Segoe UI Symbol", system-ui, sans-serif';
+    ctx.fillText(p.g, 0, 0);
+    ctx.restore();
+  }
+  ctx.globalAlpha = 1;
+  ctx.shadowBlur = 0;
+}
+
+function drawVignette() {
+  if (!vigReady) return;
+  ctx.drawImage(vigCvs, 0, 0, cw, ch);
+}
+
+/* ---------------- per-frame ---------------- */
+function updateArms() {
+  var pt = songTime % PHRASE_DUR;
+  for (var i = 0; i < ARMS.length; i++) {
+    var a = ARMS[i];
+    var nd = nearestDelta(i, pt);
+    var d = nd.d, off = 0;
+    var PREP = 0.075;
+    if (d < 0 && d > -PREP) {
+      off = -a.lift * nd.vel * Math.sin(Math.PI * (d + PREP) / PREP);
+    } else if (d >= 0) {
+      off = a.press * nd.vel * (1 - Math.exp(-d / 0.006)) * Math.exp(-d / 0.115);
+    }
+    a.off = off;
+    a.tip[0] = a.tipRest[0] + a.dir[0] * off;
+    a.tip[1] = a.tipRest[1] + a.dir[1] * off;
+  }
+}
+
+function decayState(dt) {
+  for (var n in D) {
+    var d = D[n];
+    d.energy *= Math.exp(-dt * (n === 'kick' || n === 'snare' ? 7.5 : 6.2));
+    d.open *= Math.exp(-dt * 9);
+  }
+  pulse *= Math.exp(-dt * 5.5);
+  accent *= Math.exp(-dt * 1.9);
+  squint *= Math.exp(-dt * 3.4);
+  fillGlow *= Math.exp(-dt * 1.5);
+  cam.shake *= Math.exp(-dt * 6.5);
+  cam.zoom += (1 - cam.zoom) * Math.min(1, dt * 6);
+}
+
+var lastFillBar = -1;
+
+function frame(now) {
+  // A single bad frame must never freeze the scene: catch, reset the
+  // context state, and keep the loop alive.
+  try {
+    frameBody(now);
+  } catch (err) {
+    if (!frame.err) {
+      frame.err = err;
+      window.__octoError = String((err && err.stack) || err);
+      if (window.console && console.error) console.error(err);
+    }
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = 'source-over';
+  }
+  requestAnimationFrame(frame);
+}
+
+function frameBody(now) {
+  var t = now / 1000;
+  var dt = Math.min(0.05, t - (frame._last || t));
+  frame._last = t;
+
+  advanceClock(dt);
+  updateArms();
+  updateFX(dt);
+  decayState(dt);
+
+  // camera drift + musical punch
+  var barIdx = Math.floor(stepIdx / 16);
+  if (barIdx % 2 === 1 && barIdx !== lastFillBar) {
+    lastFillBar = barIdx;
+    fillGlow = 1;
+    cam.zoom += 0.014;
+  }
+  cam.x = Math.sin(t * 0.13) * 15 + rnd(-1, 1) * cam.shake;
+  cam.y = CAM_Y + Math.sin(t * 0.17 + 1.1) * 9 + rnd(-1, 1) * cam.shake;
+  var z = cam.zoom * (1 + 0.011 * Math.sin(t * 0.21) + fillGlow * 0.012);
+
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  drawBackground(t);
+
+  ctx.save();
+  ctx.translate(vx, vy);
+  ctx.scale(vs, vs);
+  ctx.translate(VW / 2 + cam.x, VH / 2 + cam.y);
+  ctx.scale(z, z);
+  ctx.translate(-VW / 2, -VH / 2);
+
+  drawLightCones(t);
+  drawGroundFx();
+  drawDust(false);
+  drawThrone();
+  drawStands();
+
+  // cymbals (behind the drums)
+  drawCymbal(CRASH, D.crash.energy, D.crash.hitT, 'rgba(255,226,160,', -0.16, 1);
+  drawCymbal(RIDE, D.ride.energy, D.ride.hitT, 'rgba(255,226,160,', 0.13, 1);
+  drawHihat();
+
+  // drums, back to front
+  drawShellDrum(TOM1, D.tom1, ['#22355a', '#2f4772', '#1b2a45', '#0f1727'], ['#fff6e8', '#eee0ca', '#cdb99d'], 'rgba(220,235,255,0.5)');
+  drawShellDrum(TOM2, D.tom2, ['#22355a', '#2f4772', '#1b2a45', '#0f1727'], ['#fff6e8', '#eee0ca', '#cdb99d'], 'rgba(220,235,255,0.5)');
+  drawShellDrum(FLOOR, D.floor, ['#243a63', '#33507f', '#1d2d4b', '#101828'], ['#fff6e8', '#eee0ca', '#cdb99d'], 'rgba(220,235,255,0.5)');
+  drawKick();
+  drawShellDrum(SNARE, D.snare, ['#3a2440', '#5a3760', '#2a1a2f', '#170e1c'], ['#fffaf0', '#f2e6d4', '#d3bfa6'], 'rgba(255,225,245,0.55)');
+
+  // tentacles over the kit, then the body covers their roots
+  for (var i = 0; i < ARMS.length; i++) drawArm(ARMS[i], t);
+  drawOctopus(t);
+
+  drawFX();
+  drawDust(true);
+  ctx.restore();
+
+  drawVignette();
+}
+requestAnimationFrame(frame);
+
+})();
+</script>
+<!--zc-home:start--><style>.zc-home-btn{position:fixed;top:16px;left:16px;z-index:2147483647;display:inline-flex;align-items:center;gap:6px;padding:8px 14px;font:500 13px/1.1 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Noto Sans SC",sans-serif;color:#111;background:rgba(255,255,255,.86);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);border:1px solid rgba(0,0,0,.08);border-radius:999px;text-decoration:none;box-shadow:0 2px 12px rgba(0,0,0,.2);transition:background .2s ease,transform .2s ease,box-shadow .2s ease}.zc-home-btn:hover{background:#fff;transform:translateY(-1px);box-shadow:0 4px 18px rgba(0,0,0,.26)}</style><a class="zc-home-btn" href="../">← 返回首页</a><!--zc-home:end-->
+</body>
+</html>

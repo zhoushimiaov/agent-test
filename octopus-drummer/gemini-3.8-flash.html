@@ -1,0 +1,1026 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Octopus Drummer - Live Concert</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+    }
+    body, html {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #05050d;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+    #canvas-container {
+      width: 100vw;
+      height: 100vh;
+      position: absolute;
+      top: 0;
+      left: 0;
+      z-index: 1;
+    }
+    /* 电影感暗角与微弱舞台氛围叠加层 */
+    .vignette-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      z-index: 2;
+      background: radial-gradient(circle at center, transparent 45%, rgba(4, 3, 10, 0.75) 100%);
+      box-shadow: inset 0 0 120px rgba(0, 0, 0, 0.85);
+    }
+    /* 顶部微妙的小徽标风格（不影响整体纯净画面） */
+    .stage-watermark {
+      position: fixed;
+      bottom: 24px;
+      right: 30px;
+      z-index: 3;
+      color: rgba(255, 255, 255, 0.22);
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 3px;
+      text-transform: uppercase;
+      pointer-events: none;
+    }
+    /* 屏幕闪白击打滤镜特效 (由 JS 动态控制透明度) */
+    #impact-flash {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      z-index: 4;
+      background: radial-gradient(circle at 50% 55%, rgba(255, 80, 180, 0.25), transparent 70%);
+      opacity: 0;
+      transition: opacity 0.05s ease-out;
+    }
+  </style>
+  <!-- Three.js 核心库 -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+<body>
+  <div id="canvas-container"></div>
+  <div class="vignette-overlay"></div>
+  <div id="impact-flash"></div>
+  <div class="stage-watermark">OCTO-BEATS • LIVE RIG</div>
+
+  <script>
+    // ==========================================
+    // 1. Web Audio 合成器 (支持用户任意首次点击/按键自动解锁)
+    // ==========================================
+    class SynthAudio {
+      constructor() {
+        this.ctx = null;
+        this.init();
+      }
+      init() {
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        if (AudioContext) {
+          this.ctx = new AudioContext();
+          const unlock = () => {
+            if (this.ctx && this.ctx.state === 'suspended') {
+              this.ctx.resume();
+            }
+            window.removeEventListener('click', unlock);
+            window.removeEventListener('keydown', unlock);
+            window.removeEventListener('touchstart', unlock);
+          };
+          window.addEventListener('click', unlock);
+          window.addEventListener('keydown', unlock);
+          window.addEventListener('touchstart', unlock);
+        }
+      }
+      trigger(type) {
+        if (!this.ctx || this.ctx.state !== 'running') return;
+        const now = this.ctx.currentTime;
+        if (type === 'kick') {
+          const osc = this.ctx.createOscillator();
+          const gain = this.ctx.createGain();
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(150, now);
+          osc.frequency.exponentialRampToValueAtTime(36, now + 0.12);
+          gain.gain.setValueAtTime(1.0, now);
+          gain.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
+          osc.connect(gain);
+          gain.connect(this.ctx.destination);
+          osc.start(now);
+          osc.stop(now + 0.36);
+        } else if (type === 'snare') {
+          // 噪音部分
+          const bufferSize = this.ctx.sampleRate * 0.18;
+          const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+          const data = buffer.getChannelData(0);
+          for (let i = 0; i < bufferSize; i++) {
+            data[i] = Math.random() * 2 - 1;
+          }
+          const noise = this.ctx.createBufferSource();
+          noise.buffer = buffer;
+          const noiseFilter = this.ctx.createBiquadFilter();
+          noiseFilter.type = 'highpass';
+          noiseFilter.frequency.value = 1000;
+          const noiseGain = this.ctx.createGain();
+          noiseGain.gain.setValueAtTime(0.7, now);
+          noiseGain.gain.exponentialRampToValueAtTime(0.01, now + 0.18);
+          noise.connect(noiseFilter);
+          noiseFilter.connect(noiseGain);
+          noiseGain.connect(this.ctx.destination);
+          noise.start(now);
+
+          // 音调部分
+          const osc = this.ctx.createOscillator();
+          const oscGain = this.ctx.createGain();
+          osc.type = 'triangle';
+          osc.frequency.setValueAtTime(220, now);
+          osc.frequency.exponentialRampToValueAtTime(80, now + 0.1);
+          oscGain.gain.setValueAtTime(0.6, now);
+          oscGain.exponentialRampToValueAtTime(0.01, now + 0.12);
+          osc.connect(oscGain);
+          oscGain.connect(this.ctx.destination);
+          osc.start(now);
+          osc.stop(now + 0.15);
+        } else if (type === 'cymbal' || type === 'hihat' || type === 'ride') {
+          const bufferSize = this.ctx.sampleRate * (type === 'hihat' ? 0.08 : 0.45);
+          const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+          const data = buffer.getChannelData(0);
+          for (let i = 0; i < bufferSize; i++) {
+            data[i] = Math.random() * 2 - 1;
+          }
+          const noise = this.ctx.createBufferSource();
+          noise.buffer = buffer;
+          const filter = this.ctx.createBiquadFilter();
+          filter.type = 'highpass';
+          filter.frequency.value = type === 'hihat' ? 7000 : 5000;
+          const gain = this.ctx.createGain();
+          gain.gain.setValueAtTime(type === 'hihat' ? 0.35 : 0.6, now);
+          gain.gain.exponentialRampToValueAtTime(0.005, now + (type === 'hihat' ? 0.08 : 0.45));
+          noise.connect(filter);
+          filter.connect(gain);
+          gain.connect(this.ctx.destination);
+          noise.start(now);
+        } else if (type.startsWith('tom')) {
+          const osc = this.ctx.createOscillator();
+          const gain = this.ctx.createGain();
+          osc.type = 'sine';
+          let freq = 160;
+          if (type === 'tom1') freq = 190;
+          if (type === 'tom2') freq = 145;
+          if (type === 'tom3') freq = 100;
+          osc.frequency.setValueAtTime(freq, now);
+          osc.frequency.exponentialRampToValueAtTime(freq * 0.45, now + 0.22);
+          gain.gain.setValueAtTime(0.8, now);
+          gain.gain.exponentialRampToValueAtTime(0.01, now + 0.25);
+          osc.connect(gain);
+          gain.connect(this.ctx.destination);
+          osc.start(now);
+          osc.stop(now + 0.26);
+        }
+      }
+    }
+    const audio = new SynthAudio();
+
+    // ==========================================
+    // 2. 场景、相机、渲染器设置
+    // ==========================================
+    const container = document.getElementById('canvas-container');
+    const scene = new THREE.Scene();
+    scene.fog = new THREE.FogExp2(0x060611, 0.032);
+
+    const camera = new THREE.PerspectiveCamera(46, window.innerWidth / window.innerHeight, 0.1, 100);
+    camera.position.set(0, 3.8, 8.8);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: "high-performance" });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.25;
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    container.appendChild(renderer.domElement);
+
+    // ==========================================
+    // 3. 舞台灯光与环境氛围
+    // ==========================================
+    const ambientLight = new THREE.AmbientLight(0x1a1233, 1.4);
+    scene.add(ambientLight);
+
+    // 主聚光灯 1: 紫洋红 (顶照章鱼)
+    const spotLightMagenta = new THREE.SpotLight(0xff0077, 4.5, 25, Math.PI / 4, 0.5, 1.2);
+    spotLightMagenta.position.set(4, 9, 3);
+    spotLightMagenta.castShadow = true;
+    spotLightMagenta.shadow.mapSize.width = 1024;
+    spotLightMagenta.shadow.mapSize.height = 1024;
+    scene.add(spotLightMagenta);
+
+    // 主聚光灯 2: 霓虹青蓝 (顶照斜向)
+    const spotLightCyan = new THREE.SpotLight(0x00f0ff, 4.0, 25, Math.PI / 3.8, 0.45, 1.2);
+    spotLightCyan.position.set(-5, 8.5, 2);
+    spotLightCyan.castShadow = true;
+    scene.add(spotLightCyan);
+
+    // 背光轮廓灯: 强金色/柠檬黄边缘光
+    const rimLight = new THREE.DirectionalLight(0xffaa22, 2.2);
+    rimLight.position.set(0, 5, -6);
+    scene.add(rimLight);
+
+    // 动态底部摇滚光晕
+    const floorLight = new THREE.PointLight(0x8a2be2, 2.0, 10);
+    floorLight.position.set(0, 0.3, 0);
+    scene.add(floorLight);
+
+    // 舞台地面 (反光圆形舞台地板)
+    const stageGeo = new THREE.CylinderGeometry(7.5, 8.0, 0.6, 64);
+    const stageMat = new THREE.MeshStandardMaterial({
+      color: 0x111118,
+      roughness: 0.28,
+      metalness: 0.65,
+    });
+    const stage = new THREE.Mesh(stageGeo, stageMat);
+    stage.position.y = -0.3;
+    stage.receiveShadow = true;
+    scene.add(stage);
+
+    // 舞台外圈发光霓虹环
+    const ringGeo = new THREE.TorusGeometry(7.5, 0.08, 16, 90);
+    const ringMat = new THREE.MeshBasicMaterial({ color: 0x00e1ff });
+    const stageRing = new THREE.Mesh(ringGeo, ringMat);
+    stageRing.rotation.x = Math.PI / 2;
+    stageRing.position.y = 0.01;
+    scene.add(stageRing);
+
+    // 舞台背景幕与支架网格
+    const gridHelper = new THREE.GridHelper(30, 40, 0xff0055, 0x221144);
+    gridHelper.position.y = -0.31;
+    scene.add(gridHelper);
+
+    // ==========================================
+    // 4. 架子鼓套件构建 (Bass Drum, Snare, Toms, Cymbals, Hi-hat, Pedals)
+    // ==========================================
+    const drums = {}; // 存储击打目标对象与物理振动状态
+    const drumSetGroup = new THREE.Group();
+    scene.add(drumSetGroup);
+
+    // 材质库
+    const chromeMat = new THREE.MeshStandardMaterial({
+      color: 0xe0e6ed,
+      metalness: 0.95,
+      roughness: 0.12
+    });
+    const cymbalMat = new THREE.MeshStandardMaterial({
+      color: 0xffcc33,
+      metalness: 0.88,
+      roughness: 0.28
+    });
+    const drumSkinMat = new THREE.MeshStandardMaterial({
+      color: 0xf5f5fa,
+      roughness: 0.35,
+      metalness: 0.05
+    });
+    const drumShellMat = new THREE.MeshStandardMaterial({
+      color: 0x1a0933,
+      metalness: 0.7,
+      roughness: 0.25
+    });
+    const rimMat = new THREE.MeshStandardMaterial({
+      color: 0xcccccc,
+      metalness: 0.9,
+      roughness: 0.15
+    });
+
+    // 通用鼓构建函数
+    function createDrumMesh(radius, height, shellColor = 0x2a0845) {
+      const group = new THREE.Group();
+      // 外鼓桶
+      const customShellMat = drumShellMat.clone();
+      customShellMat.color.setHex(shellColor);
+      const shellGeo = new THREE.CylinderGeometry(radius, radius, height, 36, 1, true);
+      const shell = new THREE.Mesh(shellGeo, customShellMat);
+      shell.castShadow = true;
+      shell.receiveShadow = true;
+      group.add(shell);
+
+      // 鼓皮 (上下)
+      const skinGeo = new THREE.CircleGeometry(radius * 0.98, 36);
+      const skinTop = new THREE.Mesh(skinGeo, drumSkinMat);
+      skinTop.rotation.x = -Math.PI / 2;
+      skinTop.position.y = height / 2;
+      group.add(skinTop);
+
+      const skinBottom = new THREE.Mesh(skinGeo, drumSkinMat);
+      skinBottom.rotation.x = Math.PI / 2;
+      skinBottom.position.y = -height / 2;
+      group.add(skinBottom);
+
+      // 上下压圈 Rim
+      const rimGeo = new THREE.TorusGeometry(radius * 1.01, 0.035, 12, 36);
+      const rimTop = new THREE.Mesh(rimGeo, rimMat);
+      rimTop.rotation.x = Math.PI / 2;
+      rimTop.position.y = height / 2;
+      group.add(rimTop);
+
+      const rimBottom = new THREE.Mesh(rimGeo, rimMat);
+      rimBottom.rotation.x = Math.PI / 2;
+      rimBottom.position.y = -height / 2;
+      group.add(rimBottom);
+
+      return { group, skinTop };
+    }
+
+    // 镲片构建函数
+    function createCymbalMesh(radius, tilt = 0) {
+      const group = new THREE.Group();
+      const cymbalGeo = new THREE.CylinderGeometry(radius * 0.15, radius, 0.04, 36);
+      const cymbal = new THREE.Mesh(cymbalGeo, cymbalMat);
+      cymbal.castShadow = true;
+      group.add(cymbal);
+
+      // 镲心钟罩
+      const bellGeo = new THREE.SphereGeometry(radius * 0.22, 16, 12, 0, Math.PI * 2, 0, Math.PI / 2);
+      const bell = new THREE.Mesh(bellGeo, cymbalMat);
+      bell.position.y = 0.02;
+      group.add(bell);
+
+      // 支架金属杆
+      const rodGeo = new THREE.CylinderGeometry(0.03, 0.03, 2.2, 12);
+      const rod = new THREE.Mesh(rodGeo, chromeMat);
+      rod.position.y = -1.1;
+      group.add(rod);
+
+      return { group, cymbal };
+    }
+
+    // A. 低音大鼓 Bass Drum (Kick)
+    const kickObj = createDrumMesh(1.15, 1.25, 0x160026);
+    kickObj.group.rotation.x = Math.PI / 2;
+    kickObj.group.position.set(0, 1.15, 0.3);
+    drumSetGroup.add(kickObj.group);
+    drums.kick = {
+      targetPos: new THREE.Vector3(0, 1.15, 0.95), // 击打点
+      mesh: kickObj.group,
+      baseScale: new THREE.Vector3(1, 1, 1),
+      vibration: 0,
+      soundType: 'kick',
+      color: 0xff0055
+    };
+
+    // B. 军鼓 Snare Drum (左前方主打击)
+    const snareObj = createDrumMesh(0.68, 0.42, 0x3d0043);
+    snareObj.group.position.set(-1.3, 1.55, 1.05);
+    snareObj.group.rotation.z = 0.15;
+    snareObj.group.rotation.x = 0.15;
+    drumSetGroup.add(snareObj.group);
+    // 支架
+    const snareStand = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 1.4, 12), chromeMat);
+    snareStand.position.set(-1.3, 0.7, 1.05);
+    drumSetGroup.add(snareStand);
+    drums.snare = {
+      targetPos: new THREE.Vector3(-1.3, 1.77, 1.05),
+      mesh: snareObj.group,
+      baseScale: new THREE.Vector3(1, 1, 1),
+      vibration: 0,
+      soundType: 'snare',
+      color: 0xff33aa
+    };
+
+    // C. 踩镲 Hi-Hat (最左侧)
+    const hihatTop = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.65, 0.03, 32), cymbalMat);
+    const hihatBottom = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.65, 0.03, 32), cymbalMat);
+    hihatTop.position.set(-2.2, 2.1, 0.8);
+    hihatBottom.position.set(-2.2, 2.06, 0.8);
+    hihatBottom.rotation.x = Math.PI;
+    const hihatStand = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 2.3, 12), chromeMat);
+    hihatStand.position.set(-2.2, 1.15, 0.8);
+    drumSetGroup.add(hihatTop);
+    drumSetGroup.add(hihatBottom);
+    drumSetGroup.add(hihatStand);
+    drums.hihat = {
+      targetPos: new THREE.Vector3(-2.2, 2.12, 0.8),
+      mesh: hihatTop,
+      baseScale: new THREE.Vector3(1, 1, 1),
+      vibration: 0,
+      soundType: 'hihat',
+      color: 0x00ffff
+    };
+
+    // D. 挂汤鼓 Tom 1 (高音，左中)
+    const tom1Obj = createDrumMesh(0.5, 0.45, 0x180d38);
+    tom1Obj.group.position.set(-0.65, 2.35, 0.4);
+    tom1Obj.group.rotation.x = 0.35;
+    tom1Obj.group.rotation.z = 0.2;
+    drumSetGroup.add(tom1Obj.group);
+    drums.tom1 = {
+      targetPos: new THREE.Vector3(-0.65, 2.58, 0.4),
+      mesh: tom1Obj.group,
+      baseScale: new THREE.Vector3(1, 1, 1),
+      vibration: 0,
+      soundType: 'tom1',
+      color: 0xaa00ff
+    };
+
+    // E. 挂汤鼓 Tom 2 (中音，右中)
+    const tom2Obj = createDrumMesh(0.56, 0.48, 0x180d38);
+    tom2Obj.group.position.set(0.65, 2.35, 0.4);
+    tom2Obj.group.rotation.x = 0.35;
+    tom2Obj.group.rotation.z = -0.2;
+    drumSetGroup.add(tom2Obj.group);
+    drums.tom2 = {
+      targetPos: new THREE.Vector3(0.65, 2.58, 0.4),
+      mesh: tom2Obj.group,
+      baseScale: new THREE.Vector3(1, 1, 1),
+      vibration: 0,
+      soundType: 'tom2',
+      color: 0x7700ff
+    };
+
+    // F. 落地汤鼓 Floor Tom (低音，右侧)
+    const tom3Obj = createDrumMesh(0.72, 0.65, 0x220538);
+    tom3Obj.group.position.set(1.65, 1.45, 0.85);
+    tom3Obj.group.rotation.z = -0.1;
+    drumSetGroup.add(tom3Obj.group);
+    const tom3Leg1 = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 1.3, 8), chromeMat);
+    tom3Leg1.position.set(1.65, 0.65, 0.85);
+    drumSetGroup.add(tom3Leg1);
+    drums.tom3 = {
+      targetPos: new THREE.Vector3(1.65, 1.78, 0.85),
+      mesh: tom3Obj.group,
+      baseScale: new THREE.Vector3(1, 1, 1),
+      vibration: 0,
+      soundType: 'tom3',
+      color: 0xff00aa
+    };
+
+    // G. 碎音镲 Crash Cymbal (左上方主炸镲)
+    const crashCymbal = createCymbalMesh(0.92);
+    crashCymbal.group.position.set(-2.0, 2.9, 0.2);
+    crashCymbal.group.rotation.z = 0.28;
+    crashCymbal.group.rotation.x = 0.15;
+    drumSetGroup.add(crashCymbal.group);
+    drums.crash = {
+      targetPos: new THREE.Vector3(-2.0, 2.95, 0.2),
+      mesh: crashCymbal.group,
+      baseScale: new THREE.Vector3(1, 1, 1),
+      vibration: 0,
+      soundType: 'cymbal',
+      color: 0xffe600
+    };
+
+    // H. 叮叮镲 Ride Cymbal (右上方节奏镲)
+    const rideCymbal = createCymbalMesh(1.05);
+    rideCymbal.group.position.set(2.1, 2.75, 0.3);
+    rideCymbal.group.rotation.z = -0.3;
+    rideCymbal.group.rotation.x = 0.12;
+    drumSetGroup.add(rideCymbal.group);
+    drums.ride = {
+      targetPos: new THREE.Vector3(2.1, 2.8, 0.3),
+      mesh: rideCymbal.group,
+      baseScale: new THREE.Vector3(1, 1, 1),
+      vibration: 0,
+      soundType: 'ride',
+      color: 0x00ffcc
+    };
+
+    // ==========================================
+    // 5. 章鱼主体造型 (Head, Eyes, Eyeballs, Rock Hair/Bandana, Teeth/Mouth)
+    // ==========================================
+    const octopusRoot = new THREE.Group();
+    octopusRoot.position.set(0, 2.2, -1.2); // 鼓手座席位置
+    scene.add(octopusRoot);
+
+    // 材质
+    const skinMat = new THREE.MeshStandardMaterial({
+      color: 0xff2a6d,
+      roughness: 0.35,
+      metalness: 0.15
+    });
+    const suckerMat = new THREE.MeshStandardMaterial({
+      color: 0xffd166,
+      roughness: 0.2,
+      metalness: 0.1
+    });
+    const eyeWhiteMat = new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      roughness: 0.1
+    });
+    const pupilMat = new THREE.MeshBasicMaterial({ color: 0x050508 });
+    const drumstickMat = new THREE.MeshStandardMaterial({
+      color: 0xdeb887,
+      roughness: 0.4
+    });
+
+    // 章鱼头/胴体 (大圆润头脑壳)
+    const headGeo = new THREE.SphereGeometry(1.05, 32, 28);
+    // 将头部稍微拉长形成典型可爱的章鱼造型
+    headGeo.scale(0.95, 1.25, 0.95);
+    const headMesh = new THREE.Mesh(headGeo, skinMat);
+    headMesh.position.y = 0.8;
+    headMesh.castShadow = true;
+    octopusRoot.add(headMesh);
+
+    // 摇滚头带 (头巾 Bandana)
+    const headbandGeo = new THREE.TorusGeometry(0.95, 0.12, 16, 40);
+    const headbandMat = new THREE.MeshStandardMaterial({ color: 0x00f0ff, roughness: 0.5 });
+    const headband = new THREE.Mesh(headbandGeo, headbandMat);
+    headband.rotation.x = Math.PI / 2.3;
+    headband.position.set(0, 1.05, 0.1);
+    headMesh.add(headband);
+
+    // 摇滚墨镜 (Cool Sunglasses)
+    const glassesGroup = new THREE.Group();
+    const frameGeo = new THREE.BoxGeometry(0.5, 0.3, 0.08);
+    const lensMat = new THREE.MeshPhysicalMaterial({
+      color: 0x111111,
+      roughness: 0.05,
+      metalness: 0.9,
+      transmission: 0.6,
+      transparent: true,
+      opacity: 0.95
+    });
+    const leftGlass = new THREE.Mesh(frameGeo, lensMat);
+    leftGlass.position.set(-0.4, 0.65, 0.92);
+    leftGlass.rotation.y = 0.25;
+    const rightGlass = new THREE.Mesh(frameGeo, lensMat);
+    rightGlass.position.set(0.4, 0.65, 0.92);
+    rightGlass.rotation.y = -0.25;
+    const bridge = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.35), chromeMat);
+    bridge.rotation.z = Math.PI / 2;
+    bridge.position.set(0, 0.65, 0.96);
+    glassesGroup.add(leftGlass);
+    glassesGroup.add(rightGlass);
+    glassesGroup.add(bridge);
+    headMesh.add(glassesGroup);
+
+    // 可爱大嘴巴 (张口兴奋打鼓表情)
+    const mouthGeo = new THREE.TorusGeometry(0.2, 0.06, 12, 24, Math.PI);
+    const mouthMat = new THREE.MeshBasicMaterial({ color: 0x330011 });
+    const mouth = new THREE.Mesh(mouthGeo, mouthMat);
+    mouth.position.set(0, 0.28, 0.92);
+    mouth.rotation.x = -0.3;
+    mouth.rotation.z = Math.PI;
+    headMesh.add(mouth);
+
+    // ==========================================
+    // 6. 八条触手骨骼链 (IK-like Tentacles)
+    // 8条腕各自分工：
+    // [0]: Hi-Hat 踩镲 (左上)
+    // [1]: Crash 碎音炸镲 (左远)
+    // [2]: Snare 军鼓 (左主)
+    // [3]: Tom 1 高音桶鼓 (左中)
+    // [4]: Tom 2 中音桶鼓 (右中)
+    // [5]: Floor Tom 低音落地桶 (右主)
+    // [6]: Ride 叮叮镲 (右远)
+    // [7]: Kick 踩大鼓底鼓专用腕 (下前踏板方向)
+    // ==========================================
+    const tentacles = [];
+    const NUM_TENTACLES = 8;
+    const SEGMENTS_PER_ARM = 10;
+    const ARM_LENGTH = 3.6;
+
+    const armTargets = [
+      drums.hihat,  // 0
+      drums.crash,  // 1
+      drums.snare,  // 2
+      drums.tom1,   // 3
+      drums.tom2,   // 4
+      drums.tom3,   // 5
+      drums.ride,   // 6
+      drums.kick    // 7
+    ];
+
+    for (let i = 0; i < NUM_TENTACLES; i++) {
+      const armGroup = new THREE.Group();
+      scene.add(armGroup);
+
+      // 计算章鱼身体底部的生出角度
+      const angle = (i / NUM_TENTACLES) * Math.PI * 2 + Math.PI / 8;
+      const baseRadius = 0.75;
+      const rootPos = new THREE.Vector3(
+        Math.cos(angle) * baseRadius,
+        0.1,
+        Math.sin(angle) * baseRadius
+      );
+
+      // 构建分段关节
+      const segments = [];
+      const segLength = ARM_LENGTH / SEGMENTS_PER_ARM;
+
+      for (let s = 0; s < SEGMENTS_PER_ARM; s++) {
+        const segGroup = new THREE.Group();
+        // 触角由粗到细锥形渐变
+        const rTop = 0.18 * (1 - s / SEGMENTS_PER_ARM) + 0.04;
+        const rBottom = 0.18 * (1 - (s + 1) / SEGMENTS_PER_ARM) + 0.04;
+        const segGeo = new THREE.CylinderGeometry(rBottom, rTop, segLength, 12);
+        segGeo.translate(0, segLength / 2, 0); // 锚点设在底部
+        const segMesh = new THREE.Mesh(segGeo, skinMat);
+        segMesh.castShadow = true;
+        segGroup.add(segMesh);
+
+        // 每节添加吸盘 (Suckers)
+        const suckerGeo = new THREE.SphereGeometry(rTop * 0.75, 8, 8);
+        const sucker = new THREE.Mesh(suckerGeo, suckerMat);
+        sucker.position.set(0, segLength * 0.5, rTop * 0.85);
+        segGroup.add(sucker);
+
+        segments.push({
+          group: segGroup,
+          length: segLength,
+          pos: new THREE.Vector3()
+        });
+      }
+
+      // 末端鼓棒 (除了打底鼓的那条触角采用类似击锤踩踏的造型，其它握着鼓棒)
+      let stick = null;
+      if (i !== 7) {
+        const stickGeo = new THREE.CylinderGeometry(0.025, 0.04, 1.1, 10);
+        stickGeo.translate(0, 0.45, 0);
+        stick = new THREE.Mesh(stickGeo, drumstickMat);
+        stick.castShadow = true;
+        // 鼓棒头部红色包头
+        const tipGeo = new THREE.SphereGeometry(0.048, 8, 8);
+        const tip = new THREE.Mesh(tipGeo, new THREE.MeshBasicMaterial({ color: 0xff0044 }));
+        tip.position.y = 0.95;
+        stick.add(tip);
+      } else {
+        // 踩鼓专用踏板联动棒/锤
+        const beaterGeo = new THREE.CylinderGeometry(0.03, 0.03, 0.7, 8);
+        beaterGeo.translate(0, 0.35, 0);
+        stick = new THREE.Mesh(beaterGeo, chromeMat);
+        const beaterHead = new THREE.Mesh(new THREE.SphereGeometry(0.09, 8, 8), drumSkinMat);
+        beaterHead.position.y = 0.7;
+        stick.add(beaterHead);
+      }
+
+      tentacles.push({
+        index: i,
+        armGroup,
+        segments,
+        stick,
+        targetDrum: armTargets[i],
+        rootOffset: rootPos,
+        curHitOffset: 0, // 0 = 抬起预备, 1 = 击中
+        hitVelocity: 0,
+        tipPos: new THREE.Vector3()
+      });
+    }
+
+    // ==========================================
+    // 7. 粒子打击与音符特效系统 (Beat Notes & Particle Sparks)
+    // ==========================================
+    const hitParticles = [];
+    const MAX_PARTICLES = 160;
+    const pGeo = new THREE.SphereGeometry(0.045, 6, 6);
+
+    for (let p = 0; p < MAX_PARTICLES; p++) {
+      const pMat = new THREE.MeshBasicMaterial({
+        color: 0xffffff,
+        transparent: true,
+        opacity: 0
+      });
+      const pMesh = new THREE.Mesh(pGeo, pMat);
+      scene.add(pMesh);
+      hitParticles.push({
+        mesh: pMesh,
+        vel: new THREE.Vector3(),
+        life: 0,
+        maxLife: 1.0
+      });
+    }
+
+    function emitHitSparks(pos, colorHex, count = 12) {
+      let emitted = 0;
+      for (let i = 0; i < MAX_PARTICLES; i++) {
+        const p = hitParticles[i];
+        if (p.life <= 0) {
+          p.mesh.position.copy(pos);
+          p.mesh.material.color.setHex(colorHex);
+          p.mesh.material.opacity = 1.0;
+          p.vel.set(
+            (Math.random() - 0.5) * 4.5,
+            Math.random() * 3.5 + 1.2,
+            (Math.random() - 0.5) * 4.5
+          );
+          p.life = 0.35 + Math.random() * 0.25;
+          p.maxLife = p.life;
+          emitted++;
+          if (emitted >= count) break;
+        }
+      }
+    }
+
+    // 冲击波波纹环
+    const shockwaveGeo = new THREE.RingGeometry(0.1, 0.18, 32);
+    const shockwaves = [];
+    for (let sw = 0; sw < 8; sw++) {
+      const swMat = new THREE.MeshBasicMaterial({
+        color: 0x00f0ff,
+        transparent: true,
+        opacity: 0,
+        side: THREE.DoubleSide
+      });
+      const swMesh = new THREE.Mesh(shockwaveGeo, swMat);
+      swMesh.rotation.x = -Math.PI / 2;
+      scene.add(swMesh);
+      shockwaves.push({ mesh: swMesh, scale: 1, alpha: 0, active: false });
+    }
+
+    function triggerShockwave(pos, colorHex) {
+      const sw = shockwaves.find(s => !s.active);
+      if (!sw) return;
+      sw.active = true;
+      sw.mesh.position.copy(pos);
+      sw.mesh.position.y += 0.05;
+      sw.mesh.material.color.setHex(colorHex);
+      sw.scale = 0.2;
+      sw.alpha = 0.9;
+    }
+
+    // 屏幕轻微击打红白快闪
+    const flashElem = document.getElementById('impact-flash');
+    function triggerFlash() {
+      flashElem.style.opacity = '0.35';
+      setTimeout(() => { flashElem.style.opacity = '0'; }, 45);
+    }
+
+    // ==========================================
+    // 8. 节奏总谱与打击排程 (Rock / Funk Beat Pattern)
+    // BPM = 136，四分音符 = 60/136 = 0.441s，十六分音符 = 0.110s
+    // 32步循环的极度丰富澎湃激昂鼓点！
+    // ==========================================
+    const BPM = 138;
+    const STEP_TIME = (60 / BPM) / 4; // 16分音符单位
+    const PATTERN_STEPS = 32;
+
+    // 32步节奏表 (每一步各乐器触发标记)
+    // 触角对应：0:hihat, 1:crash, 2:snare, 3:tom1, 4:tom2, 5:tom3, 6:ride, 7:kick
+    const rhythmTracks = {
+      // 大鼓：重低音心跳节奏
+      7: [
+        1, 0, 0, 0,  0, 0, 1, 0,  0, 0, 1, 0,  0, 0, 0, 0,
+        1, 0, 0, 0,  0, 0, 1, 0,  1, 1, 0, 0,  1, 0, 1, 0
+      ],
+      // 军鼓：反拍2、4重击，最后带滚奏
+      2: [
+        0, 0, 0, 0,  1, 0, 0, 0,  0, 0, 0, 0,  1, 0, 0, 0,
+        0, 0, 0, 0,  1, 0, 0, 0,  0, 0, 1, 0,  1, 1, 1, 1
+      ],
+      // 踩镲：连续高速摇滚16分切分音
+      0: [
+        1, 0, 1, 0,  1, 0, 1, 0,  1, 0, 1, 0,  1, 0, 1, 0,
+        1, 0, 1, 0,  1, 0, 1, 0,  1, 0, 1, 0,  0, 0, 0, 0
+      ],
+      // 叮叮镲：优雅金属点缀
+      6: [
+        0, 1, 0, 1,  0, 1, 0, 0,  0, 1, 0, 1,  0, 1, 0, 1,
+        0, 1, 0, 1,  0, 1, 0, 1,  0, 0, 0, 0,  0, 0, 0, 0
+      ],
+      // 碎音镲：段落重音与炸裂开场
+      1: [
+        1, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 1, 0,
+        0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  1, 0, 0, 0
+      ],
+      // 桶鼓1 (高音)：过门切入
+      3: [
+        0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,
+        0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 1, 1,  0, 0, 0, 0
+      ],
+      // 桶鼓2 (中音)：过门旋律
+      4: [
+        0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,
+        0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  1, 1, 0, 0
+      ],
+      // 桶鼓3 (落地低音)：终极狂暴压底
+      5: [
+        0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,
+        0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0,  0, 0, 1, 1
+      ]
+    };
+
+    let beatTimeAccumulator = 0;
+    let currentStep = -1;
+
+    function onBeatHit(tentacleIndex) {
+      const tentacle = tentacles[tentacleIndex];
+      const target = tentacle.targetDrum;
+      // 触角击打触发
+      tentacle.curHitOffset = 1.0;
+      target.vibration = 1.0;
+
+      // 声音触发
+      audio.trigger(target.soundType);
+
+      // 特效释放
+      emitHitSparks(target.targetPos, target.color, target.soundType === 'crash' ? 24 : 10);
+      triggerShockwave(target.targetPos, target.color);
+
+      // 炸镲或强重拍时闪光
+      if (target.soundType === 'crash' || (target.soundType === 'snare' && currentStep % 16 === 4)) {
+        triggerFlash();
+        // 瞬间增强舞台光
+        spotLightMagenta.intensity = 7.0;
+        spotLightCyan.intensity = 6.5;
+      }
+    }
+
+    // ==========================================
+    // 9. 触手三维贝塞尔曲线姿态逼近与 IK 计算
+    // ==========================================
+    function updateTentacleChain(t, delta) {
+      const octopusWorldPos = new THREE.Vector3();
+      octopusRoot.getWorldPosition(octopusWorldPos);
+
+      // 触手根部跟随章鱼头部运动
+      const rootPos = new THREE.Vector3().copy(octopusWorldPos).add(t.rootOffset);
+
+      // 目标打击点
+      const targetBasePos = t.targetDrum.targetPos.clone();
+
+      // 击打弹跳插值：curHitOffset 衰减
+      t.curHitOffset = Math.max(0, t.curHitOffset - delta * 9.5);
+
+      // 抬棒高度 (未击打时悬停蓄势，击打瞬间向下敲在鼓面)
+      const liftHeight = (1 - t.curHitOffset) * 0.45;
+      const hitContactPos = targetBasePos.clone().add(new THREE.Vector3(0, liftHeight, 0));
+
+      // 触手中段流动弧度 (贝塞尔曲线控制点，带来柔韧有弹性的软体动物波浪美感)
+      const midCtrl = new THREE.Vector3()
+        .addVectors(rootPos, hitContactPos)
+        .multiplyScalar(0.5);
+      
+      // 触手中部自然拱起与呼吸摆动
+      const tentacleWave = Math.sin(clock.getElapsedTime() * 4.5 + t.index * 1.2) * 0.25;
+      midCtrl.y += 0.9 + tentacleWave;
+      midCtrl.x += Math.cos(clock.getElapsedTime() * 3.0 + t.index) * 0.2;
+
+      // 沿二次贝塞尔曲线采样摆放每个关节
+      const numSegs = t.segments.length;
+      let prevPos = rootPos.clone();
+
+      for (let s = 0; s < numSegs; s++) {
+        const seg = t.segments[s];
+        const u = (s + 1) / numSegs;
+        
+        // 二次贝塞尔插值
+        const p0 = rootPos;
+        const p1 = midCtrl;
+        const p2 = hitContactPos;
+        const currentPos = new THREE.Vector3(
+          (1 - u) * (1 - u) * p0.x + 2 * (1 - u) * u * p1.x + u * u * p2.x,
+          (1 - u) * (1 - u) * p0.y + 2 * (1 - u) * u * p1.y + u * u * p2.y,
+          (1 - u) * (1 - u) * p0.z + 2 * (1 - u) * u * p1.z + u * u * p2.z
+        );
+
+        // 设置本节的世界位置与朝向
+        seg.group.position.copy(prevPos);
+        seg.group.lookAt(currentPos);
+        // Cylinder 几何沿 Y 轴，调整旋转朝向前一个点
+        seg.group.rotateX(Math.PI / 2);
+
+        prevPos = currentPos;
+      }
+
+      // 末端鼓棒姿态附着
+      if (t.stick) {
+        if (!t.stick.parent) {
+          scene.add(t.stick);
+        }
+        t.stick.position.copy(prevPos);
+        // 鼓棒斜切指向鼓心
+        t.stick.lookAt(targetBasePos);
+        // 击打时棒头向下顿挫
+        const stickTilt = (1 - t.curHitOffset) * 0.4;
+        t.stick.rotateX(Math.PI / 2 + stickTilt);
+      }
+    }
+
+    // ==========================================
+    // 10. 智能主渲染循环 & 摇滚运镜系统
+    // ==========================================
+    const clock = new THREE.Clock();
+    let cameraMode = 0; // 0: 正前方摇滚全景; 1: 侧面吉他英雄动感特写; 2: 俯瞰全套件节奏鸟瞰
+
+    function animate() {
+      requestAnimationFrame(animate);
+      const delta = Math.min(clock.getDelta(), 0.1);
+      const elapsed = clock.getElapsedTime();
+
+      // A. 节拍时钟驱动
+      beatTimeAccumulator += delta;
+      while (beatTimeAccumulator >= STEP_TIME) {
+        beatTimeAccumulator -= STEP_TIME;
+        currentStep = (currentStep + 1) % PATTERN_STEPS;
+
+        // 检查8条触手在此拍是否有击打
+        for (let i = 0; i < NUM_TENTACLES; i++) {
+          if (rhythmTracks[i] && rhythmTracks[i][currentStep] === 1) {
+            onBeatHit(i);
+          }
+        }
+      }
+
+      // B. 鼓面回弹物理振动
+      Object.keys(drums).forEach(key => {
+        const d = drums[key];
+        if (d.vibration > 0) {
+          d.vibration = Math.max(0, d.vibration - delta * 6.5);
+          const s = 1.0 + Math.sin(d.vibration * Math.PI * 4) * 0.09 * d.vibration;
+          d.mesh.scale.set(d.baseScale.x * s, d.baseScale.y * (2.0 - s), d.baseScale.z * s);
+        } else {
+          d.mesh.scale.copy(d.baseScale);
+        }
+      });
+
+      // C. 章鱼灵魂律动 (摇滚甩头 Headbanging & 躯干呼吸律动)
+      // 随着每拍 138 BPM 疯狂重音点头
+      const headbangPhase = elapsed * (BPM / 60) * Math.PI;
+      const headbangBounce = Math.abs(Math.sin(headbangPhase));
+      octopusRoot.position.y = 2.15 + headbangBounce * 0.18;
+      octopusRoot.rotation.x = Math.sin(headbangPhase) * 0.18 + 0.05;
+      octopusRoot.rotation.y = Math.sin(elapsed * 1.5) * 0.12;
+      octopusRoot.rotation.z = Math.cos(elapsed * 2.2) * 0.08;
+
+      // 头巾飘带波动
+      headband.rotation.z = Math.sin(elapsed * 6.0) * 0.1;
+
+      // D. 更新每条触手状态
+      for (let i = 0; i < NUM_TENTACLES; i++) {
+        updateTentacleChain(tentacles[i], delta);
+      }
+
+      // E. 更新击打粒子
+      for (let p = 0; p < MAX_PARTICLES; p++) {
+        const pt = hitParticles[p];
+        if (pt.life > 0) {
+          pt.life -= delta;
+          pt.mesh.position.addScaledVector(pt.vel, delta);
+          pt.vel.y -= 9.8 * delta; // 重力
+          pt.mesh.material.opacity = pt.life / pt.maxLife;
+          const s = (pt.life / pt.maxLife) * 0.8 + 0.2;
+          pt.mesh.scale.set(s, s, s);
+        } else {
+          pt.mesh.material.opacity = 0;
+        }
+      }
+
+      // F. 冲击波扩散
+      shockwaves.forEach(sw => {
+        if (sw.active) {
+          sw.scale += delta * 7.5;
+          sw.alpha -= delta * 3.8;
+          sw.mesh.scale.set(sw.scale, sw.scale, sw.scale);
+          sw.mesh.material.opacity = Math.max(0, sw.alpha);
+          if (sw.alpha <= 0) sw.active = false;
+        }
+      });
+
+      // G. 舞台灯光渐变与摇滚光束巡游
+      spotLightMagenta.intensity = THREE.MathUtils.lerp(spotLightMagenta.intensity, 3.8, delta * 4.0);
+      spotLightCyan.intensity = THREE.MathUtils.lerp(spotLightCyan.intensity, 3.5, delta * 4.0);
+
+      spotLightMagenta.position.x = Math.sin(elapsed * 1.8) * 5.5;
+      spotLightCyan.position.x = -Math.cos(elapsed * 1.6) * 5.5;
+      floorLight.color.setHSL((elapsed * 0.15) % 1.0, 0.9, 0.5);
+
+      // H. 电影级平滑巡航运镜 (Cinematic Smooth Orbit & Breathing Camera)
+      // 随着音乐每 12 秒优雅地在全景、右侧特写、高机位之间智能过渡
+      const camTime = elapsed * 0.35;
+      const camTargetRadius = 8.5 + Math.sin(elapsed * 0.5) * 1.2;
+      const camAngle = Math.sin(camTime) * 0.65; // 前方 ±38° 优雅摆动
+      const camHeight = 3.6 + Math.cos(elapsed * 0.4) * 0.85;
+
+      camera.position.x = Math.sin(camAngle) * camTargetRadius;
+      camera.position.z = Math.cos(camAngle) * camTargetRadius + 0.5;
+      camera.position.y = camHeight;
+
+      // 镜头始终锁定章鱼面部与主鼓核心交界处
+      const lookTarget = new THREE.Vector3(
+        Math.sin(elapsed * 1.5) * 0.15,
+        1.95 + headbangBounce * 0.08,
+        0.3
+      );
+      camera.lookAt(lookTarget);
+
+      renderer.render(scene, camera);
+    }
+
+    animate();
+
+    // ==========================================
+    // 11. 自适应窗口尺寸
+    // ==========================================
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+  </script>
+<!--zc-home:start--><style>.zc-home-btn{position:fixed;top:16px;left:16px;z-index:2147483647;display:inline-flex;align-items:center;gap:6px;padding:8px 14px;font:500 13px/1.1 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Noto Sans SC",sans-serif;color:#111;background:rgba(255,255,255,.86);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);border:1px solid rgba(0,0,0,.08);border-radius:999px;text-decoration:none;box-shadow:0 2px 12px rgba(0,0,0,.2);transition:background .2s ease,transform .2s ease,box-shadow .2s ease}.zc-home-btn:hover{background:#fff;transform:translateY(-1px);box-shadow:0 4px 18px rgba(0,0,0,.26)}</style><a class="zc-home-btn" href="../">← 返回首页</a><!--zc-home:end-->
+</body>
+</html>
