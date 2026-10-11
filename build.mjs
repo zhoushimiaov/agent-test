@@ -276,7 +276,7 @@ ${FONTS}
     </div>
   </section>
 
-  <div class="label"><span>栏目 Categories</span><i></i></div>
+  <div class="label"><span>Zoo Test</span><b>动物创意基准 · Categories</b><i></i></div>
 
   <div class="grid">
 ${cards}
@@ -313,7 +313,7 @@ function verCard(v, i, score, dimLabels) {
   }
   const idx = score ? "" : `<div class="idx">${pad2(i + 1)}</div>`;
   return `    <a class="ver" href="${v.slug}.html">
-      <div class="shot">${rank}${badge}<img src="thumbs/${v.slug}.png" alt="${v.name} ${v.sub} 预览" loading="lazy"></div>
+      <div class="shot">${rank}${badge}<img src="thumbs/${v.slug}.webp" alt="${v.name} ${v.sub} 预览" loading="lazy" decoding="async" onload="this.classList.add('loaded')"></div>
       <div class="meta">
         ${idx}<div class="txt"><h3>${v.name}</h3><p>${v.sub}</p></div>
         <span class="arr2">↗</span>
