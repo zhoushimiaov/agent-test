@@ -1,0 +1,566 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Whale Over City</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #0a0e1a; }
+  canvas { display: block; width: 100%; height: 100%; }
+</style>
+</head>
+<body>
+<canvas id="scene"></canvas>
+<script>
+const canvas = document.getElementById('scene');
+const ctx = canvas.getContext('2d');
+let W, H, dpr;
+
+function resize() {
+  dpr = window.devicePixelRatio || 1;
+  W = window.innerWidth;
+  H = window.innerHeight;
+  canvas.width = W * dpr;
+  canvas.height = H * dpr;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+window.addEventListener('resize', resize);
+resize()
+
+// --- Star field ---
+const stars = Array.from({length: 120}, () => ({
+  x: Math.random(), y: Math.random() * 0.45,
+  r: Math.random() * 1.5 + 0.3,
+  tw: Math.random() * Math.PI * 2
+}));
+
+// --- Clouds ---
+function makeCount(n, yMin, yMax, hMin, hMax) {
+  return Array.from({length: n}, () => ({
+    x: Math.random() * 1.4 - 0.2,
+    y: yMin + Math.random() * (yMax - yMin),
+    w: hMin + Math.random() * (hMax - hMin),
+    speed: (Math.random() * 0.00008 + 0.00003) * (Math.random() > 0.5 ? 1 : -1),
+    op: Math.random() * 0.25 + 0.05
+  }));
+}
+const cloudBack = makeCount(7, 0.18, 0.42, 220, 380);
+const cloudMid  = makeCount(5, 0.30, 0.55, 280, 450);
+const cloudFore = makeCount(4, 0.22, 0.48, 340, 520);
+
+// --- City layers (x position as fraction of total strip width) ---
+function makeBldgs(count) {
+  const arr = [];
+  for (let i = 0; i < count; i++) {
+    arr.push({
+      x: i / count + (Math.random() - 0.5) * 0.3 / count,
+      w: 0.025 + Math.random() * 0.05,
+      h: 0.08 + Math.random() * 0.18,
+      shade: Math.random(),
+      winD: 0.3 + Math.random() * 0.7
+    });
+  }
+  return arr;
+}
+
+const STRIP_W = 2.8; // 2.8x screen width total for seamless wrap
+
+const cityFar  = { y: 0.68, speed: 0.000035, bldgs: makeBldgs(Math.ceil(STRIP_W * 22)), baseColor: '#111827', winColor: '#3b4a6b', hue: 'far' };
+const cityMid  = { y: 0.76, speed: 0.00006,  bldgs: makeBldgs(Math.ceil(STRIP_W * 16)), baseColor: '#1a1f2e', winColor: '#5a6a8a', hue: 'mid' };
+const cityNear = { y: 0.92, speed: 0.000095, bldgs: makeBldgs(Math.ceil(STRIP_W * 12)), baseColor: '#1e2235', winColor: '#7a8aaa', hue: 'near' };
+const cityLayers = [cityFar, cityMid, cityNear];
+
+// --- Particles (spray & trail) ---
+const particles = [];
+for (let i = 0; i < 30; i++) {
+  particles.push({ x: 0, y: 0, vx: 0, vy: 0, r: 0, life: 0, maxLife: 0 });
+}
+let pIdx = 0;
+function spawnSpray(wx, wy) {
+  for (let i = 0; i < 2; i++) {
+    const p = particles[pIdx % particles.length];
+    const angle = -Math.PI / 2 + (Math.random() - 0.5) * 1.2;
+    const spd = Math.random() * 1.2 + 0.5;
+    p.x = wx; p.y = wy;
+    p.vx = Math.cos(angle) * spd;
+    p.vy = Math.sin(angle) * spd - 0.5;
+    p.r = Math.random() * 3 + 2;
+    p.maxLife = 80 + Math.random() * 60;
+    p.life = p.maxLife;
+    pIdx++;
+  }
+}
+
+// --- Whale ---
+const whale = {
+  x: -0.35, y: 0.26, initY: 0.26,
+  phase: 0,
+  speed: 0.000042, // per ms
+  bob: 0, bobPhase: 0,
+  tailPhase: 0
+};
+
+// Time scale (1.0 = realtime)
+const TSCALE = 1.0;
+let lastT = performance.now();
+
+// Math helpers
+const TAU = Math.PI * 2;
+function lerp(a, b, t) { return a + (b - a) * t; }
+
+function drawSky(t) {
+  // Deep evening to night gradient
+  const hdr = canvas.height === 0 ? 0 : 0;
+  const g = ctx.createLinearGradient(0, 0, 0, canvas.height * 0.85);
+  g.addColorStop(0, '#0a0e1a');
+  g.addColorStop(0.2, '#0f172a');
+  g.addColorStop(0.35, '#1e2a44');
+  g.addColorStop(0.45, '#3b3a5c');
+  g.addColorStop(0.55, '#6b5070');
+  g.addColorStop(0.65, '#c97c6d');
+  g.addColorStop(0.74, '#e8965a');
+  g.addColorStop(0.83, '#d4806a');
+  g.addColorStop(1, '#2d1f2a');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  // Horizon haze glow
+  const hz = canvas.height * 0.72;
+  const hg = ctx.createRadialGradient(canvas.width * 0.5, hz + 40, 10, canvas.width * 0.5, hz + 40, canvas.width * 0.5);
+  hg.addColorStop(0, 'rgba(232,150,90,0.30)');
+  hg.addColorStop(0.4, 'rgba(200,120,100,0.12)');
+  hg.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = hg;
+  ctx.fillRect(0, canvas.height * 0.35, canvas.width, canvas.height * 0.5);
+}
+
+function drawMoon(t) {
+  const mx = canvas.width * 0.82;
+  const my = canvas.height * 0.13;
+  const r = Math.min(canvas.width, canvas.height) * 0.04;
+  // Glow
+  const glow = ctx.createRadialGradient(mx, my, r * 0.2, mx, my, r * 5);
+  glow.addColorStop(0, 'rgba(200,210,235,0.45)');
+  glow.addColorStop(0.15, 'rgba(180,190,220,0.18)');
+  glow.addColorStop(0.4, 'rgba(140,150,200,0.06)');
+  glow.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = glow;
+  ctx.beginPath(); ctx.arc(mx, my, r * 5, 0, TAU); ctx.fill();
+
+  // Body
+  const mg = ctx.createRadialGradient(mx - r * 0.18, my - r * 0.18, r * 0.05, mx, my, r);
+  mg.addColorStop(0, '#f0ead6');
+  mg.addColorStop(0.6, '#d8d2be');
+  mg.addColorStop(1, '#a8a090');
+  ctx.fillStyle = mg;
+  ctx.beginPath(); ctx.arc(mx, my, r, 0, TAU); ctx.fill();
+
+  // Craters
+  ctx.fillStyle = 'rgba(140,130,110,0.35)';
+  ctx.beginPath(); ctx.arc(mx + r * 0.25, my - r * 0.15, r * 0.14, 0, TAU); ctx.fill();
+  ctx.beginPath(); ctx.arc(mx - r * 0.3, my + r * 0.2, r * 0.09, 0, TAU); ctx.fill();
+  ctx.beginPath(); ctx.arc(mx + r * 0.1, my + r * 0.35, r * 0.07, 0, TAU); ctx.fill();
+}
+
+function drawStars(t) {
+  for (const s of stars) {
+    const sx = s.x * canvas.width;
+    const sy = s.y * canvas.height;
+    const blink = 0.55 + 0.45 * Math.sin(t * 0.0012 + s.tw);
+    ctx.fillStyle = `rgba(200,210,230,${blink * 0.7})`;
+    ctx.beginPath(); ctx.arc(sx, sy, s.r, 0, TAU); ctx.fill();
+  }
+}
+
+function wrapCloud(c) {
+  if (c.speed > 0 && c.x > 1.3) c.x = -0.3;
+  else if (c.speed < 0 && c.x < -0.3) c.x = 1.3;
+}
+
+function drawCloud(c, t) {
+  wrapCloud(c);
+  c.x += c.speed;
+  const cx = c.x * canvas.width;
+  const cy = c.y * canvas.height;
+  const w = c.w;
+  const h = w * 0.28;
+  // Elongated stretched ellipse (horizontal streak)
+  ctx.save();
+  ctx.translate(cx, cy);
+  // Soft cloud body — layered ellipses
+  const grad = ctx.createRadialGradient(0, 0, w * 0.05, 0, 0, w * 0.55);
+  grad.addColorStop(0, `rgba(180,170,190,${c.op})`);
+  grad.addColorStop(0.4, `rgba(140,135,160,${c.op * 0.7})`);
+  grad.addColorStop(1, 'rgba(60,60,90,0)');
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.ellipse(0, 0, w * 0.55, h * 0.55, 0, 0, TAU);
+  ctx.fill();
+  // Sub-cloud blobs
+  for (let i = 0; i < 3; i++) {
+    const ox = (i - 1) * w * 0.28;
+    const oy = (Math.sin(i + 1) * h * 0.15);
+    const r = w * (0.18 + i * 0.04);
+    const g2 = ctx.createRadialGradient(ox, oy, r * 0.1, ox, oy, r);
+    g2.addColorStop(0, `rgba(200,195,210,${c.op * 1.3})`);
+    g2.addColorStop(1, 'rgba(60,60,90,0)');
+    ctx.fillStyle = g2;
+    ctx.beginPath(); ctx.ellipse(ox, oy, r, r * 0.55, 0, 0, TAU); ctx.fill();
+  }
+  ctx.restore();
+}
+
+function drawWhale(t) {
+  whale.phase += whale.speed;
+  // Wrap around (negative → full width + whale width)
+  const whaleWFrac = 0.62; // fraction of screen width
+  if (whale.phase > 1 + whaleWFrac * 0.1) {
+    whale.phase = -whaleWFrac * 0.05;
+  }
+
+  whale.bobPhase += 0.0012 * TSCALE;
+  whale.bob = Math.sin(whale.bobPhase) * canvas.height * 0.015;
+  whale.tailPhase += 0.0015 * TSCALE;
+
+  const cx = (whale.phase + whaleWFrac * 0.5) * canvas.width;
+  const cy = whale.y * canvas.height + whale.bob;
+  const bodyLen = whaleWFrac * canvas.width;
+  const bodyH = bodyLen * 0.19;
+
+  ctx.save();
+
+  // Body shape — whale side-on silhouette pointing right
+  // Use bezier curves for smooth body
+  const tailAmp = Math.sin(whale.tailPhase) * bodyH * 0.55;
+  const tailAmpB = Math.sin(whale.tailPhase + 0.7) * bodyH * 0.55;
+
+  // Shadow under whale
+  ctx.fillStyle = 'rgba(0,0,0,0.18)';
+  ctx.beginPath();
+  ctx.ellipse(cx, cy + bodyH * 1.2, bodyLen * 0.48, bodyH * 0.22, 0, 0, TAU);
+  ctx.fill();
+
+  // Main body gradient
+  const bg = ctx.createLinearGradient(cx - bodyLen * 0.2, cy - bodyH, cx + bodyLen * 0.25, cy + bodyH * 0.5);
+  bg.addColorStop(0, '#1e2a3a');
+  bg.addColorStop(0.25, '#2a3850');
+  bg.addColorStop(0.55, '#3d4f6a');
+  bg.addColorStop(0.7, '#1e2a3a');
+  bg.addColorStop(1, '#151f2e');
+
+  ctx.fillStyle = bg;
+  ctx.beginPath();
+  // Top edge
+  ctx.moveTo(cx - bodyLen * 0.5, cy); // tail tip top
+  ctx.bezierCurveTo(
+    cx - bodyLen * 0.38, cy - bodyH * 0.1 + tailAmp * 0.25,
+    cx - bodyLen * 0.18, cy - bodyH * 0.92,
+    cx + bodyLen * 0.05, cy - bodyH * 0.85
+  );
+  // Head top arc
+  ctx.bezierCurveTo(
+    cx + bodyLen * 0.22, cy - bodyH * 0.78,
+    cx + bodyLen * 0.38, cy - bodyH * 0.62,
+    cx + bodyLen * 0.48, cy - bodyH * 0.32
+  );
+  // Snout / mouth front
+  ctx.bezierCurveTo(
+    cx + bodyLen * 0.52, cy - bodyH * 0.18,
+    cx + bodyLen * 0.51, cy - bodyH * 0.08,
+    cx + bodyLen * 0.48, cy + bodyH * 0.02
+  );
+  // Belly
+  ctx.bezierCurveTo(
+    cx + bodyLen * 0.40, cy + bodyH * 0.35,
+    cx + bodyLen * 0.12, cy + bodyH * 0.42,
+    cx - bodyLen * 0.12, cy + bodyH * 0.32
+  );
+  // Back to tail (lower)
+  ctx.bezierCurveTo(
+    cx - bodyLen * 0.28, cy + bodyH * 0.24 + tailAmpB * 0.3,
+    cx - bodyLen * 0.40, cy + bodyH * 0.22 + tailAmpB * 0.18,
+    cx - bodyLen * 0.5, cy + tailAmp * 0.05
+  );
+  ctx.closePath();
+  ctx.fill();
+
+  // Belly highlight
+  ctx.fillStyle = 'rgba(80,100,130,0.18)';
+  ctx.beginPath();
+  ctx.moveTo(cx - bodyLen * 0.15, cy + bodyH * 0.08);
+  ctx.bezierCurveTo(
+    cx - bodyLen * 0.05, cy + bodyH * 0.35,
+    cx + bodyLen * 0.18, cy + bodyH * 0.36,
+    cx + bodyLen * 0.35, cy + bodyH * 0.10
+  );
+  ctx.bezierCurveTo(
+    cx + bodyLen * 0.18, cy + bodyH * 0.25,
+    cx + bodyLen * 0.02, cy + bodyH * 0.27,
+    cx - bodyLen * 0.15, cy + bodyLen * 0.08
+  );
+  ctx.closePath();
+  ctx.fill();
+
+  // Tail flukes
+  const tailTailAngle = whale.tailPhase;
+  const tfX = cx - bodyLen * 0.5;
+  const tfY = cy + tailAmp * 0.05;
+  ctx.save();
+  ctx.translate(tfX, tfY);
+  ctx.rotate(tailAmp * 0.0035);
+  // Upper fluke
+  ctx.fillStyle = bg;
+  ctx.beginPath();
+  ctx.moveTo(bodyLen * 0.03, -bodyH * 0.06);
+  ctx.bezierCurveTo(
+    -bodyLen * 0.03 + Math.sin(whale.tailPhase + 1) * 8, -bodyH * 0.62 + tailAmpB * 0.05,
+    -bodyLen * 0.08 + Math.sin(whale.tailPhase + 1) * 10, -bodyH * 0.52,
+    -bodyLen * 0.10, -bodyH * 0.18
+  );
+  ctx.lineTo(bodyLen * 0.03, -bodyH * 0.02);
+  ctx.closePath();
+  ctx.fill();
+  // Lower fluke
+  ctx.fillStyle = '#2a3848';
+  ctx.beginPath();
+  ctx.moveTo(bodyLen * 0.03, bodyH * 0.06);
+  ctx.bezierCurveTo(
+    -bodyLen * 0.03 + Math.sin(whale.tailPhase + 1.6) * 6, bodyH * 0.58 + tailAmpB * 0.04,
+    -bodyLen * 0.08 + Math.sin(whale.tailPhase + 1.6) * 8, bodyH * 0.50,
+    -bodyLen * 0.10, bodyH * 0.20
+  );
+  ctx.lineTo(bodyLen * 0.03, bodyH * 0.02);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+
+  // Dorsal fin
+  ctx.fillStyle = '#253345';
+  ctx.beginPath();
+  ctx.moveTo(cx - bodyLen * 0.02, cy - bodyH * 0.82);
+  ctx.bezierCurveTo(
+    cx + bodyLen * 0.0, cy - bodyH * 1.05,
+    cx + bodyLen * 0.07, cy - bodyH * 1.05,
+    cx + bodyLen * 0.08, cy - bodyH * 0.78
+  );
+  ctx.closePath();
+  ctx.fill();
+
+  // Pectoral fin (one visible)
+  ctx.fillStyle = '#1e2a3a';
+  ctx.beginPath();
+  ctx.moveTo(cx + bodyLen * 0.08, cy + bodyH * 0.12);
+  ctx.bezierCurveTo(
+    cx - bodyLen * 0.02, cy + bodyH * 0.52,
+    cx - bodyLen * 0.08, cy + bodyH * 0.56,
+    cx + bodyLen * 0.0, cy + bodyH * 0.30
+  );
+  ctx.closePath();
+  ctx.fill();
+
+  // Eye
+  const ex = cx + bodyLen * 0.40;
+  const ey = cy - bodyH * 0.08;
+  const er = bodyLen * 0.014;
+  ctx.fillStyle = '#0a0e16';
+  ctx.beginPath(); ctx.arc(ex, ey, er, 0, TAU); ctx.fill();
+  ctx.fillStyle = 'rgba(180,190,210,0.7)';
+  ctx.beginPath(); ctx.arc(ex - er * 0.25, ey - er * 0.25, er * 0.35, 0, TAU); ctx.fill();
+
+  // Mouth line
+  ctx.strokeStyle = 'rgba(10,14,22,0.55)';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(cx + bodyLen * 0.45, cy + bodyH * 0.04);
+  ctx.bezierCurveTo(
+    cx + bodyLen * 0.38, cy + bodyH * 0.10,
+    cx + bodyLen * 0.22, cy + bodyH * 0.10,
+    cx + bodyLen * 0.08, cy + bodyH * 0.06
+  );
+  ctx.stroke();
+
+  // Subtle body detail lines (pseudo plankton/markings)
+  ctx.strokeStyle = 'rgba(100,130,170,0.07)';
+  ctx.lineWidth = 0.6;
+  for (let i = 0; i < 3; i++) {
+    ctx.beginPath();
+    const ly = cy - bodyH * 0.1 + i * bodyH * 0.18;
+    ctx.moveTo(cx + bodyLen * 0.1 + i * bodyLen * 0.06, ly);
+    ctx.lineTo(cx + bodyLen * 0.32 + i * bodyLen * 0.04, ly + bodyH * 0.05);
+    ctx.stroke();
+  }
+
+  // Blowhole spout (periodic)
+  const spoutT = (t * 0.0006) % 1;
+  if (spoutT < 0.5) {
+    const blowX = cx + bodyLen * 0.22;
+    const blowY = cy - bodyH * 0.82;
+    spawnSpray(blowX, blowY - 5);
+  }
+
+  // Rim light on top edge of whale — caught by moonlight
+  ctx.strokeStyle = 'rgba(200,205,215,0.08)';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(cx - bodyLen * 0.30, cy - bodyH * 0.65);
+  ctx.bezierCurveTo(
+    cx + bodyLen * 0.02, cy - bodyH * 0.82,
+    cx + bodyLen * 0.22, cy - bodyH * 0.78,
+    cx + bodyLen * 0.40, cy - bodyH * 0.38
+  );
+  ctx.stroke();
+
+  ctx.restore();
+
+  return { cx, cy, bodyLen, bodyH };
+}
+
+function drawCity(layer, t) {
+  // Seamless strip across STRIP_W width
+  const layerW = STRIP_W * canvas.width;
+  const scrollX = ((t * layer.speed) % 1) * canvas.width;
+  // We draw 2 copies for seamless wrap
+  for (let replica = 0; replica < 2; replica++) {
+    const offsetX = -scrollX + replica * layerW;
+    drawCityRow(layer, offsetX);
+  }
+}
+
+function drawCityRow(layer, offsetX) {
+  const baseY = layer.y * canvas.height;
+
+  for (const b of layer.bldgs) {
+    const bx = b.x * STRIP_W * canvas.width + offsetX;
+    const bw = b.w * STRIP_W * canvas.width;
+    const bh = b.h * canvas.height;
+    const by = baseY - bh;
+
+    if (bx + bw < -50 || bx > canvas.width + 50) continue;
+
+    // Building body
+    ctx.fillStyle = layer.baseColor;
+    ctx.fillRect(bx, by, bw, bh);
+
+    // Slight shading per building
+    const sh = b.shade;
+    ctx.fillStyle = `rgba(0,0,0,${0.05 + sh * 0.12})`;
+    ctx.fillRect(bx, by, bw, bh);
+
+    // Left edge shadow
+    const eg = ctx.createLinearGradient(bx, 0, bx + bw * 0.2, 0);
+    eg.addColorStop(0, 'rgba(0,0,0,0.18)');
+    eg.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = eg;
+    ctx.fillRect(bx, by, bw * 0.2, bh);
+
+    // Windows
+    if (bh > 30) {
+      const winRows = Math.max(3, Math.floor(bh / 14));
+      const winCols = Math.max(2, Math.floor(bw / 12));
+      const ww = bw * 0.55 / winCols;
+      const wh = Math.min(6, bh * 0.45 / winRows);
+      if (ww > 1.5 && wh > 1.5) {
+        const startX = bx + (bw - winCols * ww) / 2 + ww * 0.15;
+        const startY = by + bh * 0.06;
+        for (let r = 0; r < winRows; r++) {
+          for (let c = 0; c < winCols; c++) {
+            if ((r * 7 + c * 13 + Math.floor(b.x * 97)) % 5 < (5 - b.winD * 5)) {
+              ctx.fillStyle = `rgba(200,195,170,${0.22 + b.winD * 0.35})`;
+            } else {
+              ctx.fillStyle = `rgba(20,28,45,0.5)`;
+            }
+            ctx.fillRect(startX + c * ww, startY + r * (wh + bh * 0.02), ww * 0.65, wh * 0.7);
+          }
+        }
+      }
+    }
+
+    // Rooftop highlight
+    ctx.fillStyle = 'rgba(180,170,150,0.08)';
+    ctx.fillRect(bx, by, bw, 2);
+  }
+}
+
+function drawParticles(t) {
+  for (const p of particles) {
+    if (p.life <= 0) continue;
+    p.life -= 1 * TSCALE;
+    p.x += p.vx;
+    p.y += p.vy;
+    p.vy += 0.015; // gravity
+    const alpha = (p.life / p.maxLife) * 0.7;
+    const r = p.r * (p.life / p.maxLife);
+    ctx.fillStyle = `rgba(160,170,195,${alpha})`;
+    ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, TAU); ctx.fill();
+  }
+}
+
+function drawFog(t) {
+  // Ground haze between city and whale
+  const hy = canvas.height * 0.66;
+  const hh = canvas.height * 0.16;
+  const fg = ctx.createLinearGradient(0, hy, 0, hy + hh);
+  fg.addColorStop(0, 'rgba(160,130,110,0.18)');
+  fg.addColorStop(0.4, 'rgba(120,100,90,0.10)');
+  fg.addColorStop(1, 'rgba(20,20,35,0.40)');
+  ctx.fillStyle = fg;
+  ctx.fillRect(0, hy, canvas.width, hh);
+}
+
+// --- Glow on the whale (underlight from city) ---
+function drawCityGlow(t) {
+  const g = ctx.createRadialGradient(canvas.width * 0.5, canvas.height * 0.82, 30, canvas.width * 0.5, canvas.height * 0.82, canvas.width * 0.6);
+  g.addColorStop(0, 'rgba(220,180,120,0.07)');
+  g.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, canvas.height * 0.55, canvas.width, canvas.height * 0.45);
+}
+
+// --- Main loop ---
+function frame(t) {
+  const dt = Math.min(t - lastT, 50); // cap jumps
+  lastT = t;
+  const rt = t * TSCALE;
+
+  drawSky(rt);
+  drawStars(rt);
+  drawMoon(rt);
+
+  // Back clouds (behind whale)
+  for (const c of cloudBack) drawCloud(c, rt);
+
+  // Far fog band
+  drawFog(rt);
+
+  // City layers
+  for (const layer of cityLayers) drawCity(layer, rt);
+
+  // City glow on lower atmosphere
+  drawCityGlow(rt);
+
+  // Whale
+  const wInfo = drawWhale(rt);
+
+  // Front clouds (in front of whale, below its body)
+  for (const c of cloudMid) drawCloud(c, rt);
+  for (const c of cloudFore) drawCloud(c, rt);
+
+  // Particles on top of whale
+  drawParticles(rt);
+
+  // Subtle vignette
+  const vg = ctx.createRadialGradient(canvas.width / 2, canvas.height / 2, canvas.width * 0.25, canvas.width / 2, canvas.height / 2, canvas.width * 0.75);
+  vg.addColorStop(0, 'rgba(0,0,0,0)');
+  vg.addColorStop(1, 'rgba(0,0,0,0.5)');
+  ctx.fillStyle = vg;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  requestAnimationFrame(frame);
+}
+
+requestAnimationFrame((t) => { lastT = t; frame(t); });
+</script>
+<!--zc-home:start--><style>.zc-home-btn{position:fixed;top:16px;left:16px;z-index:2147483647;display:inline-flex;align-items:center;gap:6px;padding:8px 14px;font:500 13px/1.1 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Noto Sans SC",sans-serif;color:#111;background:rgba(255,255,255,.86);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);border:1px solid rgba(0,0,0,.08);border-radius:999px;text-decoration:none;box-shadow:0 2px 12px rgba(0,0,0,.2);transition:background .2s ease,transform .2s ease,box-shadow .2s ease}.zc-home-btn:hover{background:#fff;transform:translateY(-1px);box-shadow:0 4px 18px rgba(0,0,0,.26)}</style><a class="zc-home-btn" href="../">← 返回首页</a><!--zc-home:end-->
+</body>
+</html>

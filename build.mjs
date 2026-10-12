@@ -47,6 +47,7 @@ const pelicanVersions = [
   ["ling-3.1-flash", "Ling 3.1 Flash", "SVG 动画"],
   ["sensenova-6.8-flash", "SenseNova 6.8 Flash", "商汤小浣熊 · SVG 动画"],
   ["solar-mini-4", "Solar Mini 4", "SVG 动画"],
+  ["gpt5.6-terra-ultra", "GPT-5.6 Terra Ultra", "SVG 动画"],
   ["opus-4.8", "Claude Opus 4.8", "SVG + SMIL 动画"],
 ].map(([slug, name, sub]) => ({ slug, name, sub }));
 
@@ -108,6 +109,12 @@ const categories = [
       ["glm-5.3-flash", "GLM 5.3 Flash", "Canvas 2D"],
       ["muse-spark", "Muse Spark", "Three.js 3D"],
       ["opus-4.8", "Claude Opus 4.8", "Three.js 3D"],
+      ["gpt6-luna", "GPT-6 Luna", "Canvas 2D"],
+      ["qwen-3.8-flash", "Qwen 3.8 Flash", "Three.js 3D"],
+      ["step-5-preview", "Step-5 Preview", "Canvas 2D"],
+      ["deepseek-4.1-flash-raccoon", "DeepSeek 4.1 Flash Raccoon", "Three.js 3D"],
+      ["glm-5.3-raccoon", "GLM 5.3 Raccoon", "Three.js 3D"],
+      ["longcat-2.0", "LongCat 2.0", "Canvas 2D"],
     ].map(([slug, name, sub]) => ({ slug, name, sub })),
   },
   {

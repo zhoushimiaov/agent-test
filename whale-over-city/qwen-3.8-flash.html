@@ -1,0 +1,653 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>一头巨鲸在城市上空游动</title>
+<style>
+  html, body {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: #0b1020;
+    cursor: default;
+  }
+  #scene { position: fixed; inset: 0; display: block; }
+  /* Cinematic vignette + faint grain, purely decorative */
+  #vignette {
+    position: fixed; inset: 0; pointer-events: none; z-index: 10;
+    background:
+      radial-gradient(120% 120% at 50% 42%,
+        rgba(0,0,0,0) 55%,
+        rgba(0,0,0,0.28) 82%,
+        rgba(0,0,0,0.55) 100%);
+    mix-blend-mode: multiply;
+  }
+  #fade {
+    position: fixed; inset: 0; pointer-events: none; z-index: 11;
+    background: #05070f; opacity: 1;
+    animation: fadein 2.4s ease-out .2s forwards;
+  }
+  @keyframes fadein { to { opacity: 0; } }
+</style>
+</head>
+<body>
+<canvas id="scene"></canvas>
+<div id="vignette"></div>
+<div id="fade"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+/* ============================================================
+   一头巨鲸在城市上空游动 — 单文件 Three.js 动画
+   自动循环播放，无需任何交互。
+   ============================================================ */
+
+(function () {
+  "use strict";
+
+  const canvas = document.getElementById("scene");
+
+  // 若 Three.js 未能从 CDN 加载（例如离线），给出友好提示而非黑屏
+  if (typeof THREE === "undefined") {
+    const f = document.getElementById("fade");
+    if (f) f.style.display = "none";
+    const tip = document.createElement("div");
+    tip.style.cssText = "position:fixed;inset:0;display:flex;align-items:center;justify-content:center;color:#e9d8b6;font:16px/1.6 system-ui,'Microsoft YaHei',sans-serif;text-align:center;padding:24px;z-index:20";
+    tip.textContent = "需要联网加载 Three.js 才能播放动画。请在 Chrome / Edge 中打开本文件，并确保可以访问 cdnjs.cloudflare.com。";
+    document.body.appendChild(tip);
+    return;
+  }
+
+  // ---------- Renderer ----------
+  const renderer = new THREE.WebGLRenderer({
+    canvas,
+    antialias: true,
+    powerPreference: "high-performance"
+  });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.outputEncoding = THREE.sRGBEncoding;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.12;
+
+  // ---------- Scene & Fog ----------
+  const scene = new THREE.Scene();
+  const HORIZON = new THREE.Color("#f3c58a");   // 暖色地平线（黄昏）
+  const ZENITH  = new THREE.Color("#243a63");   // 天顶深蓝
+  const hazeColor = new THREE.Color("#c8b293");
+  scene.fog = new THREE.FogExp2(hazeColor.getHex(), 0.00072);
+
+  // ---------- Camera ----------
+  const camera = new THREE.PerspectiveCamera(
+    52, window.innerWidth / window.innerHeight, 1, 12000
+  );
+  camera.position.set(0, 130, 420);
+
+  // ============================================================
+  //  SKY  — 渐变穹顶
+  // ============================================================
+  (function buildSky() {
+    const geo = new THREE.SphereGeometry(6000, 32, 20);
+    const mat = new THREE.ShaderMaterial({
+      side: THREE.BackSide,
+      depthWrite: false,
+      fog: false,
+      uniforms: {
+        topColor:    { value: ZENITH },
+        horizonColor:{ value: HORIZON },
+        bottomColor: { value: new THREE.Color("#6a5a7a") },
+        sunDir:      { value: new THREE.Vector3(0, 0.12, -1).normalize() },
+        offset:      { value: 40 },
+        exponent:    { value: 0.72 }
+      },
+      vertexShader: `
+        varying vec3 vWorld;
+        void main() {
+          vec4 wp = modelMatrix * vec4(position, 1.0);
+          vWorld = wp.xyz;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }`,
+      fragmentShader: `
+        uniform vec3 topColor, horizonColor, bottomColor, sunDir;
+        uniform float offset, exponent;
+        varying vec3 vWorld;
+        void main() {
+          float h = normalize(vWorld + vec3(0.0, offset, 0.0)).y;
+          vec3 col;
+          if (h >= 0.0) {
+            float t = pow(clamp(h, 0.0, 1.0), exponent);
+            col = mix(horizonColor, topColor, t);
+          } else {
+            col = mix(horizonColor, bottomColor, pow(clamp(-h,0.0,1.0), 0.6));
+          }
+          // 太阳附近的辉光
+          vec3 dir = normalize(vWorld);
+          float s = max(dot(dir, normalize(sunDir)), 0.0);
+          col += vec3(1.0, 0.78, 0.55) * pow(s, 8.0) * 0.55;
+          col += vec3(1.0, 0.85, 0.6) * pow(s, 2.0) * 0.10;
+          gl_FragColor = vec4(col, 1.0);
+        }`
+    });
+    scene.add(new THREE.Mesh(geo, mat));
+  })();
+
+  // ============================================================
+  //  SUN  — 低垂的发光圆盘 + 光晕
+  // ============================================================
+  function radialTexture(stops, size) {
+    const c = document.createElement("canvas");
+    c.width = c.height = size;
+    const g = c.getContext("2d");
+    const grd = g.createRadialGradient(size/2, size/2, 0, size/2, size/2, size/2);
+    stops.forEach(s => grd.addColorStop(s[0], s[1]));
+    g.fillStyle = grd;
+    g.fillRect(0, 0, size, size);
+    const t = new THREE.CanvasTexture(c);
+    t.needsUpdate = true;
+    return t;
+  }
+
+  const sunPos = new THREE.Vector3(120, 260, -2600);
+  const sunBillboards = [];
+  (function buildSun() {
+    // 光晕 sprite
+    const glowTex = radialTexture([
+      [0.0, "rgba(255,238,200,0.95)"],
+      [0.25,"rgba(255,205,140,0.55)"],
+      [0.6, "rgba(255,180,120,0.16)"],
+      [1.0, "rgba(255,170,120,0.0)"]
+    ], 256);
+    const glowMat = new THREE.SpriteMaterial({
+      map: glowTex, color: 0xffffff, transparent: true,
+      blending: THREE.AdditiveBlending, depthWrite: false, fog: false
+    });
+    const glow = new THREE.Sprite(glowMat);
+    glow.position.copy(sunPos);
+    glow.scale.set(1600, 1600, 1);
+    scene.add(glow);
+
+    // 实心盘
+    const disc = new THREE.Mesh(
+      new THREE.CircleGeometry(120, 40),
+      new THREE.MeshBasicMaterial({ color: 0xfff1cf, fog: false })
+    );
+    disc.position.copy(sunPos);
+    disc.lookAt(camera.position);
+    disc.userData.isBillboard = true;
+    scene.add(disc);
+    sunBillboards.push(disc);
+  })();
+
+  // ============================================================
+  //  LIGHTS
+  // ============================================================
+  const hemi = new THREE.HemisphereLight(
+    new THREE.Color("#9fb6d8"), new THREE.Color("#4a3b2e"), 0.75
+  );
+  scene.add(hemi);
+
+  const sunLight = new THREE.DirectionalLight(new THREE.Color("#ffcf9a"), 1.55);
+  sunLight.position.copy(sunPos);
+  scene.add(sunLight);
+
+  const rimLight = new THREE.DirectionalLight(new THREE.Color("#5a7fd0"), 0.55);
+  rimLight.position.set(-400, 120, 300);
+  scene.add(rimLight);
+
+  const ambient = new THREE.AmbientLight(0x2a3350, 0.45);
+  scene.add(ambient);
+
+  // ============================================================
+  //  CITY  — 程序化楼群（InstancedMesh）
+  // ============================================================
+  function facadeTexture() {
+    const w = 64, h = 128;
+    const c = document.createElement("canvas");
+    c.width = w; c.height = h;
+    const g = c.getContext("2d");
+    g.fillStyle = "#10151f";
+    g.fillRect(0, 0, w, h);
+    // 窗格
+    const cols = 6, rows = 16;
+    const mx = 6, my = 6;
+    const cw = (w - mx * (cols + 1)) / cols;
+    const rh = (h - my * (rows + 1)) / rows;
+    for (let r = 0; r < rows; r++) {
+      for (let i = 0; i < cols; i++) {
+        const lit = Math.random();
+        let col;
+        if (lit > 0.72)      col = "#ffe6a8";      // 暖亮窗
+        else if (lit > 0.5)  col = "#3a4a66";      // 冷反射窗
+        else                 col = "#1a2233";      // 暗窗
+        g.fillStyle = col;
+        g.fillRect(mx + i * (cw + mx), my + r * (rh + my), cw, rh);
+      }
+    }
+    const t = new THREE.CanvasTexture(c);
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    t.magFilter = THREE.NearestFilter;
+    return t;
+  }
+
+  (function buildCity() {
+    const tex = facadeTexture();
+    const emiss = tex.clone();
+    emiss.needsUpdate = true;
+
+    const boxGeo = new THREE.BoxGeometry(1, 1, 1);
+    // 让顶面看起来不像窗户（把上盖偏暗），用逐顶点色稍作区分意义不大，保持简洁
+    const mat = new THREE.MeshStandardMaterial({
+      map: tex,
+      emissiveMap: emiss,
+      emissive: new THREE.Color("#ffbe6a"),
+      emissiveIntensity: 0.35,
+      color: 0x8a97ac,
+      roughness: 0.85,
+      metalness: 0.12
+    });
+
+    // 城市网格
+    const GRID = 26;          // 每边格子
+    const SPACING = 128;      // 建筑间距
+    const ORIGIN_Y = -260;    // 城市基准面（在鲸鱼下方很远处）
+    const count = GRID * GRID;
+    const city = new THREE.InstancedMesh(boxGeo, mat, count);
+    const dummy = new THREE.Object3D();
+    const colorAttr = new THREE.Color();
+
+    let idx = 0;
+    const half = (GRID - 1) / 2;
+    for (let gx = 0; gx < GRID; gx++) {
+      for (let gz = 0; gz < GRID; gz++) {
+        const x = (gx - half) * SPACING + (Math.random() - 0.5) * 46;
+        const z = (gz - half) * SPACING + (Math.random() - 0.5) * 46;
+        const distFactor = Math.max(0.35, 1 - (Math.hypot(x, z) / 2600));
+        // 中央商务区更高
+        let height = (34 + Math.pow(Math.random(), 1.8) * 150) * distFactor;
+        const wdt = 34 + Math.random() * 46;
+        const dep = 34 + Math.random() * 46;
+
+        dummy.position.set(x, ORIGIN_Y + height / 2, z);
+        dummy.scale.set(wdt, height, dep);
+        dummy.rotation.set(0, (Math.random() - 0.5) * 0.25, 0);
+        dummy.updateMatrix();
+        city.setMatrixAt(idx, dummy.matrix);
+
+        // 轻微冷暖色变化 + 远处更亮（大气透视）
+        const tint = 0.72 + Math.random() * 0.28;
+        colorAttr.setRGB(tint * 0.85, tint * 0.92, tint);
+        city.setColorAt(idx, colorAttr);
+        idx++;
+      }
+    }
+    city.instanceMatrix.needsUpdate = true;
+    if (city.instanceColor) city.instanceColor.needsUpdate = true;
+    scene.add(city);
+
+    // 地面
+    const ground = new THREE.Mesh(
+      new THREE.PlaneGeometry(9000, 9000),
+      new THREE.MeshStandardMaterial({ color: 0x141821, roughness: 1, metalness: 0 })
+    );
+    ground.rotation.x = -Math.PI / 2;
+    ground.position.y = ORIGIN_Y;
+    scene.add(ground);
+  })();
+
+  // ============================================================
+  //  WHALE  — 程序化建模
+  // ============================================================
+  function buildWhale() {
+    // 用一系列横截面（椭圆）沿体轴放样出鲸身，
+    // 再单独拼接头鳍、胸鳍与尾鳍。整体朝向 +Z 为前进方向。
+    const L = 60;               // 体长（世界单位）
+    const rings = 60;           // 横截面数量
+
+    // 体形曲线：头部钝圆、躯干饱满、向尾部急剧收细成尾柄
+    function halfWidth(t) {    // t: 0(鼻) -> 1(尾柄末端)
+      // 饱满椭圆 + 尾部细柄
+      const fat = Math.sin(Math.PI * Math.pow(t, 0.78)) ;
+      const base = 0.5 + 0.5 * fat;
+      const taper = Math.pow(1.0 - t, 0.85);
+      return (0.09 + base * 0.14) * (0.35 + taper) ;
+    }
+    function halfHeight(t) {   // 竖直半高：背部圆、腹部更厚
+      const fat = Math.sin(Math.PI * Math.pow(t, 0.82));
+      const base = 0.5 + 0.55 * fat;
+      const taper = Math.pow(1.0 - t, 0.78);
+      return (0.10 + base * 0.16) * (0.4 + taper);
+    }
+    function bellyOffset(t) {  // 腹部中线略下移，塑造鲸腹
+      return -0.04 * Math.sin(Math.PI * Math.pow(t, 0.9)) * (1 - t);
+    }
+
+    const segs = 26;                 // 每个截面的分段
+    const positions = [];
+    const colors = [];
+    const indices = [];
+    const backColor  = new THREE.Color("#22334a");
+    const flankColor = new THREE.Color("#3b5570");
+    const bellyColor = new THREE.Color("#c7d2dd");
+
+    const zStart = 0.5 * L;          // 鼻端
+    for (let ri = 0; ri <= rings; ri++) {
+      const t = ri / rings;
+      const z = zStart - t * L;
+      const hw = halfWidth(t) * L;
+      const hh = halfHeight(t) * L;
+      const bo = bellyOffset(t) * L;
+
+      for (let si = 0; si <= segs; si++) {
+        const a = (si / segs) * Math.PI * 2;
+        const cx = Math.cos(a);
+        const sy = Math.sin(a);
+        const x = cx * hw;
+        // 背部(sy>0)与腹部(sy<0)分离的轮廓，更立体
+        const y = (sy >= 0 ? sy * hh : sy * hh * 0.86) + bo;
+
+        positions.push(x, y, z);
+
+        // 顶点色：上暗下浅
+        const upn = THREE.MathUtils.clamp((y / hh) * 0.5 + 0.5, 0, 1);
+        const c = new THREE.Color();
+        if (upn > 0.6) c.copy(backColor).lerp(flankColor, (1 - upn) / 0.4);
+        else           c.copy(flankColor).lerp(bellyColor, (0.6 - upn) / 0.6);
+        colors.push(c.r, c.g, c.b);
+      }
+    }
+
+    const stride = segs + 1;
+    for (let ri = 0; ri < rings; ri++) {
+      for (let si = 0; si < segs; si++) {
+        const a = ri * stride + si;
+        const b = a + stride;
+        const c = b + 1;
+        const d = a + 1;
+        indices.push(a, b, d);
+        indices.push(b, c, d);
+      }
+    }
+
+    // 封鼻端（收敛成一点）
+    const noseCenter = positions.length / 3;
+    const noseZ = zStart;
+    positions.push(0, bellyOffset(0) * L, noseZ + 0.02 * L);
+    colors.push(backColor.r, backColor.g, backColor.b);
+    for (let si = 0; si < segs; si++) {
+      indices.push(0, si + 1, si); // 首个环
+    }
+
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+    geo.setAttribute("color", new THREE.Float32BufferAttribute(colors, 3));
+    geo.setIndex(indices);
+    geo.computeVertexNormals();
+
+    const bodyMat = new THREE.MeshStandardMaterial({
+      vertexColors: true,
+      roughness: 0.62,
+      metalness: 0.05,
+      flatShading: false
+    });
+    const body = new THREE.Mesh(geo, bodyMat);
+
+    // ---- 尾鳍（水平，两叶 + 中央缺口）----
+    const finMat = new THREE.MeshStandardMaterial({
+      color: new THREE.Color("#2a3d55"),
+      roughness: 0.6, metalness: 0.05, side: THREE.DoubleSide
+    });
+    function fluke() {
+      const s = new THREE.Shape();
+      const span = 0.26 * L;   // 单侧展长
+      const chord = 0.16 * L;  // 前后宽度
+      s.moveTo(0, 0);
+      s.quadraticCurveTo(span * 0.45,  chord * 0.55, span,        chord * 0.15);
+      s.quadraticCurveTo(span * 0.7,  -chord * 0.05, 0.06 * L,   -chord * 0.02); // 中央缺口
+      s.quadraticCurveTo(-span * 0.7, -chord * 0.05, -span,      chord * 0.15);
+      s.quadraticCurveTo(-span * 0.45, chord * 0.55, 0, 0);
+      const g = new THREE.ExtrudeGeometry(s, { depth: 0.006 * L, bevelEnabled: false });
+      g.rotateX(-Math.PI / 2); // 躺平到水平面
+      return new THREE.Mesh(g, finMat);
+    }
+    const tailGroup = new THREE.Group();
+    const flukeMesh = fluke();
+    flukeMesh.position.set(0, 0, -0.02 * L);
+    tailGroup.add(flukeMesh);
+
+    // 尾柄小水平鳍连接到身体
+    const peduncle = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.05 * L, 0.09 * L, 0.14 * L, 12, 1, true),
+      finMat
+    );
+    peduncle.rotation.x = Math.PI / 2;
+    peduncle.position.set(0, -0.01 * L, 0.05 * L);
+    tailGroup.add(peduncle);
+    tailGroup.position.set(0, -0.02 * L, -0.46 * L);
+
+    // ---- 胸鳍（每侧一片，长而扁）----
+    function pectoral(sign) {
+      const s = new THREE.Shape();
+      s.moveTo(0, 0);
+      s.quadraticCurveTo(0.10 * L, -0.02 * L, 0.20 * L, 0.02 * L);
+      s.quadraticCurveTo(0.16 * L, 0.05 * L, 0.02 * L, 0.06 * L);
+      s.lineTo(0, 0);
+      const g = new THREE.ExtrudeGeometry(s, { depth: 0.006 * L, bevelEnabled: false });
+      const m = new THREE.Mesh(g, finMat);
+      m.position.set(sign * 0.16 * L, -0.06 * L, 0.28 * L);
+      m.rotation.y = sign * -0.5;
+      m.rotation.z = sign * 0.35;
+      m.scale.z = 1;
+      return m;
+    }
+    body.add(pectoral(1));
+    body.add(pectoral(-1));
+
+    // ---- 背脊小隆起（蓝鲸式矮鳍）----
+    const dorsal = new THREE.Mesh(
+      new THREE.SphereGeometry(0.03 * L, 12, 10, 0, Math.PI * 2, 0, Math.PI / 2),
+      finMat
+    );
+    dorsal.scale.set(1.4, 0.7, 2.6);
+    dorsal.position.set(0, halfHeight(0.62) * L * 0.9, zStart - 0.62 * L);
+    body.add(dorsal);
+
+    // ---- 眼睛 ----
+    const eyeMat = new THREE.MeshStandardMaterial({ color: 0x0a0d12, roughness: 0.3 });
+    const eyeGeo = new THREE.SphereGeometry(0.012 * L, 12, 12);
+    const eyeL = new THREE.Mesh(eyeGeo, eyeMat);
+    eyeL.position.set( 0.13 * L, 0.02 * L, 0.40 * L);
+    const eyeR = eyeL.clone();
+    eyeR.position.x = -0.13 * L;
+    body.add(eyeL); body.add(eyeR);
+
+    const group = new THREE.Group();
+    group.add(body);
+    group.add(tailGroup);
+    group.userData.tail = tailGroup;
+    group.userData.body = body;
+    return group;
+  }
+
+  const whale = buildWhale();
+  whale.scale.setScalar(1.55);   // 巨鲸：明显大于城市楼群
+  scene.add(whale);
+
+  // ============================================================
+  //  CLOUDS  — 分层云海（Sprite 片）
+  // ============================================================
+  const clouds = [];
+  (function buildClouds() {
+    function puff(seed) {
+      const size = 256;
+      const c = document.createElement("canvas");
+      c.width = c.height = size;
+      const g = c.getContext("2d");
+      g.clearRect(0, 0, size, size);
+      const blobs = 14 + (seed % 6);
+      for (let i = 0; i < blobs; i++) {
+        const bx = size * 0.5 + (Math.random() - 0.5) * size * 0.72;
+        const by = size * 0.55 + (Math.random() - 0.5) * size * 0.4;
+        const br = size * (0.12 + Math.random() * 0.2);
+        const grd = g.createRadialGradient(bx, by, 0, bx, by, br);
+        grd.addColorStop(0, "rgba(255,250,244,0.95)");
+        grd.addColorStop(0.55, "rgba(255,240,225,0.5)");
+        grd.addColorStop(1, "rgba(255,235,220,0)");
+        g.fillStyle = grd;
+        g.beginPath();
+        g.arc(bx, by, br, 0, Math.PI * 2);
+        g.fill();
+      }
+      // 底部阴影
+      const sh = g.createLinearGradient(0, size * 0.4, 0, size);
+      sh.addColorStop(0, "rgba(120,110,130,0)");
+      sh.addColorStop(1, "rgba(90,85,110,0.28)");
+      g.globalCompositeOperation = "source-atop";
+      g.fillStyle = sh;
+      g.fillRect(0, 0, size, size);
+      const t = new THREE.CanvasTexture(c);
+      return t;
+    }
+
+    const textures = [puff(1), puff(2), puff(3), puff(4)];
+    const N = 46;
+    for (let i = 0; i < N; i++) {
+      const tex = textures[i % textures.length];
+      const mat = new THREE.SpriteMaterial({
+        map: tex, transparent: true, depthWrite: false,
+        opacity: 0.5 + Math.random() * 0.35,
+        fog: true
+      });
+      const sp = new THREE.Sprite(mat);
+      const spread = 2600;
+      const x = (Math.random() - 0.5) * spread * 2;
+      const z = (Math.random() - 0.5) * spread * 2;
+      // 三个高度层：城市雾带、中层、鲸鱼上方
+      const band = i % 3;
+      const y = band === 0 ? -120 + Math.random() * 60
+              : band === 1 ? 60 + Math.random() * 90
+              : 260 + Math.random() * 160;
+      sp.position.set(x, y, z);
+      const s = 260 + Math.random() * 520;
+      sp.scale.set(s, s * 0.62, 1);
+      sp.userData = { x, y, z, s, drift: 4 + Math.random() * 10, phase: Math.random() * 6.28 };
+      scene.add(sp);
+      clouds.push(sp);
+    }
+  })();
+
+  // ============================================================
+  //  PATH  — 鲸鱼游动的闭合航线（Catmull-Rom）
+  // ============================================================
+  const pathPoints = [
+    new THREE.Vector3( -900, 150,  700),
+    new THREE.Vector3(  -250, 205,  -250),
+    new THREE.Vector3(   720, 130,  -650),
+    new THREE.Vector3(  1050, 185,   260),
+    new THREE.Vector3(   360, 240,   900),
+    new THREE.Vector3(  -520, 160,   760),
+    new THREE.Vector3(  -980, 210,   180)
+  ];
+  const path = new THREE.CatmullRomCurve3(pathPoints, true, "catmullrom", 0.5);
+
+  const _p = new THREE.Vector3(), _pAhead = new THREE.Vector3();
+  const _tangent = new THREE.Vector3(), _side = new THREE.Vector3(), _up = new THREE.Vector3(0,1,0);
+  const _q = new THREE.Quaternion();
+  const FORWARD = new THREE.Vector3(0, 0, 1); // 鲸鱼模型的前进方向（+Z）
+
+  const LOOP_SECONDS = 60;         // 一次巡游周期
+  let elapsed = 0;
+
+  // ============================================================
+  //  ANIMATE
+  // ============================================================
+  const clock = new THREE.Clock();
+  const lookTarget = new THREE.Vector3();
+  const camPos = new THREE.Vector3();
+
+  function animate() {
+    requestAnimationFrame(animate);
+    const dt = Math.min(clock.getDelta(), 0.05);
+    elapsed += dt;
+    const tLoop = (elapsed % LOOP_SECONDS) / LOOP_SECONDS;
+
+    // --- 鲸鱼沿航线前进，朝向随切线平滑 ---
+    path.getPointAt(tLoop, _p);
+    const ahead = (tLoop + 0.004) % 1;
+    path.getPointAt(ahead, _pAhead);
+    _tangent.copy(_pAhead).sub(_p).normalize();
+
+    // 上下轻柔起伏 + 前后摆动
+    const bob = Math.sin(elapsed * 0.9) * 6 + Math.sin(elapsed * 0.37) * 4;
+    _p.y += bob;
+
+    whale.position.copy(_p);
+
+    // 让鲸头朝前：把模型前向 +Z 对齐到航线切线
+    _q.setFromUnitVectors(FORWARD, _tangent);
+    whale.quaternion.copy(_q);
+
+    // 侧倾（banking）随航向变化 + 整体俯仰起伏
+    path.getTangentAt(tLoop, _side);
+    _side.cross(_up).normalize();
+    const curveAmt = _pAhead.clone().sub(_p).normalize().dot(_side);
+    whale.rotateZ(Math.sin(elapsed * 0.55) * 0.12 + curveAmt * 0.25);
+    whale.rotateX(Math.sin(elapsed * 0.9) * 0.05);
+
+    // 尾鳍上下摆动（推进感），并让身体随之微摆
+    const tail = whale.userData.tail;
+    const flap = Math.sin(elapsed * 1.6);
+    if (tail) tail.rotation.x = flap * 0.55;
+    whale.userData.body.rotation.y = Math.sin(elapsed * 1.6 - 0.7) * 0.04;
+
+    // --- 运镜：环绕跟随，远近呼吸 ---
+    const camAngle = elapsed * 0.16;
+    const camR = 300 + Math.sin(elapsed * 0.12) * 70;
+    const camH = 120 + Math.sin(elapsed * 0.1 + 1.0) * 70;
+    camPos.set(
+      _p.x + Math.cos(camAngle) * camR,
+      _p.y + camH,
+      _p.z + Math.sin(camAngle) * camR
+    );
+    camera.position.lerp(camPos, 0.05);
+
+    // 视线略超前鲸鱼，营造运动感
+    lookTarget.copy(_p).lerp(_pAhead, 0.6);
+    lookTarget.y += 4 + Math.sin(elapsed * 0.7) * 4;
+    camera.lookAt(lookTarget);
+    // 轻微镜头横滚，增加漂浮感
+    camera.rotateZ(Math.sin(elapsed * 0.3) * 0.012);
+
+    // --- 云层缓慢漂移 ---
+    const FIELD = 2700; // 云层活动半径（半宽）
+    for (let i = 0; i < clouds.length; i++) {
+      const cl = clouds[i];
+      const u = cl.userData;
+      cl.position.x += u.drift * dt;                 // 匀速向 +X 漂移
+      if (cl.position.x > FIELD) cl.position.x -= FIELD * 2; // 环绕回对面，无跳变
+      cl.position.y = u.y + Math.sin(elapsed * 0.2 + u.phase) * 8;
+    }
+
+    // 太阳盘面始终朝向相机
+    for (let i = 0; i < sunBillboards.length; i++) {
+      sunBillboards[i].lookAt(camera.position);
+    }
+
+    renderer.render(scene, camera);
+  }
+  animate();
+
+  // ---------- Resize ----------
+  window.addEventListener("resize", () => {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+  });
+
+})();
+</script>
+<!--zc-home:start--><style>.zc-home-btn{position:fixed;top:16px;left:16px;z-index:2147483647;display:inline-flex;align-items:center;gap:6px;padding:8px 14px;font:500 13px/1.1 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Noto Sans SC",sans-serif;color:#111;background:rgba(255,255,255,.86);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);border:1px solid rgba(0,0,0,.08);border-radius:999px;text-decoration:none;box-shadow:0 2px 12px rgba(0,0,0,.2);transition:background .2s ease,transform .2s ease,box-shadow .2s ease}.zc-home-btn:hover{background:#fff;transform:translateY(-1px);box-shadow:0 4px 18px rgba(0,0,0,.26)}</style><a class="zc-home-btn" href="../">← 返回首页</a><!--zc-home:end-->
+</body>
+</html>

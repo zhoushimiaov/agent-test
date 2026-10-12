@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Whale Over City</title>
+<style>
+  html,body{margin:0;padding:0;width:100%;height:100%;overflow:hidden;background:#060a18}
+  #c{display:block;width:100%;height:100%}
+  .vig{position:fixed;inset:0;pointer-events:none;
+       background:radial-gradient(ellipse at center,transparent 55%,rgba(2,4,12,.55) 100%)}
+  #err{position:fixed;left:0;right:0;top:0;padding:8px 14px;color:#ffd;font:12px/1.5 monospace;
+       background:rgba(60,10,10,.92);display:none;white-space:pre-wrap;z-index:9}
+</style>
+<script type="importmap">
+{"imports":{
+  "three":"https://unpkg.com/three@0.160.0/build/three.module.js"
+}}
+</script>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div class="vig"></div>
+<div id="err"></div>
+<script type="module">
+const showErr=m=>{const e=document.getElementById('err');
+  e.style.display='block';e.textContent+=m+'\n';};
+window.addEventListener('error',e=>showErr('Error: '+(e.message||e.type)));
+
+// 确定性随机(场景可复现)
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;
+  let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;
+  return((t^t>>>14)>>>0)/4294967296}}
+const R=mulberry32(20261012);
+
+let THREE;
+try{THREE=await import('three');}
+catch(e){showErr('three.js 加载失败(需联网访问 CDN unpkg.com)\n'+e);throw e;}
+
+// ---------- 渲染器 / 场景 / 相机 ----------
+const renderer=new THREE.WebGLRenderer({canvas:document.getElementById('c'),antialias:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+renderer.toneMapping=THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure=1.05;
+renderer.outputColorSpace=THREE.SRGBColorSpace;
+
+const scene=new THREE.Scene();
+scene.background=new THREE.Color(0x060a1a);
+scene.fog=new THREE.Fog(0x0a1026,200,900);
+const cam=new THREE.PerspectiveCamera(40,1,0.1,3000);
+
+// 夜空环境贴图(PBR 反射)
+{const pm=new THREE.PMREMGenerator(renderer);const es=new THREE.Scene();
+ es.background=new THREE.Color(0x0a1030);
+ const warm=new THREE.Mesh(new THREE.PlaneGeometry(30,10),
+   new THREE.MeshBasicMaterial({color:0x55401e}));
+ warm.position.set(0,-12,-20);es.add(warm);
+ const cool=new THREE.Mesh(new THREE.PlaneGeometry(26,12),
+   new THREE.MeshBasicMaterial({color:0x16204a}));
+ cool.position.set(16,14,12);es.add(cool);
+ scene.environment=pm.fromScene(es,0.06).texture;pm.dispose();}
+
+// ---------- 灯光 ----------
+scene.add(new THREE.HemisphereLight(0x3a4a80,0x0c0a14,0.9));
+const moonL=new THREE.DirectionalLight(0xa8bfff,1.25);
+moonL.position.set(-150,200,-160);scene.add(moonL);
+const rimL=new THREE.DirectionalLight(0x66e0ff,0.45);
+rimL.position.set(120,60,140);scene.add(rimL);
+const glow=new THREE.PointLight(0xffb46b,1500,400,2); // 城市暖光映鲸腹
+scene.add(glow);
+
+// ---------- 星空(整体呼吸) ----------
+let starMat;
+{const n=1100,pos=new Float32Array(n*3),col=new Float32Array(n*3);
+ for(let i=0;i<n;i++){const a=R()*Math.PI*2,b=Math.acos(1-R()*0.95),r=1400;
+  pos[i*3]=Math.sin(b)*Math.cos(a)*r;pos[i*3+1]=Math.cos(b)*r*0.62+50;
+  pos[i*3+2]=Math.sin(b)*Math.sin(a)*r;
+  if(R()<0.07)col.set([1,0.8,0.58],i*3);
+  else{const t=0.6+0.4*R();col.set([0.72*t,0.8*t,t],i*3);}}
+ const g=new THREE.BufferGeometry();
+ g.setAttribute('position',new THREE.BufferAttribute(pos,3));
+ g.setAttribute('color',new THREE.BufferAttribute(col,3));
+ starMat=new THREE.PointsMaterial({size:2.2,sizeAttenuation:false,vertexColors:true,
+   transparent:true,opacity:0.85,fog:false,depthWrite:false});
+ scene.add(new THREE.Points(g,starMat));}
+
+// ---------- 月亮 ----------
+{const m=new THREE.Mesh(new THREE.SphereGeometry(17,32,32),
+   new THREE.MeshBasicMaterial({color:0xe8f0ff,fog:false}));
+ m.position.set(-210,190,-1000);scene.add(m);
+ const h=new THREE.Mesh(new THREE.SphereGeometry(36,32,32),
+   new THREE.MeshBasicMaterial({color:0x93aaff,transparent:true,opacity:0.07,
+   fog:false,depthWrite:false}));
+ h.position.copy(m.position);scene.add(h);}
+
+// ---------- 地面 ----------
+{const f=new THREE.Mesh(new THREE.PlaneGeometry(3600,3600),
+   new THREE.MeshStandardMaterial({color:0x07070e,roughness:0.4,metalness:0.5,
+   envMapIntensity:0.35}));
+ f.rotation.x=-Math.PI/2;f.position.y=-0.6;scene.add(f);}
+
+// ---------- 程序化城市 ----------
+const cityG=new THREE.Group();scene.add(cityG);
+const beacons=[];   // 楼顶航空障碍灯(闪烁)
+const flickers=[];  // 会微微闪烁的楼
+let windowTexs=[];
+{ // 生成 10 种窗户发光贴图(暖光为主,少量冷光)
+  for(let v=0;v<10;v++){
+    const cv=document.createElement('canvas');cv.width=64;cv.height=256;
+    const ctx=cv.getContext('2d');
+    ctx.fillStyle='#000';ctx.fillRect(0,0,64,256);
+    const cols=6,rows=26;
+    for(let y=0;y<rows;y++)for(let x=0;x<cols;x++){
+      const on=R()<0.42;if(!on)continue;
+      const warm=R()<0.78;
+      const b=0.35+R()*0.65;
+      ctx.fillStyle=warm?`rgba(255,${170*b|0},${80*b|0},1)`
+                        :`rgba(${150*b|0},${200*b|0},255,1)`;
+      ctx.fillRect(x*10+3,y*9.8+3,5,5);
+    }
+    const tx=new THREE.CanvasTexture(cv);
+    tx.colorSpace=THREE.SRGBColorSpace;
+    windowTexs.push(tx);
+  }
+}
+{
+  const N=270,bodyGeo=new THREE.BoxGeometry(1,1,1);
+  bodyGeo.translate(0,0.5,0); // 底部对齐地面
+  for(let i=0;i<N;i++){
+    // 环状分布:市中心高楼密集,外围低矮
+    const ang=R()*Math.PI*2,rad=Math.pow(R(),0.6)*520;
+    const x=Math.cos(ang)*rad*1.25, z=Math.abs(Math.sin(ang))*rad+60; // 城市在镜头前方
+    const core=1-Math.min(rad/520,1);
+    const h=(6+R()*30)+(core*core)*(60+R()*110);
+    const w=8+R()*16,d=8+R()*16;
+    const mat=new THREE.MeshStandardMaterial({
+      color:0x0b0e1c,roughness:0.62,metalness:0.4,
+      emissive:0xffffff,emissiveIntensity:0.55+R()*0.7,
+      emissiveMap:windowTexs[(R()*10)|0],envMapIntensity:0.5});
+    const b=new THREE.Mesh(bodyGeo,mat);
+    b.position.set(x,0,z);b.scale.set(w,h,d);
+    b.rotation.y=(R()-0.5)*0.5;
+    cityG.add(b);
+    if(R()<0.5)flickers.push({m:mat,base:mat.emissiveIntensity,
+      ph:R()*6.28,sp:0.3+R()*1.2,amp:0.08+R()*0.22});
+    if(h>70&&R()<0.85){ // 高楼加红色障碍灯
+      const s=new THREE.Mesh(new THREE.SphereGeometry(0.9,8,8),
+        new THREE.MeshBasicMaterial({color:0xff2a2a,fog:false}));
+      s.position.set(x,h+1.5,z);cityG.add(s);
+      beacons.push({m:s,ph:R()*6.28});
+    }
+  }
+}
+{ // 大道暖色灯带(模拟车流路灯)
+  for(let k=0;k<3;k++){
+    const cv=document.createElement('canvas');cv.width=512;cv.height=8;
+    const ctx=cv.getContext('2d');ctx.fillStyle='#000';ctx.fillRect(0,0,512,8);
+    for(let x=0;x<512;x+=8){if(R()<0.8){
+      ctx.fillStyle=R()<0.5?'rgba(255,190,110,.9)':'rgba(180,200,255,.7)';
+      ctx.fillRect(x,2,4,3);}}
+    const tx=new THREE.CanvasTexture(cv);tx.colorSpace=THREE.SRGBColorSpace;
+    tx.wrapS=THREE.RepeatWrapping;tx.repeat.set(3,1);
+    const road=new THREE.Mesh(new THREE.PlaneGeometry(700,3),
+      new THREE.MeshBasicMaterial({map:tx,transparent:true,opacity:0.85,
+      blending:THREE.AdditiveBlending,depthWrite:false}));
+    road.rotation.x=-Math.PI/2;
+    road.position.set(0,0.3,120+k*150);
+    cityG.add(road);
+  }
+}
+
+// ---------- 程序化巨鲸(脊柱分段,游动时波动) ----------
+const whaleG=new THREE.Group();scene.add(whaleG);
+const SEG=52;                      // 脊柱分段数
+const spine=[];                     // 各段基准坐标(局部)
+const LEN=120;                      // 鲸鱼全长
+{
+  for(let i=0;i<SEG;i++){
+    const t=i/(SEG-1);             // 0=吻端 1=尾
+    spine.push({t,z:-t*LEN});      // 头朝 +z 游
+  }
+  const whaleProfile=t=>{
+    if(t<0.10) return Math.sin(t/0.10*Math.PI/2)*6.2;   // 吻端
+    if(t<0.42) return 6.2+Math.sin((t-0.10)/0.32*Math.PI)*4.6; // 鼓起到10.8
+    if(t<0.78) return 10.8-(t-0.42)/0.36*6.4;           // 收到4.4
+    return Math.max(4.4-(t-0.78)/0.22*3.4,0.9);         // 尾柄
+  };
+  const whaleSquashY=t=> t>0.24&&t<0.34 ? 1.28 : (t<0.5?1.06:0.92);
+  const RAD=32;                    // 截面圆周细分
+  const pos=[],idx=[],uv=[];
+  for(let i=0;i<SEG;i++){
+    const t=spine[i].t;
+    const r=whaleProfile(t),sy=whaleSquashY(t);
+    for(let j=0;j<=RAD;j++){
+      const a=j/RAD*Math.PI*2;
+      // 腹部略压扁(x 方向稍宽)
+      const rx=r*1.06,ry=r*sy;
+      pos.push(Math.sin(a)*rx,Math.cos(a)*ry,spine[i].z);
+      uv.push(j/RAD,t);
+    }
+  }
+  for(let i=0;i<SEG-1;i++)for(let j=0;j<RAD;j++){
+    const a=i*(RAD+1)+j,b=a+1,c=a+RAD+1,d=c+1;
+    idx.push(a,c,b,b,c,d);
+  }
+  const g=new THREE.BufferGeometry();
+  g.setAttribute('position',new THREE.Float32BufferAttribute(pos,3));
+  g.setAttribute('uv',new THREE.Float32BufferAttribute(uv,2));
+  g.setIndex(idx);g.computeVertexNormals();
+  const whaleGeo=g;
+
+  // 腹部白色贴图(沿 v 即身体长度方向渐变:腹白背深)
+  const cv=document.createElement('canvas');cv.width=64;cv.height=512;
+  const ctx=cv.getContext('2d');
+  // 用 uv.y 作长度、uv.x 作圆周:圆周上 0.5=腹
+  for(let y=0;y<512;y+=4){
+    const t=y/512;
+    for(let x=0;x<64;x+=2){
+      const a=x/64;
+      const dorsal=Math.abs(a-0.5)*2;      // 0=腹 1=背
+      const base=[10+t*8,16+t*10,30+t*22];   // 深蓝灰
+      const belly=[200-40*t,205-40*t,215-35*t]; // 腹白
+      const mix=Math.pow(1-dorsal,2.2);     // 腹侧混白
+      const r=base[0]*(1-mix)+belly[0]*mix;
+      const gg=base[1]*(1-mix)+belly[1]*mix;
+      const b=base[2]*(1-mix)+belly[2]*mix;
+      ctx.fillStyle=`rgb(${r|0},${gg|0},${b|0})`;
+      ctx.fillRect(x,y,2,4);
+    }
+  }
+  const tx=new THREE.CanvasTexture(cv);tx.colorSpace=THREE.SRGBColorSpace;
+  const whaleTex=tx;
+  window.__whale={whaleGeo,whaleTex,whaleProfile,whaleSquashY,RAD:32};
+}
+// 鲸鱼主体
+const {whaleGeo,whaleTex,whaleProfile,whaleSquashY}=window.__whale;
+const whaleMat=new THREE.MeshStandardMaterial({
+  map:whaleTex,roughness:0.5,metalness:0.18,
+  emissive:0x1a3a5c,emissiveIntensity:0.18,envMapIntensity:0.9});
+const whaleMesh=new THREE.Mesh(whaleGeo,whaleMat);
+whaleG.add(whaleMesh);
+const RAD=window.__whale.RAD;
+
+// 胸鳍(长鳍,座头鲸式)
+function makeFlipper(side){ // side=+1 右,-1 左
+  const pos=[],idx=[];
+  const CH=14,CW=6;
+  for(let i=0;i<CH;i++){const t=i/(CH-1);
+    for(let j=0;j<=CW;j++){const s=j/CW;
+      const len=(1-t)*22*(0.55+0.45*Math.sin(Math.min(t*2.2,1)*Math.PI/2));
+      const wid=4.6*(1-Math.abs(s-0.45)*1.6);
+      pos.push(side*(2+Math.sin(t*1.5)*1.5+len), -1.5+t*4+Math.sin(s*Math.PI)*wid*0.3,
+               2-t*20+ (s-0.45)*2);
+    }}
+  for(let i=0;i<CH-1;i++)for(let j=0;j<CW;j++){
+    const a=i*(CW+1)+j,b=a+1,c=a+CW+1,d=c+1;idx.push(a,c,b,b,c,d);}
+  const g=new THREE.BufferGeometry();
+  g.setAttribute('position',new THREE.Float32BufferAttribute(pos,3));
+  g.setIndex(idx);g.computeVertexNormals();
+  const m=new THREE.Mesh(g,whaleMat);
+  m.position.set(side*4,2,-14); // 挂在前腹
+  m.userData.ph=side>0?0:Math.PI; // 胸鳍缓摆相位
+  return m;
+}
+whaleG.add(makeFlipper(1));whaleG.add(makeFlipper(-1));
+
+// 背鳍
+{const g=new THREE.BufferGeometry();
+ const p=[[-9,0,0],[9,0,0],[0,10,3],[0,9,-3]];
+ g.setAttribute('position',new THREE.Float32BufferAttribute(p,3));
+ g.setIndex([0,2,1,0,1,3,0,3,2,1,2,3]);
+ g.computeVertexNormals();
+ const fin=new THREE.Mesh(g,whaleMat);
+ fin.position.set(0,8.5,-34);fin.scale.set(0.8,1,1.1);
+ whaleG.add(fin);}
+
+// 尾鳍(两片大尾叶)
+function tail(side){
+  const g=new THREE.BufferGeometry();
+  const p=[[0,0,-6],[side*17,-1,-16],[side*8,0.5,2],[0,0.5,4],
+           [side*15,2,-8]];
+  g.setAttribute('position',new THREE.Float32BufferAttribute(p,3));
+  g.setIndex([0,2,1,1,2,3,1,4,2,0,3,2,3,4,1]);
+  g.computeVertexNormals();
+  const m=new THREE.Mesh(g,whaleMat);
+  return m;
+}
+const tailG=new THREE.Group();
+tailG.add(tail(1));tailG.add(tail(-1));
+tailG.position.set(0,0,-118);whaleG.add(tailG);
+
+// 鲸腹沟纹(座头鲸喉腹褶,用半透明条纹壳)
+{const cv=document.createElement('canvas');cv.width=8;cv.height=64;
+ const ctx=cv.getContext('2d');
+ for(let y=0;y<64;y+=8){ctx.fillStyle='rgba(255,255,255,.16)';
+   ctx.fillRect(0,y,8,3);}
+ const tx=new THREE.CanvasTexture(cv);tx.wrapS=THREE.RepeatWrapping;
+ tx.wrapT=THREE.RepeatWrapping;tx.repeat.set(1,10);
+ const grooves=new THREE.Mesh(
+   new THREE.CylinderGeometry(5.4,6.8,26,24,10,true),
+   new THREE.MeshStandardMaterial({map:tx,transparent:true,roughness:0.8,
+     color:0xcfd6e4,metalness:0,depthWrite:false}));
+ grooves.rotation.x=Math.PI/2;grooves.position.set(0,-2.5,-6);
+ whaleG.add(grooves);}
+
+// ---------- 云层(体积感平面云,多层) ----------
+const clouds=[];
+function makeCloudLayer(y,count,scale,op,spd){
+  const grp=new THREE.Group();
+  const cv=document.createElement('canvas');cv.width=256;cv.height=256;
+  const ctx=cv.getContext('2d');
+  // 软团块云纹理
+  ctx.clearRect(0,0,256,256);
+  for(let i=0;i<26;i++){
+    const x=40+R()*176,y=70+R()*116,r=18+R()*42;
+    const g=ctx.createRadialGradient(x,y,1,x,y,r);
+    g.addColorStop(0,'rgba(190,205,235,0.16)');
+    g.addColorStop(1,'rgba(190,205,235,0)');
+    ctx.fillStyle=g;ctx.beginPath();ctx.arc(x,y,r,0,7);ctx.fill();
+  }
+  const tx=new THREE.CanvasTexture(cv);
+  for(let i=0;i<count;i++){
+    const m=new THREE.Mesh(new THREE.PlaneGeometry(1,1),
+      new THREE.MeshBasicMaterial({map:tx,transparent:true,opacity:op,
+        depthWrite:false,fog:false}));
+    m.position.set((R()-0.5)*1600,y+(R()-0.5)*60,(R()-0.5)*1600);
+    const s=scale*(0.6+R()*0.9);m.scale.set(s,s*0.45,1);
+    m.rotation.z=R()*Math.PI;
+    m.userData.spd=spd*(0.6+R()*0.8);
+    grp.add(m);clouds.push(m);
+  }
+  scene.add(grp);return grp;
+}
+makeCloudLayer(95,10,420,0.55,0.9);    // 低云带(鲸腹下)
+makeCloudLayer(150,12,620,0.5,0.55);   // 中云层
+makeCloudLayer(215,9,850,0.4,0.32);    // 高云纱
+// 云海(低空雾霭,贴地)
+{const cv=document.createElement('canvas');cv.width=256;cv.height=64;
+ const ctx=cv.getContext('2d');ctx.clearRect(0,0,256,64);
+ for(let i=0;i<18;i++){const x=20+R()*216,y=16+R()*32,r=20+R()*30;
+  const g=ctx.createRadialGradient(x,y,1,x,y,r);
+  g.addColorStop(0,'rgba(120,140,190,0.10)');
+  g.addColorStop(1,'rgba(120,140,190,0)');
+  ctx.fillStyle=g;ctx.beginPath();ctx.arc(x,y,r,0,7);ctx.fill();}
+ const tx=new THREE.CanvasTexture(cv);
+ const sea=new THREE.Mesh(new THREE.PlaneGeometry(2600,1500),
+   new THREE.MeshBasicMaterial({map:tx,transparent:true,opacity:0.5,
+     depthWrite:false}));
+ sea.rotation.x=-Math.PI/2;sea.position.y=26;scene.add(sea);}
+
+// ---------- 鲸的游动路径(环绕城市的大环线) ----------
+const CY=95;                          // 鲸巡游高度
+const pathPos=t=>{                    // t∈[0,1) 环线参数
+  const a=t*Math.PI*2;
+  const x=Math.sin(a)*260;
+  const z=140+Math.cos(a)*200;        // 绕城心(0,140)
+  const y=CY+Math.sin(a*2)*14+Math.sin(a*3+1)*6;
+  return new THREE.Vector3(x,y,z);
+};
+
+// ---------- 运镜(电影感镜头循环) ----------
+const dolly=new THREE.Group();
+dolly.add(cam);
+scene.add(dolly);
+cam.position.set(0,0,0);
+const LOOK=new THREE.Vector3();
+
+// 镜头脚本:60s 循环,5 个分镜
+const SHOT_T=[0,12,24,36,48,60];     // 分镜切点
+function shotAt(t){t=t%60;for(let i=0;i<5;i++)if(t<SHOT_T[i+1])return i;return 4;}
+function segT(t,s){return (t-SHOT_T[s])/(SHOT_T[s+1]-SHOT_T[s]);}
+const lerp=(a,b,k)=>a+(b-a)*k;
+const smooth=k=>k*k*(3-2*k);          // smoothstep
+
+// 各分镜定义(相对鲸鱼):offset=相机相对鲸位置,lookOff=注视点相对鲸位置
+const SHOTS=[
+  {o:[26,6,30],l:[0,2,-6],fov:44,name:'侧后跟随'},
+  {o:[-46,-6,10],l:[0,0,-20],fov:36,name:'左前方仰拍'},
+  {o:[0,34,-52],l:[0,0,-10],fov:50,name:'头顶俯瞰'},
+  {o:[30,4,-60],l:[0,0,10],fov:40,name:'尾部穿越'},
+  {o:[10,-14,42],l:[0,4,-10],fov:42,name:'腹下仰视'},
+];
+
+// ---------- 窗体自适应 ----------
+function onResize(){
+  const w=innerWidth,h=innerHeight;
+  renderer.setSize(w,h);
+  cam.aspect=w/h;cam.updateProjectionMatrix();
+}
+addEventListener('resize',onResize);onResize();
+
+// ---------- 动画循环 ----------
+const clock=new THREE.Clock();
+const V0=new THREE.Vector3(),V1=new THREE.Vector3(),V2=new THREE.Vector3();
+const whalePos=new THREE.Vector3(),whaleDir=new THREE.Vector3();
+let P0=pathPos(0),P1=pathPos(0.002);
+const TIME_WRAP=60; // 与分镜共用 60s 循环
+
+function animate(){
+  requestAnimationFrame(animate);
+  const dt=Math.min(clock.getDelta(),0.05);
+  const et=clock.elapsedTime;          // 总时间(不回绕)
+  const t60=et%60;                     // 60s 循环相位
+  const pathT=t60/60*1.0;              // 鲸沿环线 60s 一圈
+
+  // --- 鲸沿路径游动 ---
+  const wp=pathPos(pathT);
+  const wp2=pathPos((pathT+0.004)%1);
+  whalePos.copy(wp);whaleDir.copy(wp2).sub(wp).normalize();
+  whaleG.position.copy(whalePos);
+  // 朝向:z 轴指向游动方向
+  V0.copy(whalePos).add(whaleDir);
+  whaleG.lookAt(V0);
+
+  // --- 脊柱游动波动(修改顶点) ---
+  const posAttr=whaleGeo.attributes.position;
+  const swim=et*0.9;                    // 摆尾相位速度
+  const amp=3.2;                        // 侧向摆幅
+  for(let i=0;i<SEG;i++){
+    const t=spine[i].t;
+    // 行波:越靠尾部摆幅越大,相位滞后
+    const wave=Math.sin(swim - t*3.6)*amp*(0.25+t*1.1);
+    const dip=Math.sin(swim*0.5 - t*2.2)*1.8*(0.2+t*0.8); // 上下起伏
+    for(let j=0;j<=RAD;j++){
+      const vi=i*(RAD+1)+j;
+      // 原始截面(重建以基准):从 spine 基准位置加偏移
+      const a=j/RAD*Math.PI*2;
+      const r=whaleProfile(t),sy=whaleSquashY(t);
+      const rx=r*1.06,ry=r*sy;
+      posAttr.setXYZ(vi,Math.sin(a)*rx+wave,Math.cos(a)*ry+dip,spine[i].z);
+    }
+  }
+  posAttr.needsUpdate=true;
+  whaleGeo.computeVertexNormals();
+
+  // 尾鳍跟随摆动
+  tailG.rotation.y=Math.sin(swim-1*3.6)*0.55;
+  tailG.position.x=Math.sin(swim-1*3.6)*amp*1.35;
+
+  // 胸鳍缓摆
+  whaleG.children.forEach(ch=>{
+    if(ch.userData&&ch.userData.ph!==undefined&&ch.userData.ph!==null)
+      ch.rotation.z=Math.sin(et*1.4+ch.userData.ph)*0.25;
+  });
+
+  // --- 镜头 ---
+  const cfg=SHOTS[shotAt(t60)];
+  // 相机位:把相对偏移按鲸的世界矩阵变换
+  const m=whaleG.matrixWorld;
+  V1.set(cfg.o[0],cfg.o[1],cfg.o[2]).applyMatrix4(m);
+  V2.set(cfg.l[0],cfg.l[1],cfg.l[2]).applyMatrix4(m);
+  // 帧率无关阻尼跟随,分镜切换自然过渡
+  if(!animate.lastCam)animate.lastCam=V1.clone();
+  animate.lastCam.lerp(V1,1-Math.pow(0.001,dt));
+  dolly.position.copy(animate.lastCam);
+  cam.lookAt(V2);
+  // FOV 缓动
+  const targetFov=cfg.fov;
+  cam.fov+=(targetFov-cam.fov)*(1-Math.pow(0.02,dt));
+  cam.updateProjectionMatrix();
+
+  // --- 暖光跟随鲸(城市反光) ---
+  glow.position.set(whalePos.x,20,whalePos.z-40);
+
+  // --- 云移动 ---
+  clouds.forEach(c=>{
+    c.position.x+=c.userData.spd*dt;
+    if(c.position.x>850)c.position.x=-850;
+  });
+
+  // --- 楼窗闪烁 / 障碍灯 ---
+  flickers.forEach(f=>{f.m.emissiveIntensity=f.base+f.amp*Math.sin(et*f.sp+f.ph);});
+  beacons.forEach(b=>{b.m.material.color.setRGB(1,0.12,0.12);
+    const on=(Math.sin(et*2.4+b.ph)+Math.sin(et*3.7+b.ph*2))>0.9?1:0.25;
+    b.m.material.opacity=on;b.m.material.transparent=true;});
+
+  // --- 星星呼吸 ---
+  starMat.opacity=0.72+0.18*Math.sin(et*0.5);
+
+  renderer.render(scene,cam);
+}
+animate();
+</script>
+<!--zc-home:start--><style>.zc-home-btn{position:fixed;top:16px;left:16px;z-index:2147483647;display:inline-flex;align-items:center;gap:6px;padding:8px 14px;font:500 13px/1.1 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Noto Sans SC",sans-serif;color:#111;background:rgba(255,255,255,.86);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);border:1px solid rgba(0,0,0,.08);border-radius:999px;text-decoration:none;box-shadow:0 2px 12px rgba(0,0,0,.2);transition:background .2s ease,transform .2s ease,box-shadow .2s ease}.zc-home-btn:hover{background:#fff;transform:translateY(-1px);box-shadow:0 4px 18px rgba(0,0,0,.26)}</style><a class="zc-home-btn" href="../">← 返回首页</a><!--zc-home:end-->
+</body>
+</html>

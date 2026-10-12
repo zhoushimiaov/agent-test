@@ -1,0 +1,404 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>鲸游城市</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: #101b37; }
+  canvas { display: block; width: 100%; height: 100%; }
+</style>
+</head>
+<body>
+<canvas id="scene" aria-label="一头巨鲸在暮色城市上空游动"></canvas>
+<script>
+(() => {
+  const canvas = document.querySelector("#scene");
+  const ctx = canvas.getContext("2d");
+  const W = 1440, H = 900;
+  let dpr = 1, buildings = [], stars = [];
+
+  function rand(seed) {
+    let t = seed + 0x6D2B79F5;
+    return () => {
+      t = Math.imul(t ^ t >>> 15, t | 1);
+      t ^= t + Math.imul(t ^ t >>> 7, t | 61);
+      return ((t ^ t >>> 14) >>> 0) / 4294967296;
+    };
+  }
+
+  function resize() {
+    dpr = Math.min(window.devicePixelRatio || 1, 2);
+    canvas.width = Math.round(innerWidth * dpr);
+    canvas.height = Math.round(innerHeight * dpr);
+    ctx.setTransform(canvas.width / W, 0, 0, canvas.height / H, 0, 0);
+    makeCity();
+  }
+
+  function makeCity() {
+    buildings = [];
+    const r = rand(38);
+    let x = -30;
+    while (x < W + 30) {
+      const width = 38 + r() * 76;
+      const height = 110 + r() * 290;
+      const floors = Math.floor(height / 22);
+      const cols = Math.floor(width / 13);
+      buildings.push({
+        x, width, height, floors, cols,
+        seed: Math.floor(r() * 1000),
+        roof: r(),
+        color: r()
+      });
+      x += width + 5 + r() * 10;
+    }
+    stars = Array.from({ length: 95 }, (_, i) => {
+      const s = rand(i * 73 + 9);
+      return { x: s() * W, y: 20 + s() * 410, r: .35 + s() * 1.35, phase: s() * 6.28 };
+    });
+  }
+
+  function roundedRect(c, x, y, w, h, r) {
+    c.beginPath();
+    c.roundRect(x, y, w, h, r);
+  }
+
+  function drawSky(t) {
+    const g = ctx.createLinearGradient(0, 0, 0, H);
+    g.addColorStop(0, "#111a38");
+    g.addColorStop(.42, "#34446c");
+    g.addColorStop(.72, "#d07a79");
+    g.addColorStop(1, "#f4ad83");
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, W, H);
+
+    const glow = ctx.createRadialGradient(1070, 345, 15, 1070, 345, 470);
+    glow.addColorStop(0, "rgba(255,196,151,.52)");
+    glow.addColorStop(.36, "rgba(238,145,137,.19)");
+    glow.addColorStop(1, "rgba(238,145,137,0)");
+    ctx.fillStyle = glow;
+    ctx.fillRect(560, 0, 880, 760);
+
+    // 星光
+    for (const s of stars) {
+      const a = .28 + .55 * (.5 + .5 * Math.sin(t * .001 + s.phase));
+      ctx.fillStyle = `rgba(232,239,255,${a})`;
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // 月亮
+    ctx.save();
+    ctx.shadowColor = "rgba(255,218,183,.55)";
+    ctx.shadowBlur = 32;
+    ctx.fillStyle = "#ffe0b7";
+    ctx.beginPath();
+    ctx.arc(1110, 205, 49, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+    ctx.fillStyle = "rgba(178,126,127,.26)";
+    ctx.beginPath(); ctx.arc(1128, 190, 44, 0, Math.PI * 2); ctx.fill();
+  }
+
+  function cloud(x, y, scale, alpha, drift) {
+    const xx = ((x + drift) % 1900 + 1900) % 1900 - 220;
+    ctx.save();
+    ctx.translate(xx, y);
+    ctx.scale(scale, scale);
+    ctx.globalAlpha = alpha;
+    const g = ctx.createLinearGradient(0, -36, 0, 48);
+    g.addColorStop(0, "rgba(255,220,208,.72)");
+    g.addColorStop(.48, "rgba(204,177,198,.53)");
+    g.addColorStop(1, "rgba(113,133,171,.20)");
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.moveTo(-145, 22);
+    ctx.bezierCurveTo(-135, -2, -113, -6, -91, 2);
+    ctx.bezierCurveTo(-78, -33, -31, -49, 3, -19);
+    ctx.bezierCurveTo(26, -56, 81, -42, 91, -8);
+    ctx.bezierCurveTo(127, -21, 158, 2, 150, 24);
+    ctx.bezierCurveTo(174, 47, 135, 59, 104, 48);
+    ctx.bezierCurveTo(72, 65, 34, 48, 10, 55);
+    ctx.bezierCurveTo(-28, 67, -69, 48, -91, 49);
+    ctx.bezierCurveTo(-129, 51, -162, 43, -145, 22);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  function drawClouds(t, foreground = false) {
+    if (!foreground) {
+      cloud(-180, 250, 1.15, .35, t * .012);
+      cloud(460, 160, .76, .27, t * .018);
+      cloud(1120, 305, 1.35, .31, t * .009);
+      cloud(760, 425, .72, .20, t * .015);
+      cloud(-20, 520, 1.12, .19, t * .008);
+    } else {
+      cloud(1020, 555, 1.5, .28, -t * .012);
+      cloud(260, 625, 1.05, .19, -t * .008);
+      cloud(1430, 445, .87, .24, -t * .016);
+    }
+  }
+
+  function drawHorizon() {
+    const haze = ctx.createLinearGradient(0, 460, 0, 735);
+    haze.addColorStop(0, "rgba(255,190,161,0)");
+    haze.addColorStop(.5, "rgba(251,172,154,.16)");
+    haze.addColorStop(1, "rgba(54,64,99,0)");
+    ctx.fillStyle = haze;
+    ctx.fillRect(0, 450, W, 300);
+  }
+
+  function drawCityLayer(baseY, factor, color, lit, offset, front = false) {
+    ctx.save();
+    ctx.translate(offset, 0);
+    for (let i = 0; i < buildings.length; i++) {
+      const b = buildings[i];
+      const x = b.x * factor + (b.x * (1 - factor));
+      const w = b.width * factor;
+      const h = b.height * factor;
+      const y = baseY - h;
+      const shades = ["#18233e", "#202a49", "#27304d", "#30334f"];
+      ctx.fillStyle = color || shades[Math.floor(b.color * shades.length)];
+      ctx.fillRect(x, y, w, h);
+
+      // 屋顶构件
+      ctx.fillStyle = "rgba(18,26,49,.8)";
+      if (b.roof > .72) {
+        ctx.fillRect(x + w * .25, y - 18 * factor, w * .5, 18 * factor);
+        ctx.fillRect(x + w * .43, y - 31 * factor, w * .12, 14 * factor);
+      } else if (b.roof > .42) {
+        ctx.fillRect(x + w * .12, y - 9 * factor, w * .76, 9 * factor);
+      }
+
+      const cols = Math.max(2, Math.floor(b.cols * factor));
+      const rows = Math.max(2, Math.floor(b.floors * factor));
+      const gap = 5 * factor;
+      const winW = Math.max(2, (w - gap * (cols + 1)) / cols);
+      const winH = 5.2 * factor;
+      for (let row = 0; row < rows; row++) {
+        for (let col = 0; col < cols; col++) {
+          const on = ((row * 7 + col * 13 + b.seed) % 11) < (front ? 5 : 4);
+          if (!on) continue;
+          ctx.fillStyle = lit;
+          ctx.globalAlpha = .25 + ((row + col + b.seed) % 5) * .11;
+          ctx.fillRect(
+            x + gap + col * (winW + gap),
+            y + 15 * factor + row * (17 * factor),
+            winW,
+            winH
+          );
+        }
+      }
+      ctx.globalAlpha = 1;
+      // 建筑侧面阴影
+      ctx.fillStyle = "rgba(8,14,33,.25)";
+      ctx.fillRect(x + w * .82, y, w * .18, h);
+    }
+    ctx.restore();
+  }
+
+  function drawCity() {
+    // 远处城市的薄雾轮廓
+    ctx.fillStyle = "rgba(72,77,112,.32)";
+    ctx.fillRect(0, 565, W, 335);
+    drawCityLayer(760, .76, "#343954", "rgba(255,207,154,.78)", -28);
+    drawCityLayer(895, 1, null, "rgba(255,210,145,.92)", 0, true);
+
+    // 前景街区压暗
+    const fg = ctx.createLinearGradient(0, 730, 0, 900);
+    fg.addColorStop(0, "rgba(17,24,47,.05)");
+    fg.addColorStop(1, "rgba(8,14,31,.58)");
+    ctx.fillStyle = fg;
+    ctx.fillRect(0, 720, W, 180);
+  }
+
+  function drawWhale(t) {
+    const cycle = (t % 18000) / 18000;
+    const x = -330 + cycle * 2100;
+    const y = 375 + Math.sin(cycle * Math.PI * 2 - .7) * 48;
+    const bob = Math.sin(t * .0012);
+    const tail = Math.sin(t * .004) * .24;
+    const fin = Math.sin(t * .0017) * .12;
+
+    ctx.save();
+    ctx.translate(x, y + bob * 7);
+    ctx.rotate(-.045 + Math.sin(cycle * Math.PI * 2) * .025);
+    ctx.scale(1.15, 1.15);
+
+    // 柔和的水下光晕
+    ctx.save();
+    ctx.shadowColor = "rgba(95,205,220,.47)";
+    ctx.shadowBlur = 46;
+    ctx.fillStyle = "rgba(91,192,206,.11)";
+    ctx.beginPath();
+    ctx.ellipse(0, 0, 320, 145, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+
+    // 尾巴（身体后方）
+    ctx.save();
+    ctx.translate(-248, 0);
+    ctx.rotate(tail);
+    ctx.fillStyle = "#243f59";
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.bezierCurveTo(-33, -10, -68, -51, -111, -55);
+    ctx.bezierCurveTo(-103, -24, -82, -6, -57, 2);
+    ctx.bezierCurveTo(-82, 10, -102, 31, -105, 55);
+    ctx.bezierCurveTo(-67, 47, -34, 12, 0, 0);
+    ctx.fill();
+    ctx.strokeStyle = "rgba(135,205,215,.38)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(-12, 0); ctx.quadraticCurveTo(-66, -34, -98, -48);
+    ctx.moveTo(-12, 0); ctx.quadraticCurveTo(-63, 32, -96, 47);
+    ctx.stroke();
+    ctx.restore();
+
+    // 胸鳍
+    ctx.save();
+    ctx.translate(-15, 45);
+    ctx.rotate(.68 + fin);
+    const finGrad = ctx.createLinearGradient(0, -10, 100, 50);
+    finGrad.addColorStop(0, "#36566d");
+    finGrad.addColorStop(1, "#182f4b");
+    ctx.fillStyle = finGrad;
+    ctx.beginPath();
+    ctx.moveTo(-23, -13);
+    ctx.bezierCurveTo(26, -42, 87, -37, 135, 6);
+    ctx.bezierCurveTo(101, 24, 66, 41, 20, 31);
+    ctx.bezierCurveTo(-4, 25, -21, 9, -23, -13);
+    ctx.fill();
+    ctx.strokeStyle = "rgba(160,207,214,.28)";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.restore();
+
+    // 鲸身
+    const body = ctx.createLinearGradient(0, -102, 0, 130);
+    body.addColorStop(0, "#628899");
+    body.addColorStop(.32, "#436a7d");
+    body.addColorStop(.66, "#2e526a");
+    body.addColorStop(1, "#1d3a55");
+    ctx.fillStyle = body;
+    ctx.beginPath();
+    ctx.moveTo(-278, -4);
+    ctx.bezierCurveTo(-256, -60, -193, -101, -96, -111);
+    ctx.bezierCurveTo(20, -126, 119, -95, 198, -54);
+    ctx.bezierCurveTo(250, -28, 284, -8, 300, 0);
+    ctx.bezierCurveTo(280, 22, 250, 46, 210, 63);
+    ctx.bezierCurveTo(133, 94, 58, 108, -44, 102);
+    ctx.bezierCurveTo(-154, 96, -245, 55, -278, 18);
+    ctx.bezierCurveTo(-287, 10, -287, 3, -278, -4);
+    ctx.closePath();
+    ctx.fill();
+
+    // 背部高光
+    ctx.save();
+    ctx.clip();
+    const sheen = ctx.createLinearGradient(0, -110, 0, 18);
+    sheen.addColorStop(0, "rgba(187,225,220,.42)");
+    sheen.addColorStop(.48, "rgba(136,191,198,.10)");
+    sheen.addColorStop(1, "rgba(100,163,178,0)");
+    ctx.fillStyle = sheen;
+    ctx.fillRect(-300, -130, 620, 150);
+
+    // 腹部浅色
+    const belly = ctx.createLinearGradient(0, 25, 0, 112);
+    belly.addColorStop(0, "rgba(197,206,195,.86)");
+    belly.addColorStop(1, "rgba(122,157,164,.55)");
+    ctx.fillStyle = belly;
+    ctx.beginPath();
+    ctx.moveTo(-230, 29);
+    ctx.bezierCurveTo(-160, 57, -46, 68, 51, 60);
+    ctx.bezierCurveTo(126, 54, 197, 30, 248, 7);
+    ctx.bezierCurveTo(208, 69, 113, 104, 2, 105);
+    ctx.bezierCurveTo(-110, 106, -199, 74, -230, 29);
+    ctx.fill();
+
+    // 腹部褶皱
+    ctx.strokeStyle = "rgba(57,91,110,.43)";
+    ctx.lineWidth = 2;
+    for (let i = 0; i < 8; i++) {
+      const px = -124 + i * 22;
+      ctx.beginPath();
+      ctx.moveTo(px, 55);
+      ctx.quadraticCurveTo(px + 12, 79, px + 5, 98);
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    // 背鳍
+    ctx.fillStyle = "#294a62";
+    ctx.beginPath();
+    ctx.moveTo(-58, -107);
+    ctx.quadraticCurveTo(-37, -139, -13, -147);
+    ctx.quadraticCurveTo(-17, -123, 10, -105);
+    ctx.closePath();
+    ctx.fill();
+
+    // 头部细微的鲸须纹理
+    ctx.strokeStyle = "rgba(185,216,213,.28)";
+    ctx.lineWidth = 2;
+    for (let i = 0; i < 5; i++) {
+      ctx.beginPath();
+      ctx.moveTo(236 + i * 7, 4 + i * 4);
+      ctx.quadraticCurveTo(228 + i * 7, 18 + i * 5, 215 + i * 8, 26 + i * 5);
+      ctx.stroke();
+    }
+
+    // 眼睛
+    ctx.fillStyle = "rgba(11,28,43,.9)";
+    ctx.beginPath(); ctx.arc(211, -27, 5.2, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = "rgba(226,242,229,.8)";
+    ctx.beginPath(); ctx.arc(212.5, -28.5, 1.6, 0, Math.PI * 2); ctx.fill();
+
+    // 水珠般的斑点
+    const spots = [[-174,-51,5],[-147,-65,3],[-110,-76,4],[-79,-84,2.8],
+                   [-31,-88,3.5],[18,-79,2.4],[72,-69,3.4],[126,-48,2.5],
+                   [-196,-34,2.7],[-132,-39,2.2],[-60,-57,2.1],[35,-51,2.6]];
+    for (const [sx, sy, sr] of spots) {
+      ctx.fillStyle = "rgba(205,230,222,.37)";
+      ctx.beginPath(); ctx.arc(sx, sy, sr, 0, Math.PI * 2); ctx.fill();
+    }
+
+    // 轮廓冷光
+    ctx.strokeStyle = "rgba(171,221,221,.24)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(-259, -25);
+    ctx.bezierCurveTo(-207, -94, -93, -119, -5, -112);
+    ctx.bezierCurveTo(117, -101, 222, -47, 287, -7);
+    ctx.stroke();
+
+    ctx.restore();
+  }
+
+  function draw(t) {
+    drawSky(t);
+    drawClouds(t, false);
+    drawHorizon();
+    drawWhale(t);
+    drawCity();
+    drawClouds(t, true);
+
+    // 轻柔的画面暗角
+    const vignette = ctx.createRadialGradient(720, 420, 220, 720, 440, 800);
+    vignette.addColorStop(.55, "rgba(6,12,28,0)");
+    vignette.addColorStop(1, "rgba(7,13,30,.32)");
+    ctx.fillStyle = vignette;
+    ctx.fillRect(0, 0, W, H);
+
+    requestAnimationFrame(draw);
+  }
+
+  window.addEventListener("resize", resize);
+  resize();
+  requestAnimationFrame(draw);
+})();
+</script>
+<!--zc-home:start--><style>.zc-home-btn{position:fixed;top:16px;left:16px;z-index:2147483647;display:inline-flex;align-items:center;gap:6px;padding:8px 14px;font:500 13px/1.1 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Noto Sans SC",sans-serif;color:#111;background:rgba(255,255,255,.86);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);border:1px solid rgba(0,0,0,.08);border-radius:999px;text-decoration:none;box-shadow:0 2px 12px rgba(0,0,0,.2);transition:background .2s ease,transform .2s ease,box-shadow .2s ease}.zc-home-btn:hover{background:#fff;transform:translateY(-1px);box-shadow:0 4px 18px rgba(0,0,0,.26)}</style><a class="zc-home-btn" href="../">← 返回首页</a><!--zc-home:end-->
+</body>
+</html>

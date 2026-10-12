@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-11T13:15:13.404Z",
+  "generatedAt": "2026-10-12T23:21:03.221Z",
   "model": "jev-1.13.0",
   "weights": {
     "scale": 30,
@@ -19,24 +19,24 @@
       "total": 86,
       "dims": {
         "scale": {
-          "score": 2.97,
-          "confidence": 0.97,
-          "frac": 0.99
+          "score": 2.98,
+          "confidence": 0.98,
+          "frac": 0.993
         },
         "occlusion": {
-          "score": 1.9,
-          "confidence": 0.89,
-          "frac": 0.633
+          "score": 1.92,
+          "confidence": 0.92,
+          "frac": 0.64
         },
         "whale": {
-          "score": 2.75,
-          "confidence": 0.76,
-          "frac": 0.917
+          "score": 2.81,
+          "confidence": 0.8,
+          "frac": 0.937
         },
         "scene": {
-          "score": 2.83,
-          "confidence": 0.83,
-          "frac": 0.943
+          "score": 2.81,
+          "confidence": 0.81,
+          "frac": 0.937
         }
       },
       "jev": "jev-1.13.0",
@@ -44,7 +44,7 @@
     },
     {
       "slug": "muse-spark",
-      "total": 64,
+      "total": 63,
       "dims": {
         "scale": {
           "score": 1.01,
@@ -52,51 +52,107 @@
           "frac": 0.337
         },
         "occlusion": {
-          "score": 2.94,
-          "confidence": 0.95,
-          "frac": 0.98
+          "score": 2.95,
+          "confidence": 0.96,
+          "frac": 0.983
         },
         "whale": {
-          "score": 1.76,
-          "confidence": 0.74,
-          "frac": 0.587
+          "score": 1.65,
+          "confidence": 0.63,
+          "frac": 0.55
         },
         "scene": {
-          "score": 1.87,
-          "confidence": 0.86,
-          "frac": 0.623
+          "score": 1.89,
+          "confidence": 0.88,
+          "frac": 0.63
         }
       },
       "jev": "jev-1.13.0",
       "rank": 2
     },
     {
-      "slug": "opus-4.8",
-      "total": 52,
+      "slug": "step-5-preview",
+      "total": 59,
       "dims": {
         "scale": {
-          "score": 1.17,
-          "confidence": 0.83,
-          "frac": 0.39
+          "score": 1.46,
+          "confidence": 0.54,
+          "frac": 0.487
         },
         "occlusion": {
-          "score": 1.38,
-          "confidence": 0.41,
-          "frac": 0.46
+          "score": 1.99,
+          "confidence": 0.99,
+          "frac": 0.663
         },
         "whale": {
-          "score": 1.02,
-          "confidence": 0.79,
-          "frac": 0.34
+          "score": 2,
+          "confidence": 0.94,
+          "frac": 0.667
         },
         "scene": {
-          "score": 2.94,
-          "confidence": 0.95,
-          "frac": 0.98
+          "score": 1.62,
+          "confidence": 0.62,
+          "frac": 0.54
         }
       },
       "jev": "jev-1.13.0",
       "rank": 3
+    },
+    {
+      "slug": "opus-4.8",
+      "total": 51,
+      "dims": {
+        "scale": {
+          "score": 1.12,
+          "confidence": 0.87,
+          "frac": 0.373
+        },
+        "occlusion": {
+          "score": 1.33,
+          "confidence": 0.42,
+          "frac": 0.443
+        },
+        "whale": {
+          "score": 1.04,
+          "confidence": 0.76,
+          "frac": 0.347
+        },
+        "scene": {
+          "score": 2.95,
+          "confidence": 0.95,
+          "frac": 0.983
+        }
+      },
+      "jev": "jev-1.13.0",
+      "rank": 4
+    },
+    {
+      "slug": "longcat-2.0",
+      "total": 44,
+      "dims": {
+        "scale": {
+          "score": 2.2,
+          "confidence": 0.19,
+          "frac": 0.733
+        },
+        "occlusion": {
+          "score": 0.89,
+          "confidence": 0.87,
+          "frac": 0.297
+        },
+        "whale": {
+          "score": 0.95,
+          "confidence": 0.95,
+          "frac": 0.317
+        },
+        "scene": {
+          "score": 1.05,
+          "confidence": 0.94,
+          "frac": 0.35
+        }
+      },
+      "jev": "jev-1.13.0",
+      "rank": 5
     },
     {
       "slug": "gemini-3.8-flash",
@@ -113,9 +169,9 @@
           "frac": 0
         },
         "whale": {
-          "score": 1.55,
-          "confidence": 0.53,
-          "frac": 0.517
+          "score": 1.62,
+          "confidence": 0.59,
+          "frac": 0.54
         },
         "scene": {
           "score": 1.88,
@@ -124,16 +180,44 @@
         }
       },
       "jev": "jev-1.13.0",
-      "rank": 4
+      "rank": 6
+    },
+    {
+      "slug": "qwen-3.8-flash",
+      "total": 24,
+      "dims": {
+        "scale": {
+          "score": 0.99,
+          "confidence": 0.99,
+          "frac": 0.33
+        },
+        "occlusion": {
+          "score": 0,
+          "confidence": 1,
+          "frac": 0
+        },
+        "whale": {
+          "score": 1.24,
+          "confidence": 0.72,
+          "frac": 0.413
+        },
+        "scene": {
+          "score": 0.9,
+          "confidence": 0.9,
+          "frac": 0.3
+        }
+      },
+      "jev": "jev-1.13.0",
+      "rank": 7
     },
     {
       "slug": "glm-5.3-flash",
       "total": 15,
       "dims": {
         "scale": {
-          "score": 0.33,
-          "confidence": 0.67,
-          "frac": 0.11
+          "score": 0.37,
+          "confidence": 0.64,
+          "frac": 0.123
         },
         "occlusion": {
           "score": 0.01,
@@ -141,18 +225,102 @@
           "frac": 0.003
         },
         "whale": {
-          "score": 0.74,
-          "confidence": 0.74,
-          "frac": 0.247
+          "score": 0.77,
+          "confidence": 0.77,
+          "frac": 0.257
         },
         "scene": {
-          "score": 0.95,
-          "confidence": 0.95,
-          "frac": 0.317
+          "score": 0.94,
+          "confidence": 0.94,
+          "frac": 0.313
         }
       },
       "jev": "jev-1.13.0",
-      "rank": 5
+      "rank": 8
+    },
+    {
+      "slug": "glm-5.3-raccoon",
+      "total": 10,
+      "dims": {
+        "scale": {
+          "score": 0.25,
+          "confidence": 0.75,
+          "frac": 0.083
+        },
+        "occlusion": {
+          "score": 0,
+          "confidence": 1,
+          "frac": 0
+        },
+        "whale": {
+          "score": 1.03,
+          "confidence": 0.87,
+          "frac": 0.343
+        },
+        "scene": {
+          "score": 0.06,
+          "confidence": 0.94,
+          "frac": 0.02
+        }
+      },
+      "jev": "jev-1.13.0",
+      "rank": 9
+    },
+    {
+      "slug": "gpt6-luna",
+      "total": 5,
+      "dims": {
+        "scale": {
+          "score": 0.05,
+          "confidence": 0.96,
+          "frac": 0.017
+        },
+        "occlusion": {
+          "score": 0,
+          "confidence": 1,
+          "frac": 0
+        },
+        "whale": {
+          "score": 0.45,
+          "confidence": 0.55,
+          "frac": 0.15
+        },
+        "scene": {
+          "score": 0.16,
+          "confidence": 0.84,
+          "frac": 0.053
+        }
+      },
+      "jev": "jev-1.13.0",
+      "rank": 10
+    },
+    {
+      "slug": "deepseek-4.1-flash-raccoon",
+      "total": 1,
+      "dims": {
+        "scale": {
+          "score": 0,
+          "confidence": 1,
+          "frac": 0
+        },
+        "occlusion": {
+          "score": 0,
+          "confidence": 1,
+          "frac": 0
+        },
+        "whale": {
+          "score": 0.16,
+          "confidence": 0.84,
+          "frac": 0.053
+        },
+        "scene": {
+          "score": 0.01,
+          "confidence": 0.99,
+          "frac": 0.003
+        }
+      },
+      "jev": "jev-1.13.0",
+      "rank": 11
     }
   ]
 }
