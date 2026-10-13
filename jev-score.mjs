@@ -117,6 +117,8 @@ const ITEMS = [
     desc: "Flat 2D SVG illustration titled 'Pelican on a Bicycle' (pure SVG + SMIL animation). A white pelican with a large orange pouched beak, a black eye, a small head tuft, a red neck marking and a detailed wing is clearly seated on a black-framed bicycle, with orange legs bending down and connecting to the pedals in a believable riding posture. The bicycle has two round complete wheels with grey spokes, a full connected frame and handlebars. The background is a coherent daytime scene with a soft sun, white clouds, green rolling hills, two small trees, and a grey road with white dashed markings." },
   { slug: "gpt5.6-terra-ultra", render: "2D SVG illustration (animated)",
     desc: "Flat 2D SVG illustration titled 'Pelican on a Bicycle'. A white pelican with a large orange beak and throat pouch, a black eye, a red neck marking and a feather-lined wing leans forward over the handlebars in a riding posture on a red bicycle. The bicycle has two round complete wheels with grey spokes, a connected red frame, handlebars, and an orange crank/pedals, and the pelican's legs reach down toward the pedals. The background is a daytime scene with blue sky, a bright sun, white clouds, small bird silhouettes, green rounded hills, green grass, and a grey road with white dashed markings." },
+  { slug: "longcat2.5-preview", render: "3D (Three.js / WebGL)",
+    desc: "A 3D scene with a low-poly styled bicycle set on a textured ground. A stylized bird with a rounded body and long tail wings perches on the saddle, legs bent down toward the pedals. The bicycle features two round wheels with spokes and a visible frame; the scene has simple green trees, a blue sky and a white sun." },
 ];
 
 const questions = Object.fromEntries(

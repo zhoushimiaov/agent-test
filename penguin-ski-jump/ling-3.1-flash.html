@@ -1,0 +1,650 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>🐧 Penguin Ski Jump — 企鹅跳台</title>
+<!--
+  ============================================================
+  企鹅滑雪跳台动画 · Penguin Ski Jump 3D
+  模型名 : PenguinSkiJump-Scene
+  版本号 : v1.0.0 (2026-10-13)
+  生成模型: Ling 3.1 Flash Free (opencode / ling-3.1-flash-free)
+  用时   : 约 6 分钟
+  Token  : 约 55k tokens (输入+输出合计估算)
+  说明   : 单文件 HTML,Three.js r128 经 CDN 引入,双击即可运行,自动循环,无任何交互控件。
+  ============================================================
+-->
+<style>
+  html, body { margin:0; padding:0; height:100%; overflow:hidden; background:#c3d9ec; }
+  canvas { display:block; }
+  #vig  { position:fixed; inset:0; z-index:10; pointer-events:none;
+          background: radial-gradient(ellipse at 50% 42%, rgba(0,0,0,0) 55%, rgba(18,38,58,.20) 100%); }
+  #fade { position:fixed; inset:0; z-index:20; background:#f6fafe; opacity:0; pointer-events:none; }
+  #title{ position:fixed; left:20px; top:16px; z-index:10; pointer-events:none; color:#24455f;
+          font:600 15px/1.5 system-ui,"PingFang SC","Microsoft YaHei",sans-serif;
+          letter-spacing:.6px; opacity:.82; text-shadow:0 1px 0 rgba(255,255,255,.5); }
+  #title small { display:block; font-weight:400; font-size:11px; opacity:.75; letter-spacing:.3px; }
+  #ver  { position:fixed; right:16px; bottom:12px; z-index:10; pointer-events:none;
+          color:#24455f; opacity:.5; font:11px system-ui,sans-serif; letter-spacing:.5px; }
+</style>
+</head>
+<body>
+<div id="vig"></div>
+<div id="title">🐧 PENGUIN SKI JUMP<small>企鹅冲下滑雪跳台 · 自动循环</small></div>
+<div id="ver">PenguinSkiJump-Scene · v1.0.0</div>
+<div id="fade"></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+'use strict';
+
+/* ================= 工具 ================= */
+function damp(a, b, lambda, dt){ return a + (b - a) * (1 - Math.exp(-lambda * dt)); }
+function clamp(v, a, b){ return Math.max(a, Math.min(b, v)); }
+let _seed = 20261013;
+function srand(){ _seed = (_seed * 16807) % 2147483647; return (_seed - 1) / 2147483646; }
+
+/* ================= 时间线(秒) ================= */
+const T_IDLE = 0.55, T_SLIDE = 2.15, T_FLIGHT = 2.1866, T_GLIDE = 2.90,
+      T_HOLD = 0.35, T_FADEOUT = 0.32, T_FADEIN = 0.32;
+const LOOP = T_IDLE + T_SLIDE + T_FLIGHT + T_GLIDE + T_HOLD + T_FADEOUT + T_FADEIN; // ≈8.79
+const T_FLIGHT_START  = T_IDLE + T_SLIDE;              // 滑降结束 → 腾空
+const T_GLIDE_START   = T_FLIGHT_START + T_FLIGHT;     // 腾空结束 → 落地
+const T_HOLD_START    = T_GLIDE_START + T_GLIDE;       // 滑行结束 → 停顿
+const T_FADEOUT_START = T_HOLD_START + T_HOLD;
+const T_TELEPORT      = T_FADEOUT_START + T_FADEOUT;   // 白屏重置
+
+/* ================= 跳台曲线(三次 Hermite) ================= */
+const RAMP_P0 = {x:-30, y:7.00}, RAMP_T0 = {x:30, y:-1.5};
+const RAMP_P1 = {x:  0, y:1.62}, RAMP_T1 = {x:30, y:15.0};
+function hermite(P0,T0,P1,T1,t){
+  const t2 = t*t, t3 = t2*t;
+  const h00 = 2*t3-3*t2+1, h10 = t3-2*t2+t, h01 = -2*t3+3*t2, h11 = t3-t2;
+  return {
+    x :  h00*P0.x + h10*T0.x + h01*P1.x + h11*T1.x,
+    y :  h00*P0.y + h10*T0.y + h01*P1.y + h11*T1.y,
+    dx: (6*t2-6*t)*P0.x + (3*t2-4*t+1)*T0.x + (-6*t2+6*t)*P1.x + (3*t2-2*t)*T1.x,
+    dy: (6*t2-6*t)*P0.y + (3*t2-4*t+1)*T0.y + (-6*t2+6*t)*P1.y + (3*t2-2*t)*T1.y
+  };
+}
+function rampAt(t){ return hermite(RAMP_P0, RAMP_T0, RAMP_P1, RAMP_T1, t); }
+
+/* 跳台剖面采样(供按 x 查高) */
+const PROFILE_N = 400, profX = [], profY = [];
+for(let i=0;i<=PROFILE_N;i++){ const r = rampAt(i/PROFILE_N); profX.push(r.x); profY.push(r.y); }
+function rampYatX(x){
+  if(x <= profX[0]) return profY[0];
+  if(x >= profX[PROFILE_N]) return profY[PROFILE_N];
+  let lo = 0, hi = PROFILE_N;
+  while(lo < hi){ const mid = (lo+hi)>>1; if(profX[mid] < x) lo = mid+1; else hi = mid; }
+  const i = Math.max(1, lo);
+  const f = (x - profX[i-1]) / (profX[i] - profX[i-1]);
+  return profY[i-1] + (profY[i] - profY[i-1]) * f;
+}
+
+/* ================= 着陆坡剖面 ================= */
+function landingY(x){
+  if(x <= 26) return 0.55 - 0.42*(x - 2.5);
+  const u = Math.min(1, (x-26)/20);
+  const y26 = 0.55 - 0.42*23.5;                 // = -9.32
+  if(u >= 1) return y26 - 0.42*20 + 3.9 - 0.03*(x-46);
+  const ss = u*u*(3 - 2*u);
+  return y26 - 0.42*(x-26) + 7.8*(u*u*u - 0.5*u*u*u*u);
+}
+function landingSlope(x){
+  if(x <= 26) return -0.42;
+  const u = Math.min(1, (x-26)/20);
+  if(u >= 1) return -0.03;
+  return -0.42 + 0.39*(u*u*(3 - 2*u));
+}
+
+/* ================= 腾空物理 ================= */
+const GRAV = 9.8;
+const LAUNCH = { x:0, y:1.62, vx:11.63, vy:5.82 };   // 速度 13, 沿起跳角 atan(0.5)≈26.6°
+const LAND_T   = 2.1866;                              // 抛物线与着陆坡的交点时刻
+const LAND_X   = LAUNCH.vx * LAND_T;                  // ≈25.43
+const LAND_Y   = landingY(LAND_X);                    // ≈-9.08
+const GLIDE_DECEL  = 7;
+const GLIDE_STOP_T = LAUNCH.vx / GLIDE_DECEL;
+const GLIDE_STOP_D = LAUNCH.vx*GLIDE_STOP_T - 0.5*GLIDE_DECEL*GLIDE_STOP_T*GLIDE_STOP_T;
+const STOP_X = LAND_X + GLIDE_STOP_D;                 // ≈35.09
+
+function groundApprox(x){
+  if(x < 0)    return rampYatX(clamp(x, -30, 0));
+  if(x < 2.5)  return 0.8;
+  return landingY(x);
+}
+
+/* ================= 渲染器 / 场景 ================= */
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0xc3d9ec);
+scene.fog = new THREE.Fog(0xc3d9ec, 55, 190);
+
+const camera = new THREE.PerspectiveCamera(45, innerWidth/innerHeight, 0.1, 500);
+const renderer = new THREE.WebGLRenderer({ antialias:true });
+renderer.setSize(innerWidth, innerHeight);
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.outputEncoding = THREE.sRGBEncoding;
+document.body.appendChild(renderer.domElement);
+
+addEventListener('resize', () => {
+  camera.aspect = innerWidth/innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+
+/* ================= 灯光 ================= */
+scene.add(new THREE.HemisphereLight(0xbfd8f5, 0xffffff, 0.85));
+const sun = new THREE.DirectionalLight(0xfff1d8, 1.15);
+sun.position.set(28, 42, 24);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+sun.shadow.camera.left = -50; sun.shadow.camera.right = 60;
+sun.shadow.camera.top = 35;   sun.shadow.camera.bottom = -25;
+sun.shadow.camera.near = 1;   sun.shadow.camera.far = 130;
+sun.shadow.bias = -0.0006;
+sun.target.position.set(5, -8, 0);
+scene.add(sun); scene.add(sun.target);
+
+/* ================= 材质 ================= */
+const MAT = {
+  snow    : new THREE.MeshStandardMaterial({ color:0xf4f9fd, roughness:0.95 }),
+  snowWall: new THREE.MeshStandardMaterial({ color:0xe2edf7, roughness:0.95 }),
+  ground  : new THREE.MeshStandardMaterial({ color:0xe9f1f8, roughness:1 }),
+  mtn     : new THREE.MeshStandardMaterial({ color:0xd3e2f0, roughness:1, flatShading:true }),
+  mtnCap  : new THREE.MeshStandardMaterial({ color:0xf4f9ff, roughness:1, flatShading:true }),
+  hillFar : new THREE.MeshStandardMaterial({ color:0xe2ecf5, roughness:1, flatShading:true }),
+  trunk   : new THREE.MeshStandardMaterial({ color:0x6b4a33, roughness:0.9 }),
+  pine    : [0x2e5d3a, 0x356b42, 0x3d7a4a].map(c => new THREE.MeshStandardMaterial({ color:c, roughness:0.9, flatShading:true })),
+  cloud   : new THREE.MeshStandardMaterial({ color:0xffffff, roughness:1 }),
+  flagA   : new THREE.MeshStandardMaterial({ color:0xe23b3b, roughness:0.7, side:THREE.DoubleSide }),
+  flagB   : new THREE.MeshStandardMaterial({ color:0xffc93c, roughness:0.7, side:THREE.DoubleSide }),
+  pole    : new THREE.MeshStandardMaterial({ color:0x3a4a5a, roughness:0.5, metalness:0.4 })
+};
+
+/* ================= 天空穹顶 ================= */
+(function buildSky(){
+  const geo = new THREE.SphereGeometry(320, 24, 16);
+  const top = new THREE.Color(0x5f9fd8), bottom = new THREE.Color(0xc3d9ec);
+  const pos = geo.attributes.position, colors = [];
+  for(let i=0;i<pos.count;i++){
+    const t = clamp((pos.getY(i)/320 + 1)/2, 0, 1);
+    const c = bottom.clone().lerp(top, Math.pow(t, 0.8));
+    colors.push(c.r, c.g, c.b);
+  }
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+  scene.add(new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ vertexColors:true, side:THREE.BackSide, fog:false })));
+})();
+
+/* ================= 太阳 ================= */
+const sunDisc = new THREE.Mesh(new THREE.SphereGeometry(5, 20, 14),
+  new THREE.MeshBasicMaterial({ color:0xfff3c4, fog:false }));
+sunDisc.position.set(-70, 55, -130);
+const sunGlow = new THREE.Mesh(new THREE.SphereGeometry(10.5, 20, 14),
+  new THREE.MeshBasicMaterial({ color:0xfff3c4, fog:false, transparent:true, opacity:0.26 }));
+sunGlow.position.copy(sunDisc.position);
+scene.add(sunDisc); scene.add(sunGlow);
+
+/* ================= 地面 ================= */
+const ground = new THREE.Mesh(new THREE.CircleGeometry(260, 48), MAT.ground);
+ground.rotation.x = -Math.PI/2;
+ground.position.y = -13.85;
+ground.receiveShadow = true;
+scene.add(ground);
+
+/* ================= 雪道与山体(挤出成型) ================= */
+function buildExtrudedProfile(points, width, bottomY){
+  const shape = new THREE.Shape();
+  shape.moveTo(points[0].x, points[0].y);
+  for(let i=1;i<points.length;i++) shape.lineTo(points[i].x, points[i].y);
+  shape.lineTo(points[points.length-1].x, bottomY);
+  shape.lineTo(points[0].x, bottomY);
+  shape.closePath();
+  const geo = new THREE.ExtrudeGeometry(shape, { depth:width, bevelEnabled:false });
+  geo.translate(0, 0, -width/2);
+  return new THREE.Mesh(geo, [MAT.snowWall, MAT.snow]);
+}
+const rampPts = [];
+for(let i=0;i<=100;i++) rampPts.push(rampAt(i/100));
+const rampMesh = buildExtrudedProfile(rampPts, 16, -14.5);
+rampMesh.castShadow = true; rampMesh.receiveShadow = true;
+scene.add(rampMesh);
+
+const hillPts = [];
+for(let x=2.5;x<=52.001;x+=0.7) hillPts.push({ x:x, y:landingY(x) });
+const hillMesh = buildExtrudedProfile(hillPts, 16, -14.5);
+hillMesh.castShadow = true; hillMesh.receiveShadow = true;
+scene.add(hillMesh);
+
+/* 起点后方山体 */
+function addMound(x, y, z, sx, sy, sz){
+  const m = new THREE.Mesh(new THREE.SphereGeometry(1, 28, 20), MAT.snow);
+  m.position.set(x, y, z); m.scale.set(sx, sy, sz);
+  m.castShadow = true; m.receiveShadow = true;
+  scene.add(m); return m;
+}
+addMound( 1.25, -0.7, 0, 2.7, 1.85, 7.5);   // 跳台唇下的小丘(填谷)
+addMound(-36.0,  2.0, 0, 7.0, 5.5, 12.0);   // 起点后的山坡
+addMound(-49.0, -2.0, 0, 10.0, 12.0, 16.0); // 更远的雪山
+
+/* ================= 远山 / 近丘 ================= */
+[[-85,-95,30,44],[-48,-112,38,56],[-6,-102,32,48],[36,-116,40,58],
+ [78,-102,34,50],[108,-86,26,40],[-115,-82,28,44]].forEach(m => {
+  const [x,z,r,h] = m;
+  const cone = new THREE.Mesh(new THREE.ConeGeometry(r, h, 7), MAT.mtn);
+  cone.position.set(x, -14 + h/2, z);
+  scene.add(cone);
+  const cap = new THREE.Mesh(new THREE.ConeGeometry(r*0.42, h*0.42, 7), MAT.mtnCap);
+  cap.position.set(x, -14 + h*0.79, z);
+  scene.add(cap);
+});
+[[62,-48,20,15],[-72,-52,24,17],[20,-40,14,10]].forEach(m => {
+  const [x,z,r,h] = m;
+  const c = new THREE.Mesh(new THREE.ConeGeometry(r, h, 7), MAT.hillFar);
+  c.position.set(x, -14 + h/2, z);
+  scene.add(c);
+});
+
+/* ================= 云 ================= */
+const clouds = [];
+function makeCloud(x, y, z, s){
+  const g = new THREE.Group();
+  const n = 3 + Math.floor(srand()*3);
+  for(let i=0;i<n;i++){
+    const puff = new THREE.Mesh(new THREE.SphereGeometry((1.2+srand()*1.6)*s, 14, 10), MAT.cloud);
+    puff.position.set((i - n/2)*1.6*s + (srand()-0.5)*0.8, (srand()-0.5)*0.7*s, (srand()-0.5)*1.2*s);
+    puff.scale.y = 0.55;
+    g.add(puff);
+  }
+  g.position.set(x, y, z);
+  g.userData.speed = 0.25 + srand()*0.35;
+  scene.add(g); clouds.push(g);
+}
+makeCloud(-40, 20, -60, 1.6); makeCloud(10, 25, -75, 2.0); makeCloud(55, 17, -55, 1.3);
+makeCloud(-90, 28, -80, 2.4); makeCloud(90, 30, -90, 2.2);
+
+/* ================= 树 ================= */
+function makeTree(s){
+  const g = new THREE.Group();
+  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.11, 0.5, 6), MAT.trunk);
+  trunk.position.y = 0.25; trunk.castShadow = true; g.add(trunk);
+  let y = 0.42, r = 0.62;
+  for(let i=0;i<3;i++){
+    const c = new THREE.Mesh(new THREE.ConeGeometry(r, 0.78, 7), MAT.pine[i]);
+    c.position.y = y + 0.39; c.castShadow = true; g.add(c);
+    const cap = new THREE.Mesh(new THREE.ConeGeometry(r*0.55, 0.42, 7), MAT.snow);
+    cap.position.y = y + 0.39 + 0.30; g.add(cap);
+    y += 0.52; r *= 0.72;
+  }
+  g.scale.setScalar(s);
+  return g;
+}
+function addTree(x, y, z, s){
+  const t = makeTree(s);
+  t.position.set(x, y, z);
+  t.rotation.y = srand()*Math.PI*2;
+  scene.add(t);
+}
+/* 滑道两侧 */
+[[-24,6.2],[-19,-6.4],[-14,5.8],[-9,-6.0],[-5,5.5]].forEach(p => {
+  addTree(p[0], rampYatX(p[0]) - 0.1, p[1], 0.9 + srand()*0.5);
+});
+/* 着陆坡两侧 */
+[8,13,19,27,33,40].forEach(x => {
+  addTree(x,     landingY(x)     - 0.1,  5.2 + srand()*2.2, 0.9  + srand()*0.6);
+  addTree(x+2.5, landingY(x+2.5) - 0.1, -(5.0 + srand()*2.2), 0.85 + srand()*0.6);
+});
+/* 远处地面 */
+for(let i=0;i<8;i++){
+  const x = -20 + srand()*75, z = (srand()<0.5 ? -1 : 1) * (10 + srand()*7);
+  addTree(x, -13.85, z, 1.0 + srand()*0.7);
+}
+/* 起点山体上的树 */
+for(let i=0;i<4;i++){
+  const x = -52 + srand()*8, z = (srand()<0.5 ? -1 : 1) * (3 + srand()*5);
+  const dx = (x + 49)/10;
+  addTree(x, -2 + 12*Math.sqrt(Math.max(0, 1 - dx*dx)) - 0.1, z, 0.8 + srand()*0.4);
+}
+
+/* ================= 旗杆与起点横幅 ================= */
+const flags = [];
+[[-2.6,2.6],[-2.6,-2.6],[-0.9,2.6],[-0.9,-2.6]].forEach((p, i) => {
+  const y = rampYatX(p[0]);
+  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 1.5, 6), MAT.pole);
+  pole.position.set(p[0], y + 0.75, p[1]);
+  scene.add(pole);
+  const flag = new THREE.Mesh(new THREE.PlaneGeometry(0.62, 0.38), i%2 ? MAT.flagB : MAT.flagA);
+  flag.position.set(p[0] + 0.33, y + 1.32, p[1]);
+  scene.add(flag); flags.push(flag);
+});
+const bannerCanvas = document.createElement('canvas');
+bannerCanvas.width = 512; bannerCanvas.height = 72;
+const bctx = bannerCanvas.getContext('2d');
+bctx.fillStyle = '#d93838'; bctx.fillRect(0, 0, 512, 72);
+bctx.fillStyle = '#ffffff';
+bctx.font = 'bold 40px system-ui, sans-serif';
+bctx.textAlign = 'center'; bctx.textBaseline = 'middle';
+bctx.fillText('★ PENGUIN JUMP ★', 256, 38);
+const banner = new THREE.Mesh(new THREE.PlaneGeometry(6.6, 0.92),
+  new THREE.MeshBasicMaterial({ map:new THREE.CanvasTexture(bannerCanvas), side:THREE.DoubleSide }));
+const gateY = rampYatX(-27.5);
+banner.position.set(-27.5, gateY + 2.35, 0);
+scene.add(banner);
+[-3.3, 3.3].forEach(z => {
+  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 2.8, 6), MAT.pole);
+  pole.position.set(-27.5, gateY + 1.4, z);
+  scene.add(pole);
+});
+
+/* ================= 企鹅 ================= */
+function buildPenguin(){
+  const g = new THREE.Group();
+  const black  = new THREE.MeshStandardMaterial({ color:0x232a33, roughness:0.55 });
+  const white  = new THREE.MeshStandardMaterial({ color:0xfbfdff, roughness:0.5 });
+  const orange = new THREE.MeshStandardMaterial({ color:0xff9138, roughness:0.45 });
+  const red    = new THREE.MeshStandardMaterial({ color:0xe23b3b, roughness:0.55 });
+  const skiMat = new THREE.MeshStandardMaterial({ color:0x2e7fd9, roughness:0.3, metalness:0.35 });
+  const S = (r, w=24, h=18) => new THREE.SphereGeometry(r, w, h);
+  function add(geo, mat, x, y, z, sx=1, sy=1, sz=1){
+    const m = new THREE.Mesh(geo, mat);
+    m.position.set(x, y, z); m.scale.set(sx, sy, sz);
+    m.castShadow = true; g.add(m); return m;
+  }
+  add(S(0.52, 28, 22), black,  0, 0.75, 0,     1, 1.28, 0.92);   // 身体
+  add(S(0.44, 28, 22), white,  0, 0.72, 0.18,  0.8, 1.05, 0.75); // 肚皮
+  add(S(0.33, 28, 22), black,  0, 1.58, 0.01);                     // 头
+  const pl = add(S(0.15, 16, 12), white, -0.13, 1.62, 0.25, 1, 1.3, 0.7); pl.rotation.y = -0.3;
+  const pr = add(S(0.15, 16, 12), white,  0.13, 1.62, 0.25, 1, 1.3, 0.7); pr.rotation.y =  0.3;
+  add(S(0.075, 12, 10), white, -0.125, 1.66, 0.30);
+  add(S(0.075, 12, 10), white,  0.125, 1.66, 0.30);
+  add(S(0.042, 10, 8),  black, -0.125, 1.665, 0.355);
+  add(S(0.042, 10, 8),  black,  0.125, 1.665, 0.355);
+  const beak = add(new THREE.ConeGeometry(0.085, 0.30, 14), orange, 0, 1.55, 0.30);
+  beak.rotation.x = Math.PI/2;
+  add(new THREE.BoxGeometry(0.20, 0.08, 0.38), orange, -0.17, 0.09, 0.10); // 脚蹼
+  add(new THREE.BoxGeometry(0.20, 0.08, 0.38), orange,  0.17, 0.09, 0.10);
+  add(new THREE.BoxGeometry(0.13, 0.035, 1.55), skiMat, -0.17, 0.025, 0.12); // 滑雪板
+  add(new THREE.BoxGeometry(0.13, 0.035, 1.55), skiMat,  0.17, 0.025, 0.12);
+  const tipL = add(new THREE.BoxGeometry(0.13, 0.035, 0.30), skiMat, -0.17, 0.105, 0.93); tipL.rotation.x = -0.45;
+  const tipR = add(new THREE.BoxGeometry(0.13, 0.035, 0.30), skiMat,  0.17, 0.105, 0.93); tipR.rotation.x = -0.45;
+  const ring = add(new THREE.TorusGeometry(0.26, 0.085, 10, 20), red, 0, 1.30, 0); // 围巾
+  ring.rotation.x = Math.PI/2;
+  add(S(0.09, 10, 8), red, 0, 1.30, -0.24);                                            // 围巾结
+  /* 鳍肢(肩部枢轴组) */
+  const flipperGeo = S(0.5, 14, 10);
+  const flipperL = new THREE.Group(); flipperL.position.set(-0.48, 0.95, 0);
+  const fl = new THREE.Mesh(flipperGeo, black);
+  fl.scale.set(0.14, 0.5, 0.3); fl.position.y = -0.32; fl.castShadow = true;
+  flipperL.add(fl); g.add(flipperL);
+  const flipperR = new THREE.Group(); flipperR.position.set(0.48, 0.95, 0);
+  const fr = new THREE.Mesh(flipperGeo, black);
+  fr.scale.set(0.14, 0.5, 0.3); fr.position.y = -0.32; fr.castShadow = true;
+  flipperR.add(fr); g.add(flipperR);
+  g.userData = { flipperL, flipperR };
+  return g;
+}
+const penguin = buildPenguin();
+scene.add(penguin);
+
+/* 围巾飘带(顶点动画) */
+const scarfGeo = new THREE.PlaneGeometry(0.95, 0.30, 12, 2);
+scarfGeo.translate(-0.475, 0, 0);
+const scarf = new THREE.Mesh(scarfGeo,
+  new THREE.MeshStandardMaterial({ color:0xe23b3b, roughness:0.6, side:THREE.DoubleSide }));
+scarf.position.set(0, 1.30, -0.03);
+scarf.castShadow = true;
+penguin.add(scarf);
+const scarfBase = scarfGeo.attributes.position.array.slice();
+
+/* ================= 飘雪 ================= */
+const FLAKE_N = 700;
+const flakePos = new Float32Array(FLAKE_N*3);
+const flakeSpd = new Float32Array(FLAKE_N);
+const flakePh  = new Float32Array(FLAKE_N);
+for(let i=0;i<FLAKE_N;i++){
+  flakePos[i*3]   = -75 + srand()*150;
+  flakePos[i*3+1] = -14 + srand()*46;
+  flakePos[i*3+2] = -25 + srand()*40;
+  flakeSpd[i] = 0.7 + srand()*1.1;
+  flakePh[i]  = srand()*Math.PI*2;
+}
+const flakeGeo = new THREE.BufferGeometry();
+flakeGeo.setAttribute('position', new THREE.BufferAttribute(flakePos, 3));
+const flakes = new THREE.Points(flakeGeo,
+  new THREE.PointsMaterial({ color:0xffffff, size:0.16, transparent:true, opacity:0.9, depthWrite:false }));
+flakes.frustumCulled = false;
+scene.add(flakes);
+
+/* ================= 雪雾粒子 ================= */
+const SPRAY_N = 500;
+const spPos  = new Float32Array(SPRAY_N*3);
+const spVel  = new Float32Array(SPRAY_N*3);
+const spLife = new Float32Array(SPRAY_N);
+let spHead = 0;
+for(let i=0;i<SPRAY_N;i++) spPos[i*3+1] = -9999;
+const spGeo = new THREE.BufferGeometry();
+spGeo.setAttribute('position', new THREE.BufferAttribute(spPos, 3));
+const sprayPts = new THREE.Points(spGeo,
+  new THREE.PointsMaterial({ color:0xffffff, size:0.17, transparent:true, opacity:0.95, depthWrite:false }));
+sprayPts.frustumCulled = false;
+scene.add(sprayPts);
+function spawnSpray(x, y, z, vx, vy, vz, life){
+  const i = spHead; spHead = (spHead + 1) % SPRAY_N;
+  spPos[i*3] = x; spPos[i*3+1] = y; spPos[i*3+2] = z;
+  spVel[i*3] = vx; spVel[i*3+1] = vy; spVel[i*3+2] = vz;
+  spLife[i] = life;
+}
+function updateSpray(dt){
+  for(let i=0;i<SPRAY_N;i++){
+    if(spLife[i] > 0){
+      spLife[i] -= dt;
+      if(spLife[i] <= 0){ spPos[i*3+1] = -9999; continue; }
+      spVel[i*3+1] -= 6.5*dt;
+      spPos[i*3]   += spVel[i*3]*dt;
+      spPos[i*3+1] += spVel[i*3+1]*dt;
+      spPos[i*3+2] += spVel[i*3+2]*dt;
+    }
+  }
+  spGeo.attributes.position.needsUpdate = true;
+}
+
+/* ================= 相机状态 ================= */
+const CAM_START  = new THREE.Vector3(-29.0, 8.62, 8.2);
+const TGT_START  = new THREE.Vector3(-30, 7.5, 0);
+const OFF_DEFAULT = new THREE.Vector3(1.0, 1.6, 8.2);
+const OFF_FLIGHT  = new THREE.Vector3(2.2, 0.9, 11.8);
+const curOff = OFF_DEFAULT.clone();
+const camPos = CAM_START.clone();
+const camTgt = TGT_START.clone();
+
+/* ================= 主循环 ================= */
+const clock = new THREE.Clock();
+const fadeEl = document.getElementById('fade');
+let smoothRotZ = 0, smoothSpread = 0.1, smoothYaw = Math.PI/2 - 1.1;
+let shakeT = 0, phase = 'idle';
+
+function animate(){
+  requestAnimationFrame(animate);
+  const dt = Math.min(clock.getDelta(), 0.05);
+  const time = clock.getElapsedTime();
+  const t = time % LOOP;
+
+  /* ---------- 阶段解算:位置 / 姿态 ---------- */
+  let px = 0, py = 0, targetRotZ = 0, targetSpread = 0.1,
+      targetYaw = Math.PI/2, crouch = 0, speed = 0;
+
+  if(t >= T_TELEPORT || t < T_IDLE){
+    /* 起点待命 */
+    const r = rampAt(0);
+    px = r.x; py = r.y + 0.02;
+    targetRotZ = Math.atan2(r.dy, r.dx);
+    targetYaw = Math.PI/2 - 1.1 + Math.sin(time*0.8)*0.18;
+    targetSpread = 0.08 + Math.sin(time*3)*0.03;
+    crouch = 0.05 + 0.035*Math.sin(time*5.2);
+    speed = 0.5;
+  } else if(t < T_FLIGHT_START){
+    /* 滑降(加速) */
+    const tau = t - T_IDLE;
+    const u = Math.pow(tau/T_SLIDE, 1.5);
+    const r = rampAt(u);
+    px = r.x; py = r.y + 0.02;
+    targetRotZ = Math.atan2(r.dy, r.dx);
+    targetSpread = 0.15;
+    crouch = 0.03;
+    speed = 2 + 13*u;
+    for(let k=0;k<2;k++){
+      spawnSpray(px - 0.5 + (srand()-0.5)*0.4, py + 0.04, (srand()-0.5)*0.7,
+        -1.5 - srand()*2.5, 1.2 + srand()*2.6, (srand()-0.5)*2.4, 0.35 + srand()*0.3);
+    }
+  } else if(t < T_GLIDE_START){
+    /* 腾空(抛物线) */
+    const tau = t - T_FLIGHT_START;
+    const vy = LAUNCH.vy - GRAV*tau;
+    px = LAUNCH.x + LAUNCH.vx*tau;
+    py = LAUNCH.y + LAUNCH.vy*tau - 0.5*GRAV*tau*tau;
+    targetRotZ = Math.atan2(vy, LAUNCH.vx);
+    targetSpread = Math.min(1, tau*3.2) * (1 + Math.sin(time*7)*0.07);
+    speed = Math.hypot(LAUNCH.vx, vy);
+  } else if(t < T_HOLD_START){
+    /* 落地滑行(减速) */
+    const tau = t - T_GLIDE_START;
+    const stopped = tau >= GLIDE_STOP_T;
+    const dist = stopped ? GLIDE_STOP_D : LAUNCH.vx*tau - 0.5*GLIDE_DECEL*tau*tau;
+    px = LAND_X + dist;
+    let bounce = 0;
+    if(tau < 0.9) bounce = Math.abs(Math.sin(tau*16))*0.30*Math.exp(-tau*3.5);
+    py = landingY(px) + 0.02 + bounce;
+    targetRotZ = Math.atan(landingSlope(px)) + bounce*0.5*Math.sin(tau*16 + 0.6);
+    targetSpread = 0.45;
+    targetYaw = Math.PI/2;
+    crouch = tau < 0.28 ? 0.13*(1 - tau/0.28) : 0;
+    speed = stopped ? 0 : LAUNCH.vx - GLIDE_DECEL*tau;
+    if(!stopped && srand() < 0.5){
+      spawnSpray(px - 0.6, py + 0.04, (srand()-0.5)*0.6,
+        -2 - srand()*2, 1 + srand()*1.8, (srand()-0.5)*1.8, 0.3 + srand()*0.25);
+    }
+  } else {
+    /* 终点停顿 */
+    px = STOP_X; py = landingY(STOP_X) + 0.02;
+    targetRotZ = Math.atan(landingSlope(STOP_X));
+    targetYaw = Math.PI/2 - 1.1 + Math.sin(time*0.9)*0.2;
+    targetSpread = 0.15;
+    crouch = 0.04 + 0.03*Math.sin(time*4.6);
+    speed = 0.3;
+  }
+
+  /* ---------- 阶段事件(喷雪 / 震动) ---------- */
+  const newPhase = (t >= T_TELEPORT || t < T_IDLE) ? 'idle'
+    : t < T_FLIGHT_START ? 'slide'
+    : t < T_GLIDE_START  ? 'flight'
+    : t < T_HOLD_START   ? 'glide' : 'hold';
+  if(newPhase === 'flight' && phase !== 'flight'){
+    for(let i=0;i<25;i++)
+      spawnSpray(LAUNCH.x, LAUNCH.y + 0.06, (srand()-0.5)*1.6,
+        (srand()-0.5)*3.5, 1 + srand()*3.5, (srand()-0.5)*3.5, 0.4 + srand()*0.3);
+  }
+  if(newPhase === 'glide' && phase !== 'glide'){
+    for(let i=0;i<90;i++){
+      const a = srand()*Math.PI*2, s = 2 + srand()*6;
+      spawnSpray(LAND_X, LAND_Y + 0.12, (srand()-0.5)*1.4,
+        Math.cos(a)*s*0.55, 1.5 + srand()*5.5, Math.sin(a)*s*0.55, 0.5 + srand()*0.6);
+    }
+    shakeT = 0.35;
+  }
+  phase = newPhase;
+
+  /* ---------- 姿态应用 ---------- */
+  smoothRotZ   = damp(smoothRotZ, targetRotZ, 12, dt);
+  smoothSpread = damp(smoothSpread, targetSpread, 6, dt);
+  smoothYaw    = damp(smoothYaw, targetYaw, 2.5, dt);
+  penguin.position.set(px, py, 0);
+  penguin.rotation.set(0, smoothYaw, smoothRotZ);
+  const sy = 1 - crouch, sxz = 1 + crouch*0.55;
+  penguin.scale.set(sxz, sy, sxz);
+  penguin.userData.flipperL.rotation.z = -(0.25 + smoothSpread*1.9);
+  penguin.userData.flipperR.rotation.z =  (0.25 + smoothSpread*1.9);
+
+  /* ---------- 围巾飘动 ---------- */
+  const speedF = clamp(speed/12, 0.15, 1);
+  const posAttr = scarfGeo.attributes.position;
+  for(let i=0;i<posAttr.count;i++){
+    const bx = scarfBase[i*3], by = scarfBase[i*3+1];
+    const f = -bx/0.95;
+    posAttr.setZ(i, Math.sin(bx*7 - time*14*speedF)*0.10*f + Math.sin(by*6 + time*9*speedF)*0.025*f);
+    posAttr.setY(i, by + Math.sin(bx*5 - time*11*speedF)*0.05*f);
+  }
+  posAttr.needsUpdate = true;
+  scarfGeo.computeVertexNormals();
+
+  /* ---------- 相机跟拍 ---------- */
+  const inFlight = (newPhase === 'flight');
+  const offTgt = inFlight ? OFF_FLIGHT : OFF_DEFAULT;
+  curOff.x = damp(curOff.x, offTgt.x, 3, dt);
+  curOff.y = damp(curOff.y, offTgt.y, 3, dt);
+  curOff.z = damp(curOff.z, offTgt.z, 3, dt);
+  if(t >= T_TELEPORT){
+    camPos.copy(CAM_START); camTgt.copy(TGT_START);
+  } else {
+    /* 速度前瞻 */
+    let lvx = 0, lvy = 0;
+    if(newPhase === 'slide'){
+      const r = rampAt(Math.pow((t - T_IDLE)/T_SLIDE, 1.5));
+      const m = Math.hypot(r.dx, r.dy); lvx = r.dx/m; lvy = r.dy/m;
+    } else if(newPhase === 'flight'){
+      const tau = t - T_FLIGHT_START, vy = LAUNCH.vy - GRAV*tau;
+      const m = Math.hypot(LAUNCH.vx, vy); lvx = LAUNCH.vx/m; lvy = vy/m;
+    } else if(newPhase === 'glide'){
+      const tau = t - T_GLIDE_START;
+      if(tau < GLIDE_STOP_T){
+        lvy = landingSlope(LAND_X + LAUNCH.vx*tau - 0.5*GLIDE_DECEL*tau*tau);
+        const m = Math.hypot(1, lvy); lvx = 1/m; lvy = lvy/m;
+      }
+    }
+    camPos.x = damp(camPos.x, px + curOff.x + lvx*1.2, 4, dt);
+    camPos.y = damp(camPos.y, py + curOff.y + lvy*0.6, 4, dt);
+    camPos.z = damp(camPos.z, curOff.z, 4, dt);
+    camTgt.x = damp(camTgt.x, px + lvx*2.2, 5, dt);
+    camTgt.y = damp(camTgt.y, py + 0.5 + lvy*1.0, 5, dt);
+    camTgt.z = damp(camTgt.z, 0, 5, dt);
+    camPos.y = Math.max(camPos.y, groundApprox(camPos.x) + 1.1);
+    if(shakeT > 0){
+      shakeT -= dt;
+      const a = 0.08*Math.exp(-(0.35 - shakeT)*9);
+      camPos.x += (srand()-0.5)*a; camPos.y += (srand()-0.5)*a;
+    }
+  }
+  camera.position.copy(camPos);
+  camera.lookAt(camTgt);
+
+  /* ---------- 环境动画 ---------- */
+  updateSpray(dt);
+  for(let i=0;i<FLAKE_N;i++){
+    flakePos[i*3+1] -= flakeSpd[i]*dt;
+    flakePos[i*3]   += (Math.sin(time*0.7 + flakePh[i])*0.5 + 0.45)*dt;
+    flakePos[i*3+2] += Math.cos(time*0.5 + flakePh[i])*0.25*dt;
+    if(flakePos[i*3+1] < -14) flakePos[i*3+1] += 46;
+    if(flakePos[i*3] > 75)    flakePos[i*3]   -= 150;
+  }
+  flakeGeo.attributes.position.needsUpdate = true;
+  for(const c of clouds){
+    c.position.x += c.userData.speed*dt;
+    if(c.position.x > 130) c.position.x = -130;
+  }
+  for(let i=0;i<flags.length;i++) flags[i].rotation.y = Math.sin(time*6 + i*1.7)*0.35;
+  banner.rotation.z = Math.sin(time*1.3)*0.02;
+
+  /* ---------- 循环淡入淡出 ---------- */
+  let fade = 0;
+  if(t >= T_FADEOUT_START && t < T_TELEPORT) fade = (t - T_FADEOUT_START)/T_FADEOUT;
+  else if(t >= T_TELEPORT) fade = 1 - (t - T_TELEPORT)/T_FADEIN;
+  if(time < 0.8) fade = Math.max(fade, 1 - time/0.8);   // 首次打开淡入
+  fadeEl.style.opacity = fade.toFixed(3);
+
+  renderer.render(scene, camera);
+}
+animate();
+</script>
+</body>
+</html>

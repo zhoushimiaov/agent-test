@@ -1,0 +1,925 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>企鹅大跳台 · Penguin Big Air</title>
+<style>
+  html,body{margin:0;padding:0;height:100%;overflow:hidden;background:#E8F1FA;
+    -webkit-user-select:none;user-select:none;cursor:default}
+  canvas{display:block;width:100vw;height:100vh}
+</style>
+</head>
+<body>
+<canvas id="scene"></canvas>
+<script>
+(function () {
+"use strict";
+/* ====================================================================
+   企鹅大跳台 / PENGUIN BIG AIR
+   纯 Canvas 2D · 零外部依赖 · 双击即播 · 全自动循环
+   段落: 台顶蓄势 → 蹬台出发 → 助跑加速 → 跳台腾空(360°翻转)
+        → 落地溅雪 → 缓冲骑出 → 得意谢幕 → 白场过渡 → 循环
+   ==================================================================== */
+
+/* ---------------- 数学工具 ---------------- */
+var TAU = Math.PI * 2;
+function clamp(v, a, b) { return v < a ? a : (v > b ? b : v); }
+function lerp(a, b, t) { return a + (b - a) * t; }
+function smooth(t) { t = clamp(t, 0, 1); return t * t * (3 - 2 * t); }
+function easeIn(t) { return t * t * t; }
+function easeInOut(t) { t = clamp(t, 0, 1); return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2; }
+function damp(cur, tgt, k, dt) { return lerp(cur, tgt, 1 - Math.exp(-k * dt)); }
+function mulberry32(seed) {
+  return function () {
+    seed |= 0; seed = (seed + 0x6D2B79F5) | 0;
+    var t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+var rng = mulberry32(20261013);
+function rnd(a, b) { return a + (b - a) * rng(); }
+
+/* ---------------- 画布 ---------------- */
+var canvas = document.getElementById("scene");
+var ctx = canvas.getContext("2d");
+var W = 0, H = 0, DPR = 1;
+function resize() {
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  W = Math.max(320, window.innerWidth);
+  H = Math.max(240, window.innerHeight);
+  canvas.width = Math.round(W * DPR);
+  canvas.height = Math.round(H * DPR);
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+}
+window.addEventListener("resize", resize);
+resize();
+
+/* ---------------- 地形(世界坐标: x 向右, y 向下) ----------------
+   平台起跑 → 长助跑下坡 → 跳台起跳弧(向上踢) → 崖口 → 着陆坡 → 平地 */
+var TERRAIN = [
+  [-1250, 152], [-760, 150], [-420, 138],          // 起始平台
+  [-160, 186], [140, 263], [430, 349],
+  [700, 429], [940, 487], [1140, 523],
+  [1300, 529],                                     // 助跑底
+  [1408, 509], [1470, 462],                        // 跳台弧 → 唇部
+  [1560, 549],                                     // 崖口(knuckle)
+  [1810, 597], [2120, 643], [2470, 683],
+  [2920, 713], [3420, 725], [4700, 723]
+];
+var COURSE = TERRAIN.slice(2);                     // 企鹅实际滑行线(不含平台)
+var CUM = [0];                                     // 累计弧长
+for (var i = 1; i < COURSE.length; i++) {
+  var dx = COURSE[i][0] - COURSE[i - 1][0], dy = COURSE[i][1] - COURSE[i - 1][1];
+  CUM.push(CUM[i - 1] + Math.sqrt(dx * dx + dy * dy));
+}
+var L_TOTAL = CUM[CUM.length - 1];
+var L_LIP = 0;                                     // 到唇部的弧长
+for (var j = 0; j < COURSE.length; j++) if (COURSE[j][0] === 1470) L_LIP = CUM[j];
+var LIP = { x: 1470, y: 462 };
+
+function segIndexAtX(x) {
+  if (x <= COURSE[0][0]) return 0;
+  for (var k = 0; k < COURSE.length - 1; k++) {
+    if (x >= COURSE[k][0] && x <= COURSE[k + 1][0]) return k;
+  }
+  return COURSE.length - 2;
+}
+function terrainYAt(x) {
+  var k = segIndexAtX(x);
+  var x0 = COURSE[k][0], y0 = COURSE[k][1], x1 = COURSE[k + 1][0], y1 = COURSE[k + 1][1];
+  var t = (x1 === x0) ? 0 : clamp((x - x0) / (x1 - x0), 0, 1);
+  return lerp(y0, y1, t);
+}
+function terrainAngleAt(x) {
+  var k = segIndexAtX(x);
+  return Math.atan2(COURSE[k + 1][1] - COURSE[k][1], COURSE[k + 1][0] - COURSE[k][0]);
+}
+function posAtS(s) {
+  s = clamp(s, 0, L_TOTAL);
+  for (var k = 0; k < COURSE.length - 1; k++) {
+    if (s >= CUM[k] && s <= CUM[k + 1]) {
+      var t = (s - CUM[k]) / (CUM[k + 1] - CUM[k] || 1);
+      return { x: lerp(COURSE[k][0], COURSE[k + 1][0], t), y: lerp(COURSE[k][1], COURSE[k + 1][1], t) };
+    }
+  }
+  return { x: COURSE[COURSE.length - 1][0], y: COURSE[COURSE.length - 1][1] };
+}
+function angleAtS(s) {
+  s = clamp(s, 0, L_TOTAL);
+  for (var k = 0; k < COURSE.length - 1; k++) {
+    if (s >= CUM[k] && s <= CUM[k + 1]) {
+      return Math.atan2(COURSE[k + 1][1] - COURSE[k][1], COURSE[k + 1][0] - COURSE[k][0]);
+    }
+  }
+  return 0;
+}
+function sAtX(x) {
+  var k = segIndexAtX(x);
+  var x0 = COURSE[k][0], y0 = COURSE[k][1], x1 = COURSE[k + 1][0], y1 = COURSE[k + 1][1];
+  var segLen = Math.sqrt((x1 - x0) * (x1 - x0) + (y1 - y0) * (y1 - y0)) || 1;
+  var t = (x1 === x0) ? 0 : clamp((x - x0) / (x1 - x0), 0, 1);
+  return CUM[k] + segLen * t;
+}
+var LIP_ANGLE = angleAtS(L_LIP);
+var LIP_DIR = { x: Math.cos(LIP_ANGLE), y: Math.sin(LIP_ANGLE) };
+var TAKE_ANGLE = LIP_ANGLE;                        // 起跳时身体角度
+
+/* ---------------- 静态装饰(预生成) ---------------- */
+// 雪道 groomed lane: 唇部以下两侧各一条柔和的压雪沟
+var LANE_L = [], LANE_R = [];
+(function buildLane() {
+  for (var n = 0; n <= 40; n++) {
+    var s = L_LIP * n / 40, p = posAtS(s), a = angleAtS(s);
+    LANE_L.push([p.x + Math.sin(a) * 13, p.y - Math.cos(a) * 13]);
+    LANE_R.push([p.x - Math.sin(a) * 13, p.y + Math.cos(a) * 13]);
+  }
+})();
+
+// 地面闪亮点
+var SPARKS = [];
+for (var si = 0; si < 240; si++) {
+  var sx = rnd(-1200, 4500);
+  SPARKS.push({ x: sx, y: terrainYAt(sx) + rnd(3, 46), r: rnd(0.8, 2.1), ph: rnd(0, TAU), blue: rng() < 0.3 });
+}
+
+// 近景松树(站在雪地上的)
+var TREES = [];
+(function buildTrees() {
+  var xs = [], x;
+  for (x = -1180; x < -480; x += rnd(58, 96)) xs.push(x);
+  for (x = 3520; x < 4500; x += rnd(70, 120)) xs.push(x);
+  for (var n = 0; n < xs.length; n++) {
+    TREES.push({ x: xs[n], y: terrainYAt(xs[n]), s: rnd(0.5, 1.15) });
+  }
+  TREES.sort(function (a, b) { return a.y - b.y; });
+})();
+
+// 云
+var CLOUDS = [];
+for (var ci = 0; ci < 5; ci++) {
+  CLOUDS.push({ x: rnd(0, W), y: rnd(0.06, 0.30) * H, s: rnd(0.6, 1.5), sp: rnd(4, 12) });
+}
+
+// 飘雪(屏幕空间)
+var FLAKES = [];
+for (var fi = 0; fi < 150; fi++) {
+  FLAKES.push({
+    x: rnd(0, W), y: rnd(0, H), z: rng(),
+    r: 0.7 + rng() * 1.8, ph: rnd(0, TAU), dr: rnd(0.5, 1.6)
+  });
+}
+
+/* ---------------- 粒子系统 ---------------- */
+var SPRAY = [];      // 溅雪
+var RINGS = [];      // 落地冲击波
+var TRAIL = [];      // 雪沟轨迹
+
+function emitSpray(x, y, n, back, up, fwd) {
+  for (var k = 0; k < n; k++) {
+    SPRAY.push({
+      x: x + rnd(-8, 8), y: y + rnd(-4, 4),
+      vx: -rnd(back * 0.4, back) + rnd(-30, 30) + (fwd || 0),
+      vy: -rnd(up * 0.3, up),
+      ttl: rnd(0.4, 0.95), life: 0, size: rnd(1.4, 3.6)
+    });
+  }
+  if (SPRAY.length > 460) SPRAY.splice(0, SPRAY.length - 460);
+}
+function burstLanding(x, y) {
+  for (var k = 0; k < 95; k++) {
+    var a = rnd(-Math.PI * 0.96, -Math.PI * 0.04), sp = rnd(120, 540);
+    SPRAY.push({
+      x: x + rnd(-14, 14), y: y + rnd(-4, 4),
+      vx: Math.cos(a) * sp + 140, vy: Math.sin(a) * sp - 70,
+      ttl: rnd(0.5, 1.25), life: 0, size: rnd(2, 5.4)
+    });
+  }
+  if (SPRAY.length > 460) SPRAY.splice(0, SPRAY.length - 460);
+  RINGS.push({ x: x, y: y + 2, r: 10, a: 0.6 });
+  RINGS.push({ x: x, y: y + 2, r: 2, a: 0.4 });
+}
+
+/* ---------------- 围巾(世界空间 verlet 链) ---------------- */
+var SCARF_N = 7, SCARF_SEG = 8.5;
+var scarf = [];
+function resetScarf(nx, ny) {
+  scarf = [];
+  for (var k = 0; k < SCARF_N; k++) {
+    scarf.push({ x: nx, y: ny, px: nx, py: ny });
+  }
+}
+function stepScarf(dt, windX) {
+  var i, p;
+  for (i = 1; i < SCARF_N; i++) {
+    p = scarf[i];
+    var vx = (p.x - p.px) * 0.99, vy = (p.y - p.py) * 0.99;
+    p.px = p.x; p.py = p.y;
+    p.x += vx + windX * dt;
+    p.y += vy + 900 * dt * dt;
+  }
+  for (var it = 0; it < 3; it++) {
+    for (i = 1; i < SCARF_N; i++) {
+      var a = scarf[i], b = scarf[i - 1];
+      var dx = a.x - b.x, dy = a.y - b.y, d = Math.sqrt(dx * dx + dy * dy) || 0.0001;
+      var diff = (d - SCARF_SEG) / d;
+      a.x -= dx * diff; a.y -= dy * diff;
+    }
+  }
+}
+
+/* ---------------- 企鹅状态 ---------------- */
+var pen = {
+  x: 0, y: 0, vx: 0, vy: 0, angle: 0,
+  s: 0, speed: 0, prevS: 0,
+  squashX: 1, squashY: 1,
+  fl: 1.75, fr: -1.75, eye: "open", ski: 0
+};
+var phase = "ready", pt = 0, tGlobal = 0, flightT = 0;
+var takeoffV = { x: 0, y: 0 };
+var fade = 0, shake = 0;
+var camVX = 0;
+var breathTimer = 0;
+
+/* ---------------- 相机 ---------------- */
+var ZOOM_F = clamp(Math.min(W / 2250, H / 1080), 0.38, 0.78);
+var OVER = { x: (LIP.x + 2930) / 2, y: (242 + 711) / 2 - 30 };
+var cam = { x: 0, y: 0, z: 1 }, camT = { x: 0, y: 0, z: 1 };
+
+function camTarget() {
+  var t;
+  switch (phase) {
+    case "ready":
+      return { x: pen.x + 300, y: pen.y - 80, z: 1.12 - 0.12 * smooth(pt / 0.6) };
+    case "push": case "inrun":
+      return { x: pen.x + 300, y: pen.y - 80, z: 1 };
+    case "flight": {
+      var b = smooth(clamp(flightT / 0.55, 0, 1));
+      return {
+        x: lerp(pen.x + 300, OVER.x, b),
+        y: lerp(pen.y - 80, OVER.y, b),
+        z: lerp(1, ZOOM_F, b)
+      };
+    }
+    case "absorb":
+      t = smooth(clamp(pt / 0.55, 0, 1));
+      return { x: lerp(OVER.x, pen.x + 250, t), y: lerp(OVER.y, pen.y - 70, t), z: lerp(ZOOM_F, 0.72, t) };
+    case "rideout":
+      t = smooth(clamp(pt / 1.1, 0, 1));
+      return { x: pen.x + 290, y: pen.y - 70, z: 0.72 + 0.13 * t };
+    case "cheer":
+      t = smooth(clamp((pt - 0.15) / 0.8, 0, 1));
+      return { x: pen.x + 150, y: pen.y - 70, z: 0.85 + 0.15 * t };
+    default:
+      return { x: pen.x + 150, y: pen.y - 70, z: 1 };
+  }
+}
+
+/* ---------------- 重置 ---------------- */
+function reset() {
+  phase = "ready"; pt = 0; flightT = 0;
+  pen.s = 0; pen.prevS = 0; pen.speed = 0;
+  var p0 = posAtS(0);
+  pen.x = p0.x; pen.y = p0.y;
+  pen.vx = 0; pen.vy = 0;
+  pen.angle = angleAtS(0) - 0.04;
+  pen.squashX = 1.1; pen.squashY = 0.9;
+  pen.fl = 1.75; pen.fr = -1.75; pen.eye = "open"; pen.ski = 0;
+  SPRAY.length = 0; RINGS.length = 0; TRAIL.length = 0;
+  resetScarf(pen.x, pen.y - 58);
+  cam.x = pen.x + 300; cam.y = pen.y - 80; cam.z = 1.12;
+  camT.x = cam.x; camT.y = cam.y; camT.z = cam.z;
+  shake = 0; breathTimer = 0;
+}
+reset();
+
+/* ---------------- 姿态目标 ---------------- */
+function poseTarget() {
+  switch (phase) {
+    case "ready":
+      return { fl: 1.75, fr: -1.75, sx: 1.1, sy: 0.9, eye: "open", ski: 0 };
+    case "push":
+      return { fl: 2.3, fr: 2.05, sx: 1.06, sy: 0.90, eye: "open", ski: 0 };
+    case "inrun":
+      return { fl: 2.5, fr: 2.15, sx: 1.1, sy: 0.87, eye: "open", ski: 0 };
+    case "flight":
+      return { fl: -2.19, fr: -0.96, sx: 0.94, sy: 1.07, eye: "wide", ski: -0.3 };
+    case "absorb":
+      return { fl: 0.55, fr: -0.55, sx: 1.16, sy: 0.78, eye: "wide", ski: 0 };
+    case "rideout":
+      return { fl: 1.5, fr: -1.5, sx: 1.02, sy: 0.98, eye: "open", ski: 0 };
+    default:
+      return { fl: 1.2, fr: -1.2, sx: 1, sy: 1, eye: "happy", ski: 0 };
+  }
+}
+
+/* ---------------- 局部坐标 → 世界坐标 ---------------- */
+function localToWorld(lx, ly) {
+  var c = Math.cos(pen.angle), s = Math.sin(pen.angle);
+  var x = lx * pen.squashX, y = ly * pen.squashY;
+  return { x: pen.x + x * c - y * s, y: pen.y + x * s + y * c };
+}
+
+/* ---------------- 主更新 ---------------- */
+function update(dt) {
+  tGlobal += dt; pt += dt;
+
+  // 白场淡入(循环回到起点时)
+  if (phase === "ready" && fade > 0) fade = Math.max(0, fade - dt / 0.7);
+
+  var pose = poseTarget();
+  pen.fl = damp(pen.fl, pose.fl, 9, dt);
+  pen.fr = damp(pen.fr, pose.fr, 9, dt);
+  pen.ski = damp(pen.ski, pose.ski, 8, dt);
+  pen.eye = pose.eye;
+
+  switch (phase) {
+    case "ready": {
+      var p0 = posAtS(0);
+      pen.x = p0.x; pen.y = p0.y;
+      pen.angle = damp(pen.angle, angleAtS(0) - 0.04, 6, dt);
+      var br = Math.sin(tGlobal * 3.2) * 0.016;
+      pen.squashX = damp(pen.squashX, pose.sx - br, 6, dt);
+      pen.squashY = damp(pen.squashY, pose.sy + br, 6, dt);
+      breathTimer += dt;
+      if (breathTimer > 0.55) { breathTimer = 0; emitBreath(); }
+      if (pt > 0.7) { phase = "push"; pt = 0; }
+      break;
+    }
+    case "push": {
+      var u = clamp(pt / 0.35, 0, 1);
+      pen.prevS = pen.s;
+      pen.s = 117 * Math.pow(u, 1.8);
+      pen.speed = (pen.s - pen.prevS) / dt;
+      var pp = posAtS(pen.s);
+      pen.x = pp.x; pen.y = pp.y;
+      pen.angle = damp(pen.angle, angleAtS(pen.s) + 0.06, 8, dt);
+      pen.squashX = damp(pen.squashX, pose.sx, 10, dt);
+      pen.squashY = damp(pen.squashY, pose.sy, 10, dt);
+      emitSpray(pen.x, pen.y + 4, 2, 60, 120, 0);
+      if (u >= 1) { phase = "inrun"; pt = 0; }
+      break;
+    }
+    case "inrun": {
+      u = clamp(pt / 2.35, 0, 1);
+      pen.prevS = pen.s;
+      pen.s = 117 + (L_LIP - 117) * (0.752 * u + 0.248 * Math.pow(u, 4));
+      pen.speed = (pen.s - pen.prevS) / dt;
+      pp = posAtS(pen.s);
+      pen.x = pp.x; pen.y = pp.y;
+      pen.angle = damp(pen.angle, angleAtS(pen.s) + 0.1, 10, dt);
+      pen.squashX = damp(pen.squashX, pose.sx, 10, dt);
+      pen.squashY = damp(pen.squashY, pose.sy, 10, dt);
+      emitSpray(pen.x, pen.y + 4, clamp(pen.speed / 90, 1, 10), 90, 170, 0);
+      pushTrail();
+      if (u >= 1) {
+        phase = "flight"; pt = 0; flightT = 0;
+        takeoffV.x = LIP_DIR.x * pen.speed;
+        takeoffV.y = LIP_DIR.y * pen.speed;
+        pen.vx = takeoffV.x; pen.vy = takeoffV.y;
+        pen.angle = TAKE_ANGLE;
+        emitSpray(pen.x, pen.y + 4, 16, 140, 260, 0);
+      }
+      break;
+    }
+    case "flight": {
+      flightT += dt;
+      pen.vy += 1500 * dt;
+      pen.x += pen.vx * dt;
+      pen.y += pen.vy * dt;
+      var fp = easeInOut(clamp(flightT / 1.38, 0, 1));
+      pen.angle = TAKE_ANGLE + TAU * fp;
+      pen.squashX = damp(pen.squashX, pose.sx, 6, dt);
+      pen.squashY = damp(pen.squashY, pose.sy, 6, dt);
+      if (flightT > 0.12 && pen.vy > 0 && pen.y >= terrainYAt(pen.x)) {
+        phase = "absorb"; pt = 0;
+        pen.s = sAtX(pen.x);
+        pen.speed = Math.sqrt(pen.vx * pen.vx + pen.vy * pen.vy) * 0.5;
+        burstLanding(pen.x, pen.y);
+        shake = 15;
+      }
+      break;
+    }
+    case "absorb": {
+      pen.speed = Math.max(0, pen.speed - 900 * dt);
+      pen.s += pen.speed * dt;
+      pp = posAtS(pen.s);
+      pen.x = pp.x; pen.y = pp.y;
+      pen.angle = damp(pen.angle, angleAtS(pen.s) + 0.05, 11, dt);
+      pen.squashX = damp(pen.squashX, lerp(pose.sx, 1.04, smooth(pt / 0.42)), 9, dt);
+      pen.squashY = damp(pen.squashY, lerp(pose.sy, 0.97, smooth(pt / 0.42)), 9, dt);
+      emitSpray(pen.x, pen.y + 4, clamp(pen.speed / 160, 1, 8), 120, 220, 60);
+      pushTrail();
+      if (pt > 0.42) { phase = "rideout"; pt = 0; }
+      break;
+    }
+    case "rideout": {
+      pen.speed = Math.max(0, pen.speed - 620 * dt);
+      pen.s += pen.speed * dt;
+      pp = posAtS(pen.s);
+      pen.x = pp.x; pen.y = pp.y;
+      pen.angle = damp(pen.angle, angleAtS(pen.s) - 0.03, 6, dt);
+      var bob = Math.sin(tGlobal * 9) * 0.012 * clamp(pen.speed / 400, 0, 1);
+      pen.squashX = damp(pen.squashX, pose.sx - bob, 7, dt);
+      pen.squashY = damp(pen.squashY, pose.sy + bob, 7, dt);
+      emitSpray(pen.x, pen.y + 4, clamp(pen.speed / 300, 0, 4), 90, 150, 30);
+      pushTrail();
+      if (pen.speed < 70 || pt > 2.4) { phase = "cheer"; pt = 0; pen.speed = 0; }
+      break;
+    }
+    case "cheer": {
+      pp = posAtS(pen.s);
+      pen.x = pp.x; pen.y = pp.y;
+      pen.angle = damp(pen.angle, 0, 6, dt);
+      var br2 = Math.sin(tGlobal * 3.6) * 0.018;
+      pen.squashX = damp(pen.squashX, 1 - br2, 5, dt);
+      pen.squashY = damp(pen.squashY, 1 + br2, 5, dt);
+      breathTimer += dt;
+      if (breathTimer > 0.6 && pt > 0.3) { breathTimer = 0; emitBreath(); }
+      if (pt > 0.95) { phase = "fade"; pt = 0; }
+      break;
+    }
+    case "fade": {
+      pp = posAtS(pen.s);
+      pen.x = pp.x; pen.y = pp.y;
+      fade = Math.min(1, fade + dt / 0.75);
+      if (fade >= 1) reset();
+      break;
+    }
+  }
+
+  // 轨迹
+  if (TRAIL.length > 150) TRAIL.splice(0, TRAIL.length - 150);
+
+  // 粒子
+  var k;
+  for (k = SPRAY.length - 1; k >= 0; k--) {
+    var sp = SPRAY[k];
+    sp.life += dt;
+    if (sp.life >= sp.ttl) { SPRAY.splice(k, 1); continue; }
+    sp.vy += 1500 * dt;
+    sp.vx *= (1 - 1.6 * dt);
+    sp.x += sp.vx * dt;
+    sp.y += sp.vy * dt;
+    if (sp.y > terrainYAt(sp.x) + 2 && sp.vy > 0) { sp.y = terrainYAt(sp.x); sp.vy *= -0.25; sp.vx *= 0.6; }
+  }
+  for (k = RINGS.length - 1; k >= 0; k--) {
+    var rg = RINGS[k];
+    rg.r += 620 * dt;
+    rg.a -= 0.85 * dt;
+    if (rg.a <= 0) RINGS.splice(k, 1);
+  }
+
+  // 围巾
+  var neck = localToWorld(-12, -58);
+  scarf[0].x = neck.x; scarf[0].y = neck.y;
+  var windX = -0.05;
+  if (phase === "inrun" || phase === "push") windX -= pen.speed * 0.0006;
+  if (phase === "flight") windX -= Math.abs(pen.vx) * 0.0011;
+  if (phase === "rideout") windX -= pen.speed * 0.0004;
+  stepScarf(dt, windX);
+
+  // 相机
+  camT = camTarget();
+  var oldCamX = cam.x;
+  cam.x = damp(cam.x, camT.x, 3.0, dt);
+  cam.y = damp(cam.y, camT.y, 3.0, dt);
+  cam.z = damp(cam.z, camT.z, 2.2, dt);
+  camVX = (cam.x - oldCamX) / dt;
+  shake *= Math.exp(-6 * dt);
+}
+
+function pushTrail() {
+  TRAIL.push({ x: pen.x, y: pen.y + 3 });
+}
+
+function emitBreath() {
+  var beak = localToWorld(0, -71);
+  SPRAY.push({
+    x: beak.x, y: beak.y,
+    vx: rnd(-14, 14), vy: -rnd(18, 34),
+    ttl: 0.55, life: 0, size: rnd(1.6, 2.6)
+  });
+}
+
+/* ---------------- 绘制: 背景(屏幕空间) ---------------- */
+function drawSky() {
+  var g = ctx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0.00, "#6FA8E2");
+  g.addColorStop(0.34, "#AFCFF0");
+  g.addColorStop(0.52, "#F0E2C6");
+  g.addColorStop(0.66, "#F8EDD8");
+  g.addColorStop(1.00, "#E9F2FB");
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, H);
+}
+function drawSun() {
+  var sx = W * 0.81, sy = H * 0.14;
+  var g = ctx.createRadialGradient(sx, sy, 8, sx, sy, 200);
+  g.addColorStop(0, "rgba(255,244,214,0.55)");
+  g.addColorStop(0.5, "rgba(255,240,205,0.18)");
+  g.addColorStop(1, "rgba(255,240,205,0)");
+  ctx.fillStyle = g;
+  ctx.fillRect(sx - 200, sy - 200, 400, 400);
+  ctx.fillStyle = "rgba(255,249,228,0.95)";
+  ctx.beginPath(); ctx.arc(sx, sy, 26, 0, TAU); ctx.fill();
+}
+function drawClouds() {
+  for (var n = 0; n < CLOUDS.length; n++) {
+    var c = CLOUDS[n];
+    c.x += c.sp * frameDt;
+    if (c.x - 220 * c.s > W) c.x = -220 * c.s;
+    var cx = c.x - camVX * 0.05 * frameDt;
+    if (cx < -260 * c.s) cx += W + 520 * c.s;
+    if (cx > W + 260 * c.s) cx -= W + 520 * c.s;
+    var cy = c.y + (cam.y - 440) * 0.02;
+    ctx.fillStyle = "rgba(255,255,255,0.88)";
+    var puffs = [[0, 0, 46, 20], [34, 6, 34, 16], [-36, 8, 32, 15], [12, -14, 30, 17], [-14, -10, 26, 14]];
+    for (var q = 0; q < puffs.length; q++) {
+      var pf = puffs[q];
+      ctx.beginPath();
+      ctx.ellipse(cx + pf[0] * c.s, cy + pf[1] * c.s, pf[2] * c.s, pf[3] * c.s, 0, 0, TAU);
+      ctx.fill();
+    }
+    ctx.fillStyle = "rgba(255,244,224,0.5)";
+    ctx.beginPath();
+    ctx.ellipse(cx + 6 * c.s, cy + 16 * c.s, 40 * c.s, 9 * c.s, 0, 0, TAU);
+    ctx.fill();
+  }
+}
+function ridgeY(wx, baseY, yShift, amp, freq, ph) {
+  return baseY + yShift - amp * (0.62 * Math.sin(wx * freq + ph) + 0.38 * Math.sin(wx * freq * 2.6 + ph * 1.7));
+}
+function drawMountains() {
+  var layers = [
+    { base: H * 0.40, amp: H * 0.10, freq: 0.0042, ph: 1.7, col: "#AFC6E4", snow: "rgba(255,255,255,0.72)", par: 0.10, ysh: 0.03 },
+    { base: H * 0.455, amp: H * 0.085, freq: 0.0062, ph: 4.2, col: "#8FAAD2", snow: "rgba(255,255,255,0.5)", par: 0.20, ysh: 0.05 },
+    { base: H * 0.52, amp: H * 0.06, freq: 0.009, ph: 0.6, col: "#7493BE", snow: "rgba(255,255,255,0.34)", par: 0.32, ysh: 0.07 }
+  ];
+  for (var li = 0; li < layers.length; li++) {
+    var L = layers[li];
+    var yShift = (cam.y - 440) * L.ysh;
+    ctx.beginPath();
+    ctx.moveTo(-40, H + 10);
+    var pts = [];
+    for (var x = -40; x <= W + 40; x += 22) {
+      var y = ridgeY(x + cam.x * L.par, L.base, yShift, L.amp, L.freq, L.ph);
+      pts.push([x, y]);
+      ctx.lineTo(x, y);
+    }
+    ctx.lineTo(W + 40, H + 10);
+    ctx.closePath();
+    ctx.fillStyle = L.col;
+    ctx.fill();
+    ctx.beginPath();
+    for (var q = 0; q < pts.length; q++) { if (q === 0) ctx.moveTo(pts[q][0], pts[q][1]); else ctx.lineTo(pts[q][0], pts[q][1]); }
+    ctx.strokeStyle = L.snow;
+    ctx.lineWidth = 4;
+    ctx.stroke();
+    // 近处山脊上的小松树
+    if (li === 2) {
+      ctx.fillStyle = "rgba(96,124,160,0.8)";
+      for (var tr = 0; tr < pts.length; tr += 3) {
+        var tx = pts[tr][0], ty = pts[tr][1];
+        var ts = 0.32 + ((tr * 37) % 10) / 26;
+        ctx.beginPath(); ctx.ellipse(tx, ty - 8 * ts, 7 * ts, 5.5 * ts, 0, 0, TAU); ctx.fill();
+        ctx.beginPath(); ctx.ellipse(tx, ty - 14 * ts, 5 * ts, 4.5 * ts, 0, 0, TAU); ctx.fill();
+      }
+    }
+  }
+}
+
+/* ---------------- 绘制: 世界(相机变换) ---------------- */
+function w2sX(x) { return (x - cam.x) * cam.z + W / 2; }
+function w2sY(y) { return (y - cam.y) * cam.z + H / 2; }
+
+function drawTerrain() {
+  // 雪体
+  ctx.beginPath();
+  ctx.moveTo(TERRAIN[0][0], TERRAIN[0][1]);
+  for (var n = 1; n < TERRAIN.length; n++) ctx.lineTo(TERRAIN[n][0], TERRAIN[n][1]);
+  ctx.lineTo(5200, 1150);
+  ctx.lineTo(-1800, 1150);
+  ctx.closePath();
+  var g = ctx.createLinearGradient(0, 120, 0, 950);
+  g.addColorStop(0, "#FFFFFF");
+  g.addColorStop(0.3, "#F5F9FE");
+  g.addColorStop(1, "#D5E3F3");
+  ctx.fillStyle = g;
+  ctx.fill();
+  // 雪面轮廓 + 柔边
+  ctx.beginPath();
+  ctx.moveTo(TERRAIN[0][0], TERRAIN[0][1]);
+  for (n = 1; n < TERRAIN.length; n++) ctx.lineTo(TERRAIN[n][0], TERRAIN[n][1]);
+  ctx.strokeStyle = "rgba(255,255,255,0.95)";
+  ctx.lineWidth = 3;
+  ctx.stroke();
+  ctx.strokeStyle = "rgba(116,146,188,0.20)";
+  ctx.lineWidth = 13;
+  ctx.stroke();
+  // 压雪沟
+  ctx.lineWidth = 2.5;
+  ctx.strokeStyle = "rgba(140,166,204,0.5)";
+  strokePolyline(LANE_L);
+  strokePolyline(LANE_R);
+  // 唇部两面小旗
+  drawFlag(1452, LIP.y, 1);
+  drawFlag(1490, LIP.y + 2, -1);
+}
+function strokePolyline(arr) {
+  ctx.beginPath();
+  for (var n = 0; n < arr.length; n++) {
+    if (n === 0) ctx.moveTo(arr[n][0], arr[n][1]); else ctx.lineTo(arr[n][0], arr[n][1]);
+  }
+  ctx.stroke();
+}
+function drawFlag(x, gy, dir) {
+  ctx.strokeStyle = "#5E6E88";
+  ctx.lineWidth = 2.5;
+  ctx.beginPath(); ctx.moveTo(x, gy); ctx.lineTo(x, gy - 44); ctx.stroke();
+  ctx.fillStyle = "#E2604A";
+  ctx.beginPath();
+  ctx.moveTo(x, gy - 44);
+  ctx.quadraticCurveTo(x + dir * 15, gy - 40, x + dir * 24, gy - 34);
+  ctx.quadraticCurveTo(x + dir * 14, gy - 31, x, gy - 29);
+  ctx.closePath(); ctx.fill();
+}
+function drawTrees() {
+  for (var n = 0; n < TREES.length; n++) {
+    var t = TREES[n];
+    drawPine(t.x, t.y, t.s);
+  }
+}
+function drawPine(x, gy, s) {
+  ctx.fillStyle = "#7A6248";
+  ctx.fillRect(x - 2.5 * s, gy - 13 * s, 5 * s, 13 * s);
+  var greens = ["#4F6E92", "#577A9E"];
+  var blobs = [[0, -30, 15, 12], [0, -45, 12, 10.5], [0, -58, 8.5, 8]];
+  for (var b = 0; b < blobs.length; b++) {
+    var bl = blobs[b];
+    ctx.fillStyle = greens[b % 2];
+    ctx.beginPath(); ctx.ellipse(x, gy + bl[1] * s, bl[2] * s, bl[3] * s, 0, 0, TAU); ctx.fill();
+    ctx.fillStyle = "rgba(255,255,255,0.85)";
+    ctx.beginPath(); ctx.ellipse(x, gy + (bl[1] - bl[3] * 0.55) * s, bl[2] * 0.72 * s, bl[3] * 0.4 * s, 0, 0, TAU); ctx.fill();
+  }
+}
+function drawSparks() {
+  for (var n = 0; n < SPARKS.length; n++) {
+    var sp = SPARKS[n];
+    var sx = w2sX(sp.x);
+    if (sx < -10 || sx > W + 10) continue;
+    var a = 0.10 + 0.20 * (0.5 + 0.5 * Math.sin(tGlobal * 1.8 + sp.ph));
+    ctx.fillStyle = sp.blue ? "rgba(186,214,244," + a.toFixed(3) + ")" : "rgba(255,255,255," + (a + 0.12).toFixed(3) + ")";
+    ctx.beginPath(); ctx.arc(sx, w2sY(sp.y), sp.r, 0, TAU); ctx.fill();
+  }
+}
+function drawTrail() {
+  if (TRAIL.length < 3) return;
+  ctx.lineCap = "round"; ctx.lineJoin = "round";
+  var len = TRAIL.length;
+  for (var n = 1; n < len; n++) {
+    var a = n / len;
+    ctx.strokeStyle = "rgba(166,191,222," + (0.30 * a).toFixed(3) + ")";
+    ctx.lineWidth = 1.5 + 9 * a;
+    ctx.beginPath();
+    ctx.moveTo(TRAIL[n - 1].x, TRAIL[n - 1].y);
+    ctx.lineTo(TRAIL[n].x, TRAIL[n].y);
+    ctx.stroke();
+  }
+}
+function drawShadow() {
+  var gy = terrainYAt(pen.x);
+  var h = clamp(gy - pen.y, 0, 520);
+  var k = 1 - h / 520;
+  if (k <= 0.02) return;
+  ctx.fillStyle = "rgba(96,128,170," + (0.22 * k).toFixed(3) + ")";
+  ctx.beginPath();
+  ctx.ellipse(pen.x, gy + 3, 30 * k + 8, 7 * k + 2, 0, 0, TAU);
+  ctx.fill();
+}
+function drawScarf() {
+  ctx.lineCap = "round"; ctx.lineJoin = "round";
+  for (var n = 1; n < scarf.length; n++) {
+    ctx.strokeStyle = "#E2604A";
+    ctx.lineWidth = 7 - n * 0.65;
+    ctx.beginPath();
+    ctx.moveTo(scarf[n - 1].x, scarf[n - 1].y);
+    ctx.lineTo(scarf[n].x, scarf[n].y);
+    ctx.stroke();
+  }
+  // 围巾末端小结
+  var last = scarf[scarf.length - 1];
+  ctx.fillStyle = "#D4534B";
+  ctx.beginPath(); ctx.arc(last.x, last.y, 2.6, 0, TAU); ctx.fill();
+}
+function drawSpeedLines() {
+  if (phase !== "flight") return;
+  var sp = Math.sqrt(pen.vx * pen.vx + pen.vy * pen.vy);
+  if (sp < 700) return;
+  ctx.lineCap = "round";
+  for (var n = 0; n < 6; n++) {
+    var lx = pen.x - rnd(50, 170), ly = pen.y + rnd(-70, 70);
+    var ll = rnd(26, 66);
+    ctx.strokeStyle = "rgba(255,255,255," + rnd(0.12, 0.3).toFixed(3) + ")";
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(lx, ly); ctx.lineTo(lx - ll, ly); ctx.stroke();
+  }
+}
+function drawSpray() {
+  for (var n = 0; n < SPRAY.length; n++) {
+    var sp = SPRAY[n];
+    var k = 1 - sp.life / sp.ttl;
+    ctx.fillStyle = "rgba(255,255,255," + (0.9 * k).toFixed(3) + ")";
+    ctx.beginPath();
+    ctx.arc(sp.x, sp.y, sp.size * (1 + 0.6 * (1 - k)), 0, TAU);
+    ctx.fill();
+  }
+  for (n = 0; n < RINGS.length; n++) {
+    var rg = RINGS[n];
+    ctx.fillStyle = "rgba(255,255,255," + (rg.a * 0.55).toFixed(3) + ")";
+    ctx.beginPath(); ctx.ellipse(rg.x, rg.y, rg.r, rg.r * 0.28, 0, 0, TAU); ctx.fill();
+    ctx.strokeStyle = "rgba(255,255,255," + rg.a.toFixed(3) + ")";
+    ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.ellipse(rg.x, rg.y, rg.r, rg.r * 0.28, 0, 0, TAU); ctx.stroke();
+  }
+}
+
+/* ---------------- 绘制: 企鹅 ---------------- */
+function rrPath(x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+function drawSki(x, rot) {
+  ctx.save();
+  ctx.translate(x, 0);
+  ctx.rotate(rot);
+  rrPath(-36, -5, 72, 10, 5);
+  ctx.fillStyle = "#46516A"; ctx.fill();
+  rrPath(22, -4, 15, 8, 4);
+  ctx.fillStyle = "#F0A24B"; ctx.fill();
+  ctx.restore();
+}
+function drawFlipper(px, py, ang) {
+  ctx.save();
+  ctx.translate(px, py);
+  ctx.rotate(ang);
+  ctx.beginPath();
+  ctx.moveTo(0, 0);
+  ctx.quadraticCurveTo(14, -7, 22, 0);
+  ctx.quadraticCurveTo(15, 8, 0, 7);
+  ctx.closePath();
+  ctx.fillStyle = "#333A4B";
+  ctx.fill();
+  ctx.restore();
+}
+function drawEye(x, y, style) {
+  if (style === "happy") {
+    ctx.strokeStyle = "#1B2230";
+    ctx.lineWidth = 2.2;
+    ctx.lineCap = "round";
+    ctx.beginPath(); ctx.arc(x, y + 1.5, 3.4, Math.PI, TAU); ctx.stroke();
+  } else {
+    var r = style === "wide" ? 3.1 : 2.6;
+    ctx.fillStyle = "#1B2230";
+    ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.fill();
+    ctx.fillStyle = "rgba(255,255,255,0.9)";
+    ctx.beginPath(); ctx.arc(x - r * 0.32, y - r * 0.32, r * 0.34, 0, TAU); ctx.fill();
+  }
+}
+function drawPenguin() {
+  ctx.save();
+  ctx.translate(pen.x, pen.y);
+  ctx.rotate(pen.angle);
+  ctx.scale(pen.squashX, pen.squashY);
+
+  // 滑雪板
+  drawSki(-15, pen.ski - 0.1);
+  drawSki(15, pen.ski + 0.1);
+  // 脚蹼与腿
+  ctx.fillStyle = "#F5A54A";
+  ctx.beginPath(); ctx.arc(-15, -6, 6.5, 0, TAU); ctx.fill();
+  ctx.beginPath(); ctx.arc(15, -6, 6.5, 0, TAU); ctx.fill();
+  rrPath(-19, -26, 9, 20, 4); ctx.fill();
+  rrPath(10, -26, 9, 20, 4); ctx.fill();
+  // 躯干 + 头(同一填色, 连成企鹅剪影)
+  ctx.fillStyle = "#2A3040";
+  ctx.beginPath(); ctx.ellipse(0, -52, 25, 32, 0, 0, TAU); ctx.fill();
+  ctx.beginPath(); ctx.arc(0, -78, 20, 0, TAU); ctx.fill();
+  // 肚皮
+  ctx.fillStyle = "#FBFCFE";
+  ctx.beginPath(); ctx.ellipse(1, -44, 18, 25, 0, 0, TAU); ctx.fill();
+  // 脸部白斑
+  ctx.beginPath(); ctx.ellipse(0, -80, 15, 12.5, 0, 0, TAU); ctx.fill();
+  // 腮红
+  ctx.fillStyle = "rgba(242,148,140,0.32)";
+  ctx.beginPath(); ctx.arc(-13, -76, 3.2, 0, TAU); ctx.fill();
+  ctx.beginPath(); ctx.arc(13, -76, 3.2, 0, TAU); ctx.fill();
+  // 眼睛
+  drawEye(-6.5, -82, pen.eye);
+  drawEye(6.5, -82, pen.eye);
+  // 嘴(圆角)
+  ctx.fillStyle = "#F5A54A";
+  ctx.beginPath();
+  ctx.moveTo(-4.5, -77);
+  ctx.quadraticCurveTo(0, -69.5, 4.5, -77);
+  ctx.quadraticCurveTo(0, -73, -4.5, -77);
+  ctx.closePath(); ctx.fill();
+  // 推到额头的风镜
+  ctx.strokeStyle = "#3E4A63";
+  ctx.lineWidth = 5;
+  ctx.lineCap = "round";
+  ctx.beginPath(); ctx.arc(0, -82, 21, Math.PI, TAU); ctx.stroke();
+  ctx.fillStyle = "rgba(207,239,250,0.92)";
+  ctx.beginPath(); ctx.arc(0, -93, 6, 0, TAU); ctx.fill();
+  ctx.strokeStyle = "#3E4A63";
+  ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.arc(0, -93, 6, 0, TAU); ctx.stroke();
+  ctx.fillStyle = "rgba(255,255,255,0.85)";
+  ctx.beginPath(); ctx.arc(-2, -95, 1.8, 0, TAU); ctx.fill();
+  // 鳍翅
+  drawFlipper(-19, -50, pen.fl);
+  drawFlipper(19, -50, pen.fr);
+  // 围巾结
+  ctx.fillStyle = "#E2604A";
+  rrPath(-20, -62, 40, 10, 5); ctx.fill();
+  ctx.beginPath(); ctx.arc(-14, -58, 4.5, 0, TAU); ctx.fill();
+
+  ctx.restore();
+}
+
+/* ---------------- 绘制: 飘雪与白场 ---------------- */
+function drawSnow() {
+  for (var n = 0; n < FLAKES.length; n++) {
+    var f = FLAKES[n];
+    f.y += (14 + f.z * 44) * frameDt;
+    f.x += Math.sin(tGlobal * f.dr + f.ph) * (6 + f.z * 10) * frameDt - camVX * (0.02 + 0.05 * f.z) * frameDt;
+    if (f.y > H + 8) { f.y = -8; f.x = rnd(0, W); }
+    if (f.x < -8) f.x = W + 8;
+    if (f.x > W + 8) f.x = -8;
+    ctx.fillStyle = "rgba(255,255,255," + (0.18 + 0.45 * f.z).toFixed(3) + ")";
+    ctx.beginPath(); ctx.arc(f.x, f.y, f.r, 0, TAU); ctx.fill();
+  }
+}
+function drawFade() {
+  if (fade <= 0) return;
+  ctx.fillStyle = "rgba(255,255,255," + fade.toFixed(3) + ")";
+  ctx.fillRect(0, 0, W, H);
+}
+
+/* ---------------- 渲染 ---------------- */
+function render() {
+  drawSky();
+  drawSun();
+  drawClouds();
+  drawMountains();
+
+  ctx.save();
+  var roll = phase === "flight" ? Math.sin(flightT * 2.1) * 0.018 * smooth(flightT / 0.6) : 0;
+  var shx = Math.sin(tGlobal * 61) * shake, shy = Math.cos(tGlobal * 43) * shake * 0.7;
+  ctx.translate(W / 2 + shx, H / 2 + shy);
+  ctx.rotate(roll);
+  ctx.scale(cam.z, cam.z);
+  ctx.translate(-cam.x, -cam.y);
+
+  drawTerrain();
+  drawTrees();
+  drawSparks();
+  drawTrail();
+  drawShadow();
+  drawScarf();
+  drawSpeedLines();
+  drawPenguin();
+  drawSpray();
+
+  ctx.restore();
+
+  drawSnow();
+  drawFade();
+}
+
+/* ---------------- 主循环(固定步长) ---------------- */
+var STEP = 1 / 60, acc = 0, last = performance.now(), frameDt = 1 / 60;
+function frame(now) {
+  var dt = (now - last) / 1000;
+  last = now;
+  if (dt > 0.25) dt = 0.25;
+  frameDt = dt;
+  acc += dt;
+  var n = 0;
+  while (acc >= STEP && n < 6) { update(STEP); acc -= STEP; n++; }
+  if (n >= 6) acc = 0;
+  render();
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+})();
+</script>
+</body>
+</html>

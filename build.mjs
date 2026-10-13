@@ -49,6 +49,7 @@ const pelicanVersions = [
   ["solar-mini-4", "Solar Mini 4", "SVG 动画"],
   ["gpt5.6-terra-ultra", "GPT-5.6 Terra Ultra", "SVG 动画"],
   ["opus-4.8", "Claude Opus 4.8", "SVG + SMIL 动画"],
+  ["longcat2.5-preview", "LongCat 2.5 Preview", "Three.js 3D"],
 ].map(([slug, name, sub]) => ({ slug, name, sub }));
 
 // Categories in hub order. `cover` = thumbnail (if versions exist); else emoji.
@@ -115,6 +116,7 @@ const categories = [
       ["deepseek-4.1-flash-raccoon", "DeepSeek 4.1 Flash Raccoon", "Three.js 3D"],
       ["glm-5.3-raccoon", "GLM 5.3 Raccoon", "Three.js 3D"],
       ["longcat-2.0", "LongCat 2.0", "Canvas 2D"],
+      ["ling-3.1-flash", "Ling 3.1 Flash", "Three.js 3D"],
     ].map(([slug, name, sub]) => ({ slug, name, sub })),
   },
   {
