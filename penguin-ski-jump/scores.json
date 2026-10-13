@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-13T13:47:33.398Z",
+  "generatedAt": "2026-10-13T14:33:11.494Z",
   "model": "jev-1.13.0",
   "weights": {
     "flight": 35,
@@ -19,24 +19,24 @@
       "total": 92,
       "dims": {
         "flight": {
-          "score": 2.94,
-          "confidence": 0.93,
-          "frac": 0.98
+          "score": 2.95,
+          "confidence": 0.97,
+          "frac": 0.983
         },
         "camera": {
-          "score": 2.98,
-          "confidence": 0.98,
-          "frac": 0.993
+          "score": 2.97,
+          "confidence": 0.97,
+          "frac": 0.99
         },
         "scene": {
-          "score": 2.61,
-          "confidence": 0.6,
-          "frac": 0.87
+          "score": 2.59,
+          "confidence": 0.59,
+          "frac": 0.863
         },
         "penguin": {
-          "score": 2.36,
-          "confidence": 0.64,
-          "frac": 0.787
+          "score": 2.38,
+          "confidence": 0.61,
+          "frac": 0.793
         }
       },
       "jev": "jev-1.13.0",
@@ -44,12 +44,12 @@
     },
     {
       "slug": "gemini-3.8-flash",
-      "total": 83,
+      "total": 84,
       "dims": {
         "flight": {
-          "score": 2.82,
+          "score": 2.81,
           "confidence": 0.82,
-          "frac": 0.94
+          "frac": 0.937
         },
         "camera": {
           "score": 2.94,
@@ -57,14 +57,14 @@
           "frac": 0.98
         },
         "scene": {
-          "score": 2.53,
-          "confidence": 0.53,
-          "frac": 0.843
+          "score": 2.56,
+          "confidence": 0.56,
+          "frac": 0.853
         },
         "penguin": {
-          "score": 1.47,
+          "score": 1.52,
           "confidence": 0.53,
-          "frac": 0.49
+          "frac": 0.507
         }
       },
       "jev": "jev-1.13.0",
@@ -72,12 +72,12 @@
     },
     {
       "slug": "ling-3.1-flash",
-      "total": 76,
+      "total": 77,
       "dims": {
         "flight": {
-          "score": 2.14,
-          "confidence": 0.12,
-          "frac": 0.713
+          "score": 2.16,
+          "confidence": 0.15,
+          "frac": 0.72
         },
         "camera": {
           "score": 2.45,
@@ -85,14 +85,14 @@
           "frac": 0.817
         },
         "scene": {
-          "score": 2.45,
-          "confidence": 0.46,
-          "frac": 0.817
+          "score": 2.49,
+          "confidence": 0.49,
+          "frac": 0.83
         },
         "penguin": {
-          "score": 2.16,
-          "confidence": 0.14,
-          "frac": 0.72
+          "score": 2.2,
+          "confidence": 0.22,
+          "frac": 0.733
         }
       },
       "jev": "jev-1.13.0",
@@ -103,24 +103,24 @@
       "total": 51,
       "dims": {
         "flight": {
-          "score": 1.76,
-          "confidence": 0.69,
-          "frac": 0.587
+          "score": 1.74,
+          "confidence": 0.65,
+          "frac": 0.58
         },
         "camera": {
-          "score": 2.18,
-          "confidence": 0.8,
-          "frac": 0.727
+          "score": 2.16,
+          "confidence": 0.79,
+          "frac": 0.72
         },
         "scene": {
-          "score": 1.64,
-          "confidence": 0.56,
-          "frac": 0.547
+          "score": 1.66,
+          "confidence": 0.57,
+          "frac": 0.553
         },
         "penguin": {
-          "score": 0.33,
-          "confidence": 0.68,
-          "frac": 0.11
+          "score": 0.35,
+          "confidence": 0.66,
+          "frac": 0.117
         }
       },
       "jev": "jev-1.13.0",
@@ -128,27 +128,27 @@
     },
     {
       "slug": "step-5-preview",
-      "total": 50,
+      "total": 49,
       "dims": {
         "flight": {
-          "score": 2.16,
-          "confidence": 0.84,
-          "frac": 0.72
+          "score": 2.14,
+          "confidence": 0.85,
+          "frac": 0.713
         },
         "camera": {
-          "score": 1.66,
-          "confidence": 0.59,
-          "frac": 0.553
+          "score": 1.64,
+          "confidence": 0.6,
+          "frac": 0.547
         },
         "scene": {
-          "score": 1.09,
-          "confidence": 0.89,
-          "frac": 0.363
+          "score": 1.07,
+          "confidence": 0.92,
+          "frac": 0.357
         },
         "penguin": {
-          "score": 0.76,
-          "confidence": 0.64,
-          "frac": 0.253
+          "score": 0.7,
+          "confidence": 0.6,
+          "frac": 0.233
         }
       },
       "jev": "jev-1.13.0",
@@ -156,27 +156,27 @@
     },
     {
       "slug": "glm-5.3-flash",
-      "total": 31,
+      "total": 32,
       "dims": {
         "flight": {
-          "score": 0.04,
-          "confidence": 0.96,
-          "frac": 0.013
+          "score": 0.05,
+          "confidence": 0.95,
+          "frac": 0.017
         },
         "camera": {
-          "score": 0.06,
-          "confidence": 0.94,
-          "frac": 0.02
+          "score": 0.08,
+          "confidence": 0.93,
+          "frac": 0.027
         },
         "scene": {
-          "score": 2.2,
-          "confidence": 0.74,
-          "frac": 0.733
+          "score": 2.21,
+          "confidence": 0.73,
+          "frac": 0.737
         },
         "penguin": {
-          "score": 1.84,
-          "confidence": 0.6,
-          "frac": 0.613
+          "score": 1.91,
+          "confidence": 0.65,
+          "frac": 0.637
         }
       },
       "jev": "jev-1.13.0",
@@ -187,13 +187,13 @@
       "total": 11,
       "dims": {
         "flight": {
-          "score": 0.33,
-          "confidence": 0.67,
-          "frac": 0.11
+          "score": 0.35,
+          "confidence": 0.66,
+          "frac": 0.117
         },
         "camera": {
           "score": 0.1,
-          "confidence": 0.91,
+          "confidence": 0.89,
           "frac": 0.033
         },
         "scene": {
@@ -202,9 +202,9 @@
           "frac": 0.003
         },
         "penguin": {
-          "score": 1,
-          "confidence": 0.83,
-          "frac": 0.333
+          "score": 0.99,
+          "confidence": 0.82,
+          "frac": 0.33
         }
       },
       "jev": "jev-1.13.0",
