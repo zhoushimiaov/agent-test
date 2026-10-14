@@ -91,6 +91,8 @@ const ITEMS = [
     desc: "A polished 3D snow scene: a medium-sized penguin with a red scarf skis down the ramp, launches into a clean airborne parabola off the lip, and lands with a clear sliding trajectory on the snow below. The camera follows the penguin through the whole jump, with coniferous trees and falling snow rendering in 3D depth. A well-rounded jump — good motion arc, readable penguin, and complete takeoff→flight→landing sequence." },
   { slug: "step-5-preview", render: "2D (animated HTML canvas)",
     desc: "A dim 2D twilight scene showing a smooth animated flow: the penguin pushes off from a low gate, accelerates down the ramp, launches into a clean parabolic arc, and glides across the sky with drifting snow and flags trailing. The animation has good momentum and a clear jump arc, though the penguin is small and the landing cushion below is not clearly visible. Strong forward momentum and good motion, but the composition is sparse with no detailed background." },
+  { slug: "gemini4argon", render: "3D (Three.js / WebGL)",
+    desc: "A 3D WebGL ski-jump scene on a bright white snowfield under a pale blue sky. A black-and-white cartoon penguin is airborne above the snow, leaning forward on two skis with its flippers out and a small red scarf, having launched off a snowy ramp. Soft blue shadows and sculpted snow ridges on the slope; very bright, high-key lighting." },
 ];
 
 const questions = Object.fromEntries(

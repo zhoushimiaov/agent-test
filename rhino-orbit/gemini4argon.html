@@ -1,0 +1,1468 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cosmic Rhino Orbiting Earth</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        html, body {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background: #03050d;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+        #stage {
+            position: fixed;
+            inset: 0;
+            width: 100vw;
+            height: 100vh;
+            display: block;
+        }
+        /* Subtle cinematic vignette overlay for depth */
+        .vignette {
+            position: fixed;
+            inset: 0;
+            pointer-events: none;
+            background: radial-gradient(
+                circle at 50% 50%,
+                rgba(4, 9, 26, 0) 52%,
+                rgba(2, 4, 14, 0.45) 82%,
+                rgba(1, 2, 8, 0.82) 100%
+            );
+            z-index: 2;
+        }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+<body>
+    <canvas id="stage"></canvas>
+    <div class="vignette"></div>
+
+    <script>
+        (function () {
+            'use strict';
+
+            const canvas = document.getElementById('stage');
+            const renderer = new THREE.WebGLRenderer({
+                canvas: canvas,
+                antialias: true,
+                powerPreference: 'high-performance'
+            });
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            renderer.toneMapping = THREE.ACESFilmicToneMapping;
+            renderer.toneMappingExposure = 1.18;
+
+            const scene = new THREE.Scene();
+            scene.fog = new THREE.FogExp2(0x050819, 0.0085);
+
+            // Perspective camera with cinematic focal length so both Rhino and Earth feel monumental
+            const camera = new THREE.PerspectiveCamera(
+                38,
+                window.innerWidth / window.innerHeight,
+                0.1,
+                300
+            );
+
+            // Fast deterministic 3D/2D hash & FBM noise for procedural textures
+            function fract(x) {
+                return x - Math.floor(x);
+            }
+            function hash3(x, y, z) {
+                const p = x * 127.1 + y * 311.7 + z * 74.7;
+                return fract(Math.sin(p) * 43758.5453123);
+            }
+            function noise3D(x, y, z) {
+                const ix = Math.floor(x), iy = Math.floor(y), iz = Math.floor(z);
+                const fx = x - ix, fy = y - iy, fz = z - iz;
+                const ux = fx * fx * (3 - 2 * fx);
+                const uy = fy * fy * (3 - 2 * fy);
+                const uz = fz * fz * (3 - 2 * fz);
+
+                const n000 = hash3(ix, iy, iz);
+                const n100 = hash3(ix + 1, iy, iz);
+                const n010 = hash3(ix, iy + 1, iz);
+                const n110 = hash3(ix + 1, iy + 1, iz);
+                const n001 = hash3(ix, iy, iz + 1);
+                const n101 = hash3(ix + 1, iy, iz + 1);
+                const n011 = hash3(ix, iy + 1, iz + 1);
+                const n111 = hash3(ix + 1, iy + 1, iz + 1);
+
+                const nx00 = n000 + (n100 - n000) * ux;
+                const nx10 = n010 + (n110 - n010) * ux;
+                const nx01 = n001 + (n101 - n001) * ux;
+                const nx11 = n011 + (n111 - n011) * ux;
+
+                const nxy0 = nx00 + (nx10 - nx00) * uy;
+                const nxy1 = nx01 + (nx11 - nx01) * uy;
+
+                return nxy0 + (nxy1 - nxy0) * uz;
+            }
+
+            function fbm3D(x, y, z, octaves) {
+                let val = 0;
+                let amp = 0.5;
+                let freq = 1.0;
+                for (let i = 0; i < octaves; i++) {
+                    val += amp * noise3D(x * freq, y * freq, z * freq);
+                    freq *= 2.07;
+                    amp *= 0.5;
+                }
+                return val;
+            }
+
+            // Generate high-contrast stylized Earth textures (Color, Bump, Roughness, Clouds)
+            function createEarthTextures() {
+                const width = 1024;
+                const height = 512;
+
+                const colorCanvas = document.createElement('canvas');
+                colorCanvas.width = width;
+                colorCanvas.height = height;
+                const cCtx = colorCanvas.getContext('2d');
+                const cImg = cCtx.createImageData(width, height);
+
+                const bumpCanvas = document.createElement('canvas');
+                bumpCanvas.width = width;
+                bumpCanvas.height = height;
+                const bCtx = bumpCanvas.getContext('2d');
+                const bImg = bCtx.createImageData(width, height);
+
+                const roughCanvas = document.createElement('canvas');
+                roughCanvas.width = width;
+                roughCanvas.height = height;
+                const rCtx = roughCanvas.getContext('2d');
+                const rImg = rCtx.createImageData(width, height);
+
+                const cloudCanvas = document.createElement('canvas');
+                cloudCanvas.width = width;
+                cloudCanvas.height = height;
+                const clCtx = cloudCanvas.getContext('2d');
+                const clImg = clCtx.createImageData(width, height);
+
+                for (let y = 0; y < height; y++) {
+                    const v = y / height;
+                    const theta = v * Math.PI;
+                    const sinTheta = Math.sin(theta);
+                    const cosTheta = Math.cos(theta);
+                    const latFactor = Math.abs(v - 0.5) * 2.0; // 0 at equator, 1 at poles
+
+                    for (let x = 0; x < width; x++) {
+                        const u = x / width;
+                        const phi = u * Math.PI * 2;
+
+                        // Seamless 3D spherical coordinates
+                        const sx = sinTheta * Math.cos(phi);
+                        const sy = cosTheta;
+                        const sz = sinTheta * Math.sin(phi);
+
+                        // Domain warping for organic continents
+                        const warpX = fbm3D(sx * 2.1 + 4.2, sy * 2.1, sz * 2.1, 3) * 0.65;
+                        const warpY = fbm3D(sx * 2.1, sy * 2.1 + 8.7, sz * 2.1, 3) * 0.65;
+                        const elev = fbm3D(sx * 2.4 + warpX, sy * 2.4 + warpY, sz * 2.4, 5);
+
+                        const idx = (y * width + x) * 4;
+                        let r, g, b, bumpVal, roughVal;
+
+                        // Polar ice cap threshold
+                        const iceMask = latFactor + (elev - 0.5) * 0.35;
+
+                        if (iceMask > 0.84) {
+                            // Crisp snow / polar ice
+                            r = 238; g = 246; b = 255;
+                            bumpVal = 195;
+                            roughVal = 140;
+                        } else if (elev < 0.49) {
+                            // Ocean depths to turquoise coastal shelves
+                            const shelf = Math.max(0, (elev - 0.39) / 0.10);
+                            const deep = Math.min(1, elev / 0.49);
+                            r = Math.floor(10 + 18 * deep + 45 * Math.pow(shelf, 2.5));
+                            g = Math.floor(42 + 65 * deep + 125 * Math.pow(shelf, 1.8));
+                            b = Math.floor(108 + 80 * deep + 52 * shelf);
+                            bumpVal = 40;
+                            roughVal = 55; // Glossy water
+                        } else {
+                            // Landmasses: beach -> lush forest -> savanna/desert -> mountain peaks
+                            const landH = (elev - 0.49) / 0.51;
+                            const moisture = fbm3D(sx * 3.8 + 12.0, sy * 3.8, sz * 3.8, 3);
+
+                            if (landH < 0.06) {
+                                // Warm golden coast
+                                r = 216; g = 195; b = 138;
+                                bumpVal = 95;
+                                roughVal = 200;
+                            } else if (landH < 0.48) {
+                                if (moisture > 0.48) {
+                                    // Vibrant emerald / tropical forest
+                                    r = Math.floor(44 + landH * 50);
+                                    g = Math.floor(138 + landH * 65);
+                                    b = Math.floor(68 + landH * 25);
+                                } else {
+                                    // Warm golden savanna & ochre desert
+                                    r = Math.floor(188 + landH * 60);
+                                    g = Math.floor(148 + landH * 35);
+                                    b = Math.floor(78 + landH * 20);
+                                }
+                                bumpVal = Math.floor(110 + landH * 150);
+                                roughVal = 225;
+                            } else if (landH < 0.72) {
+                                // Highland plateau / terracotta mountains
+                                r = 135; g = 112; b = 96;
+                                bumpVal = Math.floor(180 + (landH - 0.48) * 240);
+                                roughVal = 240;
+                            } else {
+                                // Snow-capped mountain ridges
+                                r = 242; g = 245; b = 252;
+                                bumpVal = 255;
+                                roughVal = 175;
+                            }
+                        }
+
+                        cImg.data[idx] = r;
+                        cImg.data[idx + 1] = g;
+                        cImg.data[idx + 2] = b;
+                        cImg.data[idx + 3] = 255;
+
+                        bImg.data[idx] = bumpVal;
+                        bImg.data[idx + 1] = bumpVal;
+                        bImg.data[idx + 2] = bumpVal;
+                        bImg.data[idx + 3] = 255;
+
+                        rImg.data[idx] = roughVal;
+                        rImg.data[idx + 1] = roughVal;
+                        rImg.data[idx + 2] = roughVal;
+                        rImg.data[idx + 3] = 255;
+
+                        // Swirling cloud bands
+                        const swirl = fbm3D(sx * 3.2 + 9.4, sy * 4.5, sz * 3.2 - 3.1, 4);
+                        const cVal = fbm3D(sx * 4.2 + swirl * 1.3, sy * 5.0 + swirl, sz * 4.2, 4);
+                        const alpha = Math.max(0, Math.min(255, Math.floor((cVal - 0.50) * 680)));
+                        clImg.data[idx] = 255;
+                        clImg.data[idx + 1] = 255;
+                        clImg.data[idx + 2] = 255;
+                        clImg.data[idx + 3] = alpha;
+                    }
+                }
+
+                cCtx.putImageData(cImg, 0, 0);
+                bCtx.putImageData(bImg, 0, 0);
+                rCtx.putImageData(rImg, 0, 0);
+                clCtx.putImageData(clImg, 0, 0);
+
+                const colorTex = new THREE.CanvasTexture(colorCanvas);
+                const bumpTex = new THREE.CanvasTexture(bumpCanvas);
+                const roughTex = new THREE.CanvasTexture(roughCanvas);
+                const cloudTex = new THREE.CanvasTexture(cloudCanvas);
+
+                [colorTex, bumpTex, roughTex, cloudTex].forEach(t => {
+                    t.wrapS = THREE.RepeatWrapping;
+                    t.wrapT = THREE.ClampToEdgeWrapping;
+                });
+
+                return { colorTex, bumpTex, roughTex, cloudTex };
+            }
+
+            // Generate tactile leathery/pebbled rhino hide bump texture
+            function createRhinoHideTexture() {
+                const size = 512;
+                const c = document.createElement('canvas');
+                c.width = size;
+                c.height = size;
+                const ctx = c.getContext('2d');
+                ctx.fillStyle = '#808080';
+                ctx.fillRect(0, 0, size, size);
+
+                // Subtle skin grain and dermal pebbles
+                for (let i = 0; i < 6500; i++) {
+                    const x = Math.random() * size;
+                    const y = Math.random() * size;
+                    const r = 0.8 + Math.random() * 2.5;
+                    const v = Math.floor(110 + Math.random() * 55);
+                    ctx.fillStyle = `rgb(${v},${v},${v})`;
+                    ctx.beginPath();
+                    ctx.arc(x, y, r, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+
+                // Larger armor tubercles
+                for (let i = 0; i < 320; i++) {
+                    const x = Math.random() * size;
+                    const y = Math.random() * size;
+                    const r = 4 + Math.random() * 6;
+                    const grad = ctx.createRadialGradient(x, y, 0.5, x, y, r);
+                    grad.addColorStop(0, 'rgba(235,235,235,0.65)');
+                    grad.addColorStop(0.7, 'rgba(150,150,150,0.3)');
+                    grad.addColorStop(1, 'rgba(110,110,110,0)');
+                    ctx.fillStyle = grad;
+                    ctx.beginPath();
+                    ctx.arc(x, y, r, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+
+                const tex = new THREE.CanvasTexture(c);
+                tex.wrapS = THREE.RepeatWrapping;
+                tex.wrapT = THREE.RepeatWrapping;
+                tex.repeat.set(3, 3);
+                return tex;
+            }
+
+            // Warm sunlight from top-left-front, cool nebula bounce from right, strong rim light from behind
+            const ambientLight = new THREE.AmbientLight(0x4b5c8a, 0.95);
+            scene.add(ambientLight);
+
+            const hemiLight = new THREE.HemisphereLight(0xaad4ff, 0x2a1b4e, 0.85);
+            scene.add(hemiLight);
+
+            const sunLight = new THREE.DirectionalLight(0xfff1d6, 2.3);
+            sunLight.position.set(16, 14, 18);
+            sunLight.castShadow = true;
+            sunLight.shadow.mapSize.width = 2048;
+            sunLight.shadow.mapSize.height = 2048;
+            sunLight.shadow.camera.near = 2;
+            sunLight.shadow.camera.far = 55;
+            const d = 14;
+            sunLight.shadow.camera.left = -d;
+            sunLight.shadow.camera.right = d;
+            sunLight.shadow.camera.top = d;
+            sunLight.shadow.camera.bottom = -d;
+            sunLight.shadow.bias = -0.0005;
+            scene.add(sunLight);
+
+            // Cool cyan atmospheric bounce light
+            const cyanBounceLight = new THREE.DirectionalLight(0x38bdf8, 1.15);
+            cyanBounceLight.position.set(-18, -10, 10);
+            scene.add(cyanBounceLight);
+
+            // Warm magenta/gold back-rim light to sculpt the Rhino silhouette when behind Earth
+            const backRimLight = new THREE.DirectionalLight(0xff8c66, 1.45);
+            backRimLight.position.set(0, 12, -20);
+            scene.add(backRimLight);
+
+            // Dedicated local spotlight tracking the Rhino so it always gleams with sculptural clarity
+            const rhinoKeyLight = new THREE.PointLight(0xfff4e0, 1.35, 22, 1.5);
+            scene.add(rhinoKeyLight);
+
+            const earthGroup = new THREE.Group();
+            scene.add(earthGroup);
+
+            const EARTH_RADIUS = 3.65;
+            const earthTextures = createEarthTextures();
+
+            // Core Earth mesh
+            const earthGeo = new THREE.SphereGeometry(EARTH_RADIUS, 96, 96);
+            const earthMat = new THREE.MeshStandardMaterial({
+                map: earthTextures.colorTex,
+                bumpMap: earthTextures.bumpTex,
+                bumpScale: 0.14,
+                roughnessMap: earthTextures.roughTex,
+                roughness: 0.85,
+                metalness: 0.08
+            });
+            const earthMesh = new THREE.Mesh(earthGeo, earthMat);
+            earthMesh.castShadow = true;
+            earthMesh.receiveShadow = true;
+            earthGroup.add(earthMesh);
+
+            // Sculptural 3D miniature low-poly trees/mountains dotting the planet surface for surreal scale
+            const featureGroup = new THREE.Group();
+            earthMesh.add(featureGroup);
+            const miniPeakGeo = new THREE.ConeGeometry(0.14, 0.34, 6);
+            const miniPeakMat = new THREE.MeshStandardMaterial({
+                color: 0xdbeafe,
+                roughness: 0.6
+            });
+            const miniTreeCrownGeo = new THREE.SphereGeometry(0.11, 10, 10);
+            const miniTreeMat = new THREE.MeshStandardMaterial({
+                color: 0x34d399,
+                roughness: 0.7
+            });
+
+            for (let i = 0; i < 28; i++) {
+                const u = (i * 0.6180339887) % 1;
+                const v = 0.22 + ((i * 0.381966) % 0.56);
+                const theta = v * Math.PI;
+                const phi = u * Math.PI * 2;
+                const nx = Math.sin(theta) * Math.cos(phi);
+                const ny = Math.cos(theta);
+                const nz = Math.sin(theta) * Math.sin(phi);
+
+                const warpX = fbm3D(nx * 2.1 + 4.2, ny * 2.1, nz * 2.1, 3) * 0.65;
+                const warpY = fbm3D(nx * 2.1, ny * 2.1 + 8.7, nz * 2.1, 3) * 0.65;
+                const elev = fbm3D(nx * 2.4 + warpX, ny * 2.4 + warpY, nz * 2.4, 5);
+
+                if (elev > 0.54) {
+                    const holder = new THREE.Object3D();
+                    const pos = new THREE.Vector3(nx, ny, nz).multiplyScalar(EARTH_RADIUS - 0.02);
+                    holder.position.copy(pos);
+                    holder.lookAt(pos.clone().multiplyScalar(2));
+
+                    if (elev > 0.66) {
+                        const peak = new THREE.Mesh(miniPeakGeo, miniPeakMat);
+                        peak.rotation.x = Math.PI / 2;
+                        peak.position.z = 0.14;
+                        holder.add(peak);
+                    } else {
+                        const crown = new THREE.Mesh(miniTreeCrownGeo, miniTreeMat);
+                        crown.position.z = 0.1;
+                        crown.scale.set(1, 1, 1.3);
+                        holder.add(crown);
+                    }
+                    featureGroup.add(holder);
+                }
+            }
+
+            // Volumetric-looking raised cloud layer
+            const cloudGeo = new THREE.SphereGeometry(EARTH_RADIUS * 1.032, 72, 72);
+            const cloudMat = new THREE.MeshStandardMaterial({
+                map: earthTextures.cloudTex,
+                transparent: true,
+                opacity: 0.88,
+                roughness: 1.0,
+                metalness: 0.0,
+                depthWrite: false
+            });
+            const cloudMesh = new THREE.Mesh(cloudGeo, cloudMat);
+            cloudMesh.castShadow = true;
+            earthGroup.add(cloudMesh);
+
+            // Fresnel Atmosphere Halo Shader
+            const atmoGeo = new THREE.SphereGeometry(EARTH_RADIUS * 1.18, 64, 64);
+            const atmoMat = new THREE.ShaderMaterial({
+                vertexShader: `
+                    varying vec3 vNormal;
+                    varying vec3 vWorldPosition;
+                    void main() {
+                        vNormal = normalize(normalMatrix * normal);
+                        vec4 worldPos = modelMatrix * vec4(position, 1.0);
+                        vWorldPosition = worldPos.xyz;
+                        gl_Position = projectionMatrix * viewMatrix * worldPos;
+                    }
+                `,
+                fragmentShader: `
+                    varying vec3 vNormal;
+                    varying vec3 vWorldPosition;
+                    void main() {
+                        vec3 viewDir = normalize(cameraPosition - vWorldPosition);
+                        float fresnel = pow(1.0 - abs(dot(vNormal, viewDir)), 2.8);
+                        vec3 dayCol = vec3(0.28, 0.76, 1.0);
+                        vec3 warmCol = vec3(0.65, 0.42, 1.0);
+                        vec3 col = mix(dayCol, warmCol, 0.25);
+                        gl_FragColor = vec4(col, fresnel * 0.72);
+                    }
+                `,
+                transparent: true,
+                blending: THREE.AdditiveBlending,
+                side: THREE.BackSide,
+                depthWrite: false
+            });
+            const atmoMesh = new THREE.Mesh(atmoGeo, atmoMat);
+            earthGroup.add(atmoMesh);
+
+            // Slight axial tilt for Earth
+            earthGroup.rotation.z = THREE.MathUtils.degToRad(16);
+
+            // Helper to build a curved horn with organic growth rings
+            function createCurvedHornGeometry(baseRadius, length, curveAmount, radialSegs, heightSegs) {
+                const geo = new THREE.CylinderGeometry(0.02, baseRadius, length, radialSegs, heightSegs, false);
+                const pos = geo.attributes.position;
+                const v = new THREE.Vector3();
+
+                for (let i = 0; i < pos.count; i++) {
+                    v.fromBufferAttribute(pos, i);
+                    // Clamp normalized height t to [0, 1] to prevent Float32 precision underflow (< 0) from causing NaN in Math.pow
+                    const t = THREE.MathUtils.clamp((v.y + length / 2) / length, 0.0, 1.0);
+                    // Smooth taper and keratin growth ridges near the base
+                    const ridge = 1.0 + Math.sin(t * 38.0) * 0.045 * (1.0 - t);
+                    const radiusScale = Math.pow(1.0 - t * 0.92, 0.75) * ridge;
+                    const linearTaper = Math.max(0.001, 1.0 - t * (1.0 - 0.02 / baseRadius));
+                    v.x *= radiusScale / linearTaper;
+                    v.z *= radiusScale / linearTaper;
+
+                    // Curve forward (+Z) and upward (+Y)
+                    v.z += Math.pow(t, 1.85) * curveAmount;
+                    v.y += length / 2; // Shift pivot to base of horn
+                    pos.setXYZ(i, v.x, v.y, v.z);
+                }
+                geo.computeVertexNormals();
+                geo.computeBoundingSphere();
+                return geo;
+            }
+
+            // Build the complete articulated Rhinoceros rig
+            function buildSculptedRhino() {
+                const rhinoRoot = new THREE.Group();
+                const hideBump = createRhinoHideTexture();
+
+                // Rich sculpted clay/armor materials
+                const hideMat = new THREE.MeshStandardMaterial({
+                    color: 0x8e95a8, // Warm sculptural slate-lavender grey
+                    bumpMap: hideBump,
+                    bumpScale: 0.045,
+                    roughness: 0.62,
+                    metalness: 0.12
+                });
+
+                const armorPlateMat = new THREE.MeshStandardMaterial({
+                    color: 0x767d92, // Deeper armor plate tone for clear contrast on folds
+                    bumpMap: hideBump,
+                    bumpScale: 0.06,
+                    roughness: 0.55,
+                    metalness: 0.15
+                });
+
+                const foldCreaseMat = new THREE.MeshStandardMaterial({
+                    color: 0x555b6e, // Deep fold shadow accent
+                    roughness: 0.7,
+                    metalness: 0.08
+                });
+
+                const muzzleWarmMat = new THREE.MeshStandardMaterial({
+                    color: 0x9fa3b5,
+                    bumpMap: hideBump,
+                    bumpScale: 0.03,
+                    roughness: 0.58,
+                    metalness: 0.1
+                });
+
+                const innerEarMat = new THREE.MeshStandardMaterial({
+                    color: 0xe08e9b, // Soft warm rose inside ears & nostrils
+                    roughness: 0.5
+                });
+
+                const mainHornMat = new THREE.MeshStandardMaterial({
+                    color: 0xfff3d1, // Luminous ivory-gold keratin horn
+                    emissive: 0xffb74d,
+                    emissiveIntensity: 0.22,
+                    roughness: 0.28,
+                    metalness: 0.25
+                });
+
+                const secondHornMat = new THREE.MeshStandardMaterial({
+                    color: 0xf7e1b5,
+                    emissive: 0xf59e0b,
+                    emissiveIntensity: 0.16,
+                    roughness: 0.34,
+                    metalness: 0.2
+                });
+
+                const hoofNailMat = new THREE.MeshStandardMaterial({
+                    color: 0xf3ead8,
+                    roughness: 0.35,
+                    metalness: 0.15
+                });
+
+                const eyeWhiteMat = new THREE.MeshStandardMaterial({
+                    color: 0xffffff,
+                    roughness: 0.2
+                });
+
+                const eyePupilMat = new THREE.MeshStandardMaterial({
+                    color: 0x161925,
+                    roughness: 0.1,
+                    metalness: 0.4
+                });
+
+                const goldCollarMat = new THREE.MeshStandardMaterial({
+                    color: 0xffcf56,
+                    emissive: 0xff9d00,
+                    emissiveIntensity: 0.35,
+                    roughness: 0.22,
+                    metalness: 0.85
+                });
+
+                // Body pivot allows subtle pitching during cosmic gallop
+                const bodyGroup = new THREE.Group();
+                rhinoRoot.add(bodyGroup);
+
+                /* --- 1. MASSIVE ARMORED TORSO & SHOULDER HUMP --- */
+                // Colossal front chest & shoulder armor
+                const chestGeo = new THREE.SphereGeometry(1.18, 40, 36);
+                chestGeo.scale(1.06, 1.12, 1.25);
+                const chestMesh = new THREE.Mesh(chestGeo, hideMat);
+                chestMesh.position.set(0, 0.22, 0.58);
+                chestMesh.castShadow = true;
+                chestMesh.receiveShadow = true;
+                bodyGroup.add(chestMesh);
+
+                // Pronounced rhino nuchal shoulder hump
+                const humpGeo = new THREE.SphereGeometry(0.84, 32, 28);
+                humpGeo.scale(0.95, 0.88, 1.15);
+                const humpMesh = new THREE.Mesh(humpGeo, armorPlateMat);
+                humpMesh.position.set(0, 0.92, 0.78);
+                humpMesh.castShadow = true;
+                bodyGroup.add(humpMesh);
+
+                // Central belly barrel
+                const bellyGeo = new THREE.SphereGeometry(1.14, 36, 32);
+                bellyGeo.scale(1.12, 0.98, 1.32);
+                const bellyMesh = new THREE.Mesh(bellyGeo, hideMat);
+                bellyMesh.position.set(0, 0.05, -0.25);
+                bellyMesh.castShadow = true;
+                bellyMesh.receiveShadow = true;
+                bodyGroup.add(bellyMesh);
+
+                // Heavy hindquarters
+                const rumpGeo = new THREE.SphereGeometry(1.04, 36, 32);
+                rumpGeo.scale(1.02, 1.05, 1.18);
+                const rumpMesh = new THREE.Mesh(rumpGeo, armorPlateMat);
+                rumpMesh.position.set(0, 0.20, -1.18);
+                rumpMesh.castShadow = true;
+                rumpMesh.receiveShadow = true;
+                bodyGroup.add(rumpMesh);
+
+                /* --- 2. EXAGGERATED SCULPTURAL SKIN FOLDS (厚重铠甲皮褶) --- */
+                // Neck-to-shoulder thick armored collar fold
+                const neckFoldGeo = new THREE.TorusGeometry(0.96, 0.17, 20, 48, Math.PI * 1.45);
+                const neckFold = new THREE.Mesh(neckFoldGeo, armorPlateMat);
+                neckFold.position.set(0, 0.28, 1.22);
+                neckFold.rotation.set(0.32, 0, Math.PI * 0.275);
+                neckFold.scale.set(0.95, 1.12, 0.85);
+                neckFold.castShadow = true;
+                bodyGroup.add(neckFold);
+
+                // Deep shadow crease behind neck fold
+                const neckCreaseGeo = new THREE.TorusGeometry(0.93, 0.08, 14, 40, Math.PI * 1.4);
+                const neckCrease = new THREE.Mesh(neckCreaseGeo, foldCreaseMat);
+                neckCrease.position.set(0, 0.28, 1.14);
+                neckCrease.rotation.copy(neckFold.rotation);
+                neckCrease.scale.copy(neckFold.scale);
+                bodyGroup.add(neckCrease);
+
+                // Front shoulder-plate fold (behind forelegs, sweeping over the back)
+                const shoulderFoldGeo = new THREE.TorusGeometry(1.15, 0.16, 20, 48, Math.PI * 1.42);
+                const shoulderFold = new THREE.Mesh(shoulderFoldGeo, armorPlateMat);
+                shoulderFold.position.set(0, 0.18, 0.28);
+                shoulderFold.rotation.set(0.18, 0, Math.PI * 0.29);
+                shoulderFold.scale.set(0.98, 1.08, 0.9);
+                shoulderFold.castShadow = true;
+                bodyGroup.add(shoulderFold);
+
+                const shoulderCrease = new THREE.Mesh(
+                    new THREE.TorusGeometry(1.12, 0.08, 14, 40, Math.PI * 1.38),
+                    foldCreaseMat
+                );
+                shoulderCrease.position.set(0, 0.18, 0.18);
+                shoulderCrease.rotation.copy(shoulderFold.rotation);
+                shoulderCrease.scale.copy(shoulderFold.scale);
+                bodyGroup.add(shoulderCrease);
+
+                // Rear flank armor plate fold (in front of hind legs)
+                const flankFoldGeo = new THREE.TorusGeometry(1.08, 0.16, 20, 48, Math.PI * 1.48);
+                const flankFold = new THREE.Mesh(flankFoldGeo, armorPlateMat);
+                flankFold.position.set(0, 0.18, -0.75);
+                flankFold.rotation.set(-0.22, 0, Math.PI * 0.26);
+                flankFold.scale.set(0.96, 1.06, 0.9);
+                flankFold.castShadow = true;
+                bodyGroup.add(flankFold);
+
+                const flankCrease = new THREE.Mesh(
+                    new THREE.TorusGeometry(1.05, 0.08, 14, 40, Math.PI * 1.44),
+                    foldCreaseMat
+                );
+                flankCrease.position.set(0, 0.18, -0.66);
+                flankCrease.rotation.copy(flankFold.rotation);
+                flankCrease.scale.copy(flankFold.scale);
+                bodyGroup.add(flankCrease);
+
+                // Horizontal lateral armor shield ridges along lower ribs & thighs
+                [-1, 1].forEach(side => {
+                    // Rib shield ridge
+                    const ribRidgeGeo = new THREE.CylinderGeometry(0.13, 0.14, 1.15, 16);
+                    ribRidgeGeo.rotateX(Math.PI / 2);
+                    const ribRidge = new THREE.Mesh(ribRidgeGeo, armorPlateMat);
+                    ribRidge.position.set(side * 1.08, -0.25, -0.22);
+                    ribRidge.rotation.z = side * 0.25;
+                    ribRidge.scale.set(0.7, 1.0, 1.0);
+                    ribRidge.castShadow = true;
+                    bodyGroup.add(ribRidge);
+
+                    // Breech / hind-thigh horizontal armor fold
+                    const thighFoldGeo = new THREE.CylinderGeometry(0.14, 0.12, 0.92, 16);
+                    thighFoldGeo.rotateX(Math.PI / 2);
+                    const thighFold = new THREE.Mesh(thighFoldGeo, armorPlateMat);
+                    thighFold.position.set(side * 0.92, -0.12, -1.25);
+                    thighFold.rotation.y = side * -0.22;
+                    thighFold.rotation.x = 0.22;
+                    thighFold.castShadow = true;
+                    bodyGroup.add(thighFold);
+
+                    // Sculpted dermal armor bumps (tubercles) on the shoulder and rump plates
+                    const bumpOffsets = [
+                        [0.98, 0.35, 0.65, 0.11],
+                        [1.05, 0.08, 0.52, 0.09],
+                        [0.86, 0.55, 0.45, 0.10],
+                        [0.95, 0.38, -1.05, 0.11],
+                        [0.98, 0.12, -1.28, 0.10],
+                        [0.82, 0.52, -1.35, 0.09],
+                        [1.08, 0.15, -0.25, 0.09]
+                    ];
+                    bumpOffsets.forEach(([bx, by, bz, br]) => {
+                        const tubercle = new THREE.Mesh(
+                            new THREE.SphereGeometry(br, 14, 14),
+                            armorPlateMat
+                        );
+                        tubercle.position.set(side * bx, by, bz);
+                        tubercle.scale.set(0.65, 1.0, 1.0);
+                        bodyGroup.add(tubercle);
+                    });
+                });
+
+                /* --- 3. EXAGGERATED RHINO HEAD, SNOUT, DOUBLE HORNS & EARS --- */
+                const headGroup = new THREE.Group();
+                headGroup.position.set(0, 0.32, 1.38);
+                bodyGroup.add(headGroup);
+
+                // Thick muscular neck bridge
+                const neckGeo = new THREE.SphereGeometry(0.78, 28, 24);
+                neckGeo.scale(0.95, 0.95, 1.1);
+                const neckMesh = new THREE.Mesh(neckGeo, hideMat);
+                neckMesh.position.set(0, 0.05, 0.12);
+                neckMesh.castShadow = true;
+                headGroup.add(neckMesh);
+
+                // Broad cranium (back of skull)
+                const craniumGeo = new THREE.SphereGeometry(0.74, 32, 28);
+                craniumGeo.scale(1.02, 0.96, 1.15);
+                const craniumMesh = new THREE.Mesh(craniumGeo, hideMat);
+                craniumMesh.position.set(0, 0.08, 0.52);
+                craniumMesh.castShadow = true;
+                headGroup.add(craniumMesh);
+
+                // Iconic concave rhino nasal bridge curving upward toward the huge horn pedestal
+                const bridgeGeo = new THREE.CylinderGeometry(0.54, 0.68, 1.18, 28);
+                bridgeGeo.rotateX(Math.PI / 2);
+                const bridgeMesh = new THREE.Mesh(bridgeGeo, muzzleWarmMat);
+                bridgeMesh.position.set(0, -0.04, 1.05);
+                bridgeMesh.rotation.x = 0.14;
+                bridgeMesh.scale.set(0.92, 0.86, 1.0);
+                bridgeMesh.castShadow = true;
+                headGroup.add(bridgeMesh);
+
+                // Broad, boxy upper lip / snout boss (supports the massive front horn)
+                const snoutBossGeo = new THREE.SphereGeometry(0.62, 32, 28);
+                snoutBossGeo.scale(1.05, 0.88, 1.08);
+                const snoutBoss = new THREE.Mesh(snoutBossGeo, muzzleWarmMat);
+                snoutBoss.position.set(0, -0.02, 1.56);
+                snoutBoss.castShadow = true;
+                headGroup.add(snoutBoss);
+
+                // Heavy lower jaw & chin fold
+                const jawGeo = new THREE.SphereGeometry(0.52, 28, 24);
+                jawGeo.scale(0.92, 0.65, 1.35);
+                const jawMesh = new THREE.Mesh(jawGeo, armorPlateMat);
+                jawMesh.position.set(0, -0.42, 1.12);
+                jawMesh.rotation.x = 0.08;
+                jawMesh.castShadow = true;
+                headGroup.add(jawMesh);
+
+                // Expressive upper-lip smile crease
+                const lipFoldGeo = new THREE.TorusGeometry(0.46, 0.075, 14, 32, Math.PI);
+                const lipFold = new THREE.Mesh(lipFoldGeo, armorPlateMat);
+                lipFold.position.set(0, -0.25, 1.72);
+                lipFold.rotation.x = Math.PI * 0.55;
+                headGroup.add(lipFold);
+
+                /* --- ICONIC DOUBLE HORNS (标志性大小双犄角) --- */
+                // 1) Colossal Front Horn sweeping boldly upward and forward
+                const mainHornGeo = createCurvedHornGeometry(0.42, 1.95, 0.58, 32, 28);
+                const mainHorn = new THREE.Mesh(mainHornGeo, mainHornMat);
+                mainHorn.position.set(0, 0.34, 1.56);
+                mainHorn.rotation.x = 0.22;
+                mainHorn.castShadow = true;
+                headGroup.add(mainHorn);
+
+                // Keratin base collar around main horn
+                const hornBase1 = new THREE.Mesh(
+                    new THREE.TorusGeometry(0.39, 0.085, 16, 32),
+                    armorPlateMat
+                );
+                hornBase1.position.set(0, 0.36, 1.56);
+                hornBase1.rotation.x = Math.PI / 2 + 0.22;
+                headGroup.add(hornBase1);
+
+                // Surreal floating golden cosmic astrolabe ring encircling the main horn!
+                const hornHaloGroup = new THREE.Group();
+                hornHaloGroup.position.set(0, 1.25, 1.92);
+                const hornHaloRing = new THREE.Mesh(
+                    new THREE.TorusGeometry(0.48, 0.025, 16, 48),
+                    goldCollarMat
+                );
+                hornHaloRing.rotation.x = Math.PI * 0.42;
+                hornHaloGroup.add(hornHaloRing);
+                headGroup.add(hornHaloGroup);
+
+                // 2) Stout Secondary Horn right behind the front horn
+                const secondHornGeo = createCurvedHornGeometry(0.28, 0.92, 0.22, 28, 20);
+                const secondHorn = new THREE.Mesh(secondHornGeo, secondHornMat);
+                secondHorn.position.set(0, 0.36, 0.98);
+                secondHorn.rotation.x = 0.08;
+                secondHorn.castShadow = true;
+                headGroup.add(secondHorn);
+
+                const hornBase2 = new THREE.Mesh(
+                    new THREE.TorusGeometry(0.26, 0.065, 14, 28),
+                    armorPlateMat
+                );
+                hornBase2.position.set(0, 0.38, 0.98);
+                hornBase2.rotation.x = Math.PI / 2 + 0.08;
+                headGroup.add(hornBase2);
+
+                /* --- FLARED NOSTRILS, HEAVY BROWS, EYES & CUPPED EARS --- */
+                const nostrilLocations = [];
+                const earGroups = [];
+
+                [-1, 1].forEach(side => {
+                    // Flared sculpted nostrils on the snout sides
+                    const nostrilOuter = new THREE.Mesh(
+                        new THREE.TorusGeometry(0.15, 0.06, 14, 24),
+                        armorPlateMat
+                    );
+                    nostrilOuter.position.set(side * 0.48, -0.02, 1.78);
+                    nostrilOuter.rotation.y = side * 0.95;
+                    nostrilOuter.rotation.x = 0.25;
+                    headGroup.add(nostrilOuter);
+
+                    const nostrilCavity = new THREE.Mesh(
+                        new THREE.SphereGeometry(0.12, 14, 14),
+                        foldCreaseMat
+                    );
+                    nostrilCavity.position.set(side * 0.44, -0.02, 1.76);
+                    headGroup.add(nostrilCavity);
+
+                    // Save world emitter anchor for stardust breath puffs
+                    const emitterNode = new THREE.Object3D();
+                    emitterNode.position.set(side * 0.56, -0.04, 1.92);
+                    headGroup.add(emitterNode);
+                    nostrilLocations.push(emitterNode);
+
+                    // Heavy armored brow ridge & eye socket
+                    const browGeo = new THREE.TorusGeometry(0.20, 0.075, 14, 24, Math.PI * 1.15);
+                    const brow = new THREE.Mesh(browGeo, armorPlateMat);
+                    brow.position.set(side * 0.56, 0.16, 0.85);
+                    brow.rotation.y = side * 1.25;
+                    brow.rotation.x = -0.25;
+                    headGroup.add(brow);
+
+                    // Gleaming cartoon-sculpted eye
+                    const eyeWhite = new THREE.Mesh(
+                        new THREE.SphereGeometry(0.145, 20, 20),
+                        eyeWhiteMat
+                    );
+                    eyeWhite.position.set(side * 0.55, 0.10, 0.86);
+                    headGroup.add(eyeWhite);
+
+                    const pupil = new THREE.Mesh(
+                        new THREE.SphereGeometry(0.095, 16, 16),
+                        eyePupilMat
+                    );
+                    pupil.position.set(side * 0.63, 0.10, 0.91);
+                    headGroup.add(pupil);
+
+                    // Bright catchlight glint in the eye so the rhino looks alive and spirited
+                    const glint = new THREE.Mesh(
+                        new THREE.SphereGeometry(0.032, 10, 10),
+                        new THREE.MeshBasicMaterial({ color: 0xffffff })
+                    );
+                    glint.position.set(side * 0.69, 0.14, 0.95);
+                    headGroup.add(glint);
+
+                    // Cupped trumpet-like Rhino Ear
+                    const earPivot = new THREE.Group();
+                    earPivot.position.set(side * 0.52, 0.58, 0.34);
+                    earPivot.rotation.z = side * -0.48;
+                    earPivot.rotation.x = -0.22;
+
+                    const earOuterGeo = new THREE.CylinderGeometry(0.24, 0.10, 0.56, 20);
+                    const earOuter = new THREE.Mesh(earOuterGeo, armorPlateMat);
+                    earOuter.position.y = 0.26;
+                    earOuter.scale.set(0.85, 1.0, 0.55);
+                    earOuter.castShadow = true;
+                    earPivot.add(earOuter);
+
+                    const earInnerGeo = new THREE.CylinderGeometry(0.17, 0.06, 0.46, 16);
+                    const earInner = new THREE.Mesh(earInnerGeo, innerEarMat);
+                    earInner.position.set(0, 0.28, 0.05);
+                    earInner.scale.set(0.75, 1.0, 0.4);
+                    earPivot.add(earInner);
+
+                    headGroup.add(earPivot);
+                    earGroups.push({ pivot: earPivot, side: side });
+                });
+
+                /* --- 4. FOUR ARTICULATED PILLAR LEGS WITH 3-TOED HOOVES --- */
+                function createRhinoLeg(isFront, side) {
+                    const hipGroup = new THREE.Group();
+
+                    // Muscular upper thigh / shoulder segment
+                    const upperRadiusTop = isFront ? 0.48 : 0.52;
+                    const upperRadiusBot = 0.36;
+                    const upperLen = 0.86;
+                    const upperGeo = new THREE.CylinderGeometry(upperRadiusTop, upperRadiusBot, upperLen, 24);
+                    const upperMesh = new THREE.Mesh(upperGeo, hideMat);
+                    upperMesh.position.y = -upperLen * 0.45;
+                    upperMesh.scale.set(0.92, 1.0, 1.15);
+                    upperMesh.castShadow = true;
+                    hipGroup.add(upperMesh);
+
+                    // Sculpted armor fold ring above the knee
+                    const kneeFold = new THREE.Mesh(
+                        new THREE.TorusGeometry(0.35, 0.08, 14, 28),
+                        armorPlateMat
+                    );
+                    kneeFold.position.y = -upperLen * 0.85;
+                    kneeFold.rotation.x = Math.PI / 2;
+                    kneeFold.scale.set(0.95, 1.12, 1.0);
+                    hipGroup.add(kneeFold);
+
+                    // Knee / Ankle joint pivot
+                    const kneeGroup = new THREE.Group();
+                    kneeGroup.position.set(0, -upperLen * 0.88, 0);
+                    hipGroup.add(kneeGroup);
+
+                    // Sturdy lower pillar leg widening slightly toward the heavy rhino foot
+                    const lowerLen = 0.78;
+                    const lowerGeo = new THREE.CylinderGeometry(0.32, 0.39, lowerLen, 24);
+                    const lowerMesh = new THREE.Mesh(lowerGeo, armorPlateMat);
+                    lowerMesh.position.y = -lowerLen * 0.5;
+                    lowerMesh.castShadow = true;
+                    kneeGroup.add(lowerMesh);
+
+                    // Rounded foot pad
+                    const footPadGeo = new THREE.SphereGeometry(0.41, 24, 18);
+                    footPadGeo.scale(1.02, 0.52, 1.12);
+                    const footPad = new THREE.Mesh(footPadGeo, armorPlateMat);
+                    footPad.position.set(0, -lowerLen * 0.92, 0.06);
+                    footPad.castShadow = true;
+                    kneeGroup.add(footPad);
+
+                    // Characteristic Three-Toed Rhino Hoof Nails (三个醒目的趾甲)
+                    [-0.48, 0, 0.48].forEach((angle, idx) => {
+                        const nailScale = idx === 1 ? 1.18 : 0.95;
+                        const nailGeo = new THREE.SphereGeometry(0.145 * nailScale, 16, 14);
+                        nailGeo.scale(0.95, 0.85, 1.25);
+                        const nail = new THREE.Mesh(nailGeo, hoofNailMat);
+                        nail.position.set(
+                            Math.sin(angle) * 0.34,
+                            -lowerLen * 0.98,
+                            0.06 + Math.cos(angle) * 0.36
+                        );
+                        nail.rotation.y = angle;
+                        kneeGroup.add(nail);
+                    });
+
+                    // Golden cosmic anklet ring on front legs for surreal visual charm
+                    if (isFront) {
+                        const anklet = new THREE.Mesh(
+                            new THREE.TorusGeometry(0.37, 0.04, 12, 28),
+                            goldCollarMat
+                        );
+                        anklet.position.y = -lowerLen * 0.72;
+                        anklet.rotation.x = Math.PI / 2;
+                        kneeGroup.add(anklet);
+                    }
+
+                    // Anchor at bottom of hoof to spawn cosmic step ripples
+                    const hoofTip = new THREE.Object3D();
+                    hoofTip.position.set(0, -lowerLen, 0.1);
+                    kneeGroup.add(hoofTip);
+
+                    return { hip: hipGroup, knee: kneeGroup, hoofTip: hoofTip, isFront, side };
+                }
+
+                const frontLeftLeg = createRhinoLeg(true, 1);
+                frontLeftLeg.hip.position.set(0.68, -0.32, 0.72);
+                bodyGroup.add(frontLeftLeg.hip);
+
+                const frontRightLeg = createRhinoLeg(true, -1);
+                frontRightLeg.hip.position.set(-0.68, -0.32, 0.72);
+                bodyGroup.add(frontRightLeg.hip);
+
+                const backLeftLeg = createRhinoLeg(false, 1);
+                backLeftLeg.hip.position.set(0.64, -0.28, -1.18);
+                bodyGroup.add(backLeftLeg.hip);
+
+                const backRightLeg = createRhinoLeg(false, -1);
+                backRightLeg.hip.position.set(-0.64, -0.28, -1.18);
+                bodyGroup.add(backRightLeg.hip);
+
+                /* --- 5. TUFTED TAIL --- */
+                const tailGroup = new THREE.Group();
+                tailGroup.position.set(0, 0.42, -2.18);
+                bodyGroup.add(tailGroup);
+
+                const tailStemGeo = new THREE.CylinderGeometry(0.08, 0.14, 0.75, 14);
+                const tailStem = new THREE.Mesh(tailStemGeo, armorPlateMat);
+                tailStem.position.set(0, -0.32, -0.15);
+                tailStem.rotation.x = 0.42;
+                tailGroup.add(tailStem);
+
+                const tailTuftGeo = new THREE.ConeGeometry(0.18, 0.45, 16);
+                const tailTuft = new THREE.Mesh(tailTuftGeo, foldCreaseMat);
+                tailTuft.position.set(0, -0.68, -0.30);
+                tailTuft.rotation.x = 2.65;
+                tailGroup.add(tailTuft);
+
+                // Overall scale makes the Rhino an unmistakable monumental cosmic protagonist
+                rhinoRoot.scale.setScalar(0.92);
+
+                return {
+                    root: rhinoRoot,
+                    body: bodyGroup,
+                    head: headGroup,
+                    hornHalo: hornHaloGroup,
+                    ears: earGroups,
+                    tail: tailGroup,
+                    legs: [frontLeftLeg, frontRightLeg, backLeftLeg, backRightLeg],
+                    nostrils: nostrilLocations
+                };
+            }
+
+            const rhino = buildSculptedRhino();
+            scene.add(rhino.root);
+
+            // Define a bold 3D elliptical orbit around the Earth with strong perspective
+            // Closest point (perigee) passes close in front of the camera (+Z),
+            // farthest point (apogee) passes high behind the top-back limb of the Earth (-Z, +Y)
+            // so the Rhino is NEVER completely hidden behind Earth, while clearly orbiting behind its horizon!
+            const ORBIT_RX = 6.6;
+            const ORBIT_RZ = 5.4;
+
+            function getOrbitPoint(angle, outVec) {
+                const target = outVec || new THREE.Vector3();
+                // Angle = 0 is front-right, Angle = PI/2 is front perigee (+Z), Angle = 3*PI/2 is back apogee (-Z)
+                const rawX = Math.cos(angle) * ORBIT_RX;
+                const rawZ = Math.sin(angle) * ORBIT_RZ;
+                // Inclined orbital plane: when behind Earth (sin(angle) < 0), lift higher in Y so the Rhino crests majestically over Earth's top atmosphere!
+                // When in front of Earth (sin(angle) > 0), dip slightly lower so Earth's continents gleam right above/behind the Rhino's back!
+                const rawY = -Math.sin(angle) * 2.15 + Math.cos(angle * 2.0) * 0.28;
+                // Slight roll tilt
+                const tiltZ = 0.24;
+                const x = rawX * Math.cos(tiltZ) - rawY * Math.sin(tiltZ);
+                const y = rawX * Math.sin(tiltZ) + rawY * Math.cos(tiltZ);
+                const z = rawZ;
+                return target.set(x, y, z);
+            }
+
+            // Build luminous multi-ring orbital track around the Earth
+            const orbitGroup = new THREE.Group();
+            scene.add(orbitGroup);
+
+            const orbitPoints = [];
+            const ORBIT_SEGMENTS = 180;
+            for (let i = 0; i <= ORBIT_SEGMENTS; i++) {
+                const a = (i / ORBIT_SEGMENTS) * Math.PI * 2;
+                orbitPoints.push(getOrbitPoint(a));
+            }
+            const orbitCurve = new THREE.CatmullRomCurve3(orbitPoints, true);
+
+            // Primary golden-cyan glowing orbit tube
+            const mainTrackGeo = new THREE.TubeGeometry(orbitCurve, 220, 0.042, 12, true);
+            const mainTrackMat = new THREE.MeshBasicMaterial({
+                color: 0x7dd3fc,
+                transparent: true,
+                opacity: 0.55,
+                blending: THREE.AdditiveBlending
+            });
+            orbitGroup.add(new THREE.Mesh(mainTrackGeo, mainTrackMat));
+
+            // Secondary warm gold dashed/offset inner orbital thread
+            const innerOrbitPoints = orbitPoints.map(p => p.clone().multiplyScalar(0.965));
+            const innerCurve = new THREE.CatmullRomCurve3(innerOrbitPoints, true);
+            const innerTrackGeo = new THREE.TubeGeometry(innerCurve, 200, 0.02, 8, true);
+            const innerTrackMat = new THREE.MeshBasicMaterial({
+                color: 0xfcd34d,
+                transparent: true,
+                opacity: 0.42,
+                blending: THREE.AdditiveBlending
+            });
+            orbitGroup.add(new THREE.Mesh(innerTrackGeo, innerTrackMat));
+
+            // Floating mini asteroid pebbles drifting along the orbital belt
+            const asteroidGroup = new THREE.Group();
+            scene.add(asteroidGroup);
+            const pebbleGeo = new THREE.DodecahedronGeometry(0.12, 1);
+            const pebbleMat = new THREE.MeshStandardMaterial({
+                color: 0x94a3b8,
+                roughness: 0.75,
+                metalness: 0.2
+            });
+            const pebbles = [];
+            for (let i = 0; i < 42; i++) {
+                const mesh = new THREE.Mesh(pebbleGeo, pebbleMat);
+                const baseAngle = (i / 42) * Math.PI * 2;
+                const radiusOffset = 0.88 + Math.random() * 0.26;
+                const yOffset = (Math.random() - 0.5) * 1.1;
+                const s = 0.45 + Math.random() * 1.15;
+                mesh.scale.set(s, s * 0.8, s * 1.2);
+                asteroidGroup.add(mesh);
+                pebbles.push({
+                    mesh,
+                    angle: baseAngle,
+                    speed: 0.12 + Math.random() * 0.14,
+                    radiusOffset,
+                    yOffset,
+                    rotSpeed: new THREE.Vector3(
+                        (Math.random() - 0.5) * 2,
+                        (Math.random() - 0.5) * 2,
+                        (Math.random() - 0.5) * 2
+                    )
+                });
+            }
+
+            /* --- STARDUST BREATH PUFFS & COSMIC HOOF RIPPLES --- */
+            // Pool of 3D puffy cloud spheres emitted from the Rhino's nostrils and hooves
+            const puffPool = [];
+            const puffGeo = new THREE.SphereGeometry(0.18, 12, 12);
+            for (let i = 0; i < 75; i++) {
+                const isGold = i % 3 === 0;
+                const mat = new THREE.MeshBasicMaterial({
+                    color: isGold ? 0xfde68a : 0xe0f2fe,
+                    transparent: true,
+                    opacity: 0,
+                    blending: THREE.AdditiveBlending,
+                    depthWrite: false
+                });
+                const mesh = new THREE.Mesh(puffGeo, mat);
+                mesh.visible = false;
+                scene.add(mesh);
+                puffPool.push({
+                    mesh,
+                    active: false,
+                    age: 0,
+                    maxAge: 1.4,
+                    vel: new THREE.Vector3(),
+                    startScale: 0.5,
+                    endScale: 2.2
+                });
+            }
+
+            let puffCursor = 0;
+            function spawnPuff(worldPos, velocity, startScale, endScale, maxAge) {
+                const p = puffPool[puffCursor];
+                puffCursor = (puffCursor + 1) % puffPool.length;
+                p.active = true;
+                p.age = 0;
+                p.maxAge = maxAge || 1.35;
+                p.startScale = startScale || 0.45;
+                p.endScale = endScale || 2.1;
+                p.mesh.position.copy(worldPos);
+                p.vel.copy(velocity);
+                p.mesh.scale.setScalar(p.startScale);
+                p.mesh.material.opacity = 0.82;
+                p.mesh.visible = true;
+            }
+
+            // Pool of expanding golden-cyan cosmic step rings when the Rhino's hooves bound through space
+            const ripplePool = [];
+            const rippleGeo = new THREE.RingGeometry(0.18, 0.26, 32);
+            for (let i = 0; i < 16; i++) {
+                const mat = new THREE.MeshBasicMaterial({
+                    color: i % 2 === 0 ? 0xfcd34d : 0x38bdf8,
+                    side: THREE.DoubleSide,
+                    transparent: true,
+                    opacity: 0,
+                    blending: THREE.AdditiveBlending,
+                    depthWrite: false
+                });
+                const mesh = new THREE.Mesh(rippleGeo, mat);
+                mesh.visible = false;
+                scene.add(mesh);
+                ripplePool.push({
+                    mesh,
+                    active: false,
+                    age: 0,
+                    maxAge: 1.25
+                });
+            }
+            let rippleCursor = 0;
+            function spawnHoofRipple(worldPos, normalDir) {
+                const r = ripplePool[rippleCursor];
+                rippleCursor = (rippleCursor + 1) % ripplePool.length;
+                r.active = true;
+                r.age = 0;
+                r.mesh.position.copy(worldPos);
+                r.mesh.lookAt(worldPos.clone().add(normalDir));
+                r.mesh.scale.setScalar(0.5);
+                r.mesh.material.opacity = 0.78;
+                r.mesh.visible = true;
+            }
+
+            /* --- DEEP SPACE STARFIELD & SURREAL NEBULA BACKDROP --- */
+            function createStarfield() {
+                const starCount = 1800;
+                const positions = new Float32Array(starCount * 3);
+                const colors = new Float32Array(starCount * 3);
+                const palette = [
+                    new THREE.Color(0xffffff),
+                    new THREE.Color(0xbae6fd),
+                    new THREE.Color(0xfde68a),
+                    new THREE.Color(0xfbcfe8),
+                    new THREE.Color(0xc4b5fd)
+                ];
+
+                for (let i = 0; i < starCount; i++) {
+                    const r = 38 + Math.random() * 90;
+                    const theta = Math.acos(2 * Math.random() - 1);
+                    const phi = Math.random() * Math.PI * 2;
+                    positions[i * 3] = r * Math.sin(theta) * Math.cos(phi);
+                    positions[i * 3 + 1] = r * Math.sin(theta) * Math.sin(phi);
+                    positions[i * 3 + 2] = r * Math.cos(theta);
+
+                    const col = palette[i % palette.length];
+                    colors[i * 3] = col.r;
+                    colors[i * 3 + 1] = col.g;
+                    colors[i * 3 + 2] = col.b;
+                }
+
+                const geo = new THREE.BufferGeometry();
+                geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+                geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
+                // Soft circular star sprite
+                const spriteCanvas = document.createElement('canvas');
+                spriteCanvas.width = 64;
+                spriteCanvas.height = 64;
+                const sCtx = spriteCanvas.getContext('2d');
+                const grad = sCtx.createRadialGradient(32, 32, 0, 32, 32, 32);
+                grad.addColorStop(0, 'rgba(255,255,255,1)');
+                grad.addColorStop(0.35, 'rgba(255,255,255,0.8)');
+                grad.addColorStop(1, 'rgba(255,255,255,0)');
+                sCtx.fillStyle = grad;
+                sCtx.fillRect(0, 0, 64, 64);
+
+                const mat = new THREE.PointsMaterial({
+                    size: 0.72,
+                    map: new THREE.CanvasTexture(spriteCanvas),
+                    vertexColors: true,
+                    transparent: true,
+                    opacity: 0.92,
+                    blending: THREE.AdditiveBlending,
+                    depthWrite: false
+                });
+
+                const stars = new THREE.Points(geo, mat);
+                scene.add(stars);
+                return stars;
+            }
+            const starField = createStarfield();
+
+            const clock = new THREE.Clock();
+            const currentPos = new THREE.Vector3();
+            const lookAheadPos = new THREE.Vector3();
+            const tangentDir = new THREE.Vector3();
+            const radialUp = new THREE.Vector3();
+            const sideRight = new THREE.Vector3();
+            const rotMatrix = new THREE.Matrix4();
+            const targetQuat = new THREE.Quaternion();
+            const tempVec = new THREE.Vector3();
+            const camLookTarget = new THREE.Vector3();
+
+            // Start the Rhino entering the dramatic foreground sweep right away!
+            let orbitAngle = 0.35;
+            let breathTimer = 0;
+            let stepRippleTimer = 0;
+
+            function animate() {
+                requestAnimationFrame(animate);
+
+                const dt = Math.min(clock.getDelta(), 0.05);
+                const elapsed = clock.getElapsedTime();
+
+                // 1. Rotate Earth, clouds, and background starfield
+                earthMesh.rotation.y += dt * 0.24;
+                cloudMesh.rotation.y += dt * 0.33;
+                cloudMesh.rotation.x = Math.sin(elapsed * 0.15) * 0.04;
+                starField.rotation.y -= dt * 0.018;
+
+                // 2. Advance the Rhinoceros along its elliptical orbit
+                // Slightly modulate angular speed so it glides majestically across the foreground close-up
+                const frontFactor = (Math.sin(orbitAngle) + 1.0) * 0.5; // 1 at front perigee, 0 at back apogee
+                const angularSpeed = THREE.MathUtils.lerp(0.56, 0.38, frontFactor);
+                orbitAngle = (orbitAngle + dt * angularSpeed) % (Math.PI * 2);
+
+                getOrbitPoint(orbitAngle, currentPos);
+                getOrbitPoint(orbitAngle + 0.04, lookAheadPos);
+
+                // Compute orientation frame along the orbital path
+                tangentDir.subVectors(lookAheadPos, currentPos).normalize();
+                // Keep the Rhino upright relative to the orbital plane + slight banking toward Earth
+                radialUp.set(0, 1, 0).addScaledVector(currentPos, 0.045).normalize();
+                sideRight.crossVectors(tangentDir, radialUp).normalize();
+                radialUp.crossVectors(sideRight, tangentDir).normalize();
+
+                // 3. Exaggerated Low-Gravity Cosmic Gallop (奔跑与太空漫步跃动姿态)
+                const gallopFreq = 6.2;
+                const gallopPhase = elapsed * gallopFreq;
+                const boundHeight = Math.sin(gallopPhase) * 0.28;
+                const bodyPitch = Math.cos(gallopPhase) * 0.14;
+                const bodyRoll = Math.sin(gallopPhase * 0.5) * 0.06;
+
+                // Place Rhino on orbit with bounding vertical offset
+                rhino.root.position.copy(currentPos).addScaledVector(radialUp, boundHeight);
+
+                // Orient Rhino forward along tangentDir
+                rotMatrix.makeBasis(sideRight, radialUp, tangentDir);
+                targetQuat.setFromRotationMatrix(rotMatrix);
+                rhino.root.quaternion.slerp(targetQuat, 0.25);
+
+                // Body pitch & roll during bound
+                rhino.body.rotation.x = bodyPitch;
+                rhino.body.rotation.z = bodyRoll;
+
+                // Expressive Head nod & Horn pride motion
+                rhino.head.rotation.x = Math.sin(gallopPhase - 0.7) * 0.11 - 0.05;
+                rhino.head.rotation.y = Math.sin(elapsed * 1.7) * 0.08;
+                rhino.hornHalo.rotation.z = elapsed * 1.8;
+                rhino.hornHalo.rotation.y = Math.sin(elapsed * 2.4) * 0.35;
+
+                // Twitching cupped rhino ears
+                rhino.ears.forEach((ear, idx) => {
+                    ear.pivot.rotation.x = -0.22 + Math.sin(elapsed * 4.5 + idx * 1.8) * 0.16;
+                    ear.pivot.rotation.z = ear.side * (-0.48 + Math.cos(elapsed * 3.2 + idx) * 0.09);
+                });
+
+                // Swishing tufted tail
+                rhino.tail.rotation.z = Math.sin(gallopPhase * 1.2) * 0.32;
+                rhino.tail.rotation.x = 0.2 + Math.cos(gallopPhase) * 0.18;
+
+                // Four-legged rotary gallop articulation (front pair & hind pair with phase offset)
+                const legPhases = [
+                    0.0,               // Front Left
+                    0.55,              // Front Right
+                    Math.PI + 0.15,    // Back Left
+                    Math.PI + 0.70     // Back Right
+                ];
+
+                rhino.legs.forEach((leg, i) => {
+                    const p = gallopPhase + legPhases[i];
+                    const hipSwing = Math.sin(p) * 0.58;
+                    const kneeBend = Math.max(0, Math.cos(p - 0.35)) * (leg.isFront ? 0.68 : -0.58);
+                    leg.hip.rotation.x = hipSwing;
+                    leg.knee.rotation.x = kneeBend;
+                });
+
+                // 4. Emit Stardust Breath Puffs from Nostrils & Cosmic Ripples from Hooves
+                breathTimer += dt;
+                if (breathTimer > 0.09) {
+                    breathTimer = 0;
+                    // Stronger breath puffs during the upward power bound
+                    if (Math.sin(gallopPhase) > -0.2) {
+                        rhino.nostrils.forEach((nostrilNode, nIdx) => {
+                            nostrilNode.getWorldPosition(tempVec);
+                            const sideSpread = (nIdx === 0 ? -1 : 1) * (0.6 + Math.random() * 0.4);
+                            const puffVel = tangentDir.clone().multiplyScalar(0.6)
+                                .addScaledVector(sideRight, sideSpread)
+                                .addScaledVector(radialUp, 0.25 + (Math.random() - 0.5) * 0.4);
+                            spawnPuff(tempVec, puffVel, 0.22, 1.35, 1.15);
+                        });
+                    }
+                }
+
+                stepRippleTimer += dt;
+                if (stepRippleTimer > 0.24) {
+                    stepRippleTimer = 0;
+                    const activeLeg = rhino.legs[Math.floor(Math.random() * rhino.legs.length)];
+                    activeLeg.hoofTip.getWorldPosition(tempVec);
+                    spawnHoofRipple(tempVec, tangentDir);
+                    // Also leave a trail of soft glowing stardust motes behind the hooves
+                    const trailVel = tangentDir.clone().multiplyScalar(-0.8)
+                        .add(new THREE.Vector3((Math.random() - 0.5) * 0.5, (Math.random() - 0.5) * 0.5, 0));
+                    spawnPuff(tempVec, trailVel, 0.16, 0.85, 1.45);
+                }
+
+                // Update stardust puffs
+                for (let i = 0; i < puffPool.length; i++) {
+                    const p = puffPool[i];
+                    if (!p.active) continue;
+                    p.age += dt;
+                    if (p.age >= p.maxAge) {
+                        p.active = false;
+                        p.mesh.visible = false;
+                        continue;
+                    }
+                    const t = p.age / p.maxAge;
+                    p.mesh.position.addScaledVector(p.vel, dt);
+                    const s = THREE.MathUtils.lerp(p.startScale, p.endScale, Math.pow(t, 0.65));
+                    p.mesh.scale.setScalar(s);
+                    p.mesh.material.opacity = (1.0 - t) * (1.0 - t) * 0.65;
+                }
+
+                // Update cosmic hoof step ripples
+                for (let i = 0; i < ripplePool.length; i++) {
+                    const r = ripplePool[i];
+                    if (!r.active) continue;
+                    r.age += dt;
+                    if (r.age >= r.maxAge) {
+                        r.active = false;
+                        r.mesh.visible = false;
+                        continue;
+                    }
+                    const t = r.age / r.maxAge;
+                    r.mesh.scale.setScalar(0.5 + t * 3.2);
+                    r.mesh.material.opacity = (1.0 - t) * 0.7;
+                }
+
+                // Update drifting orbital pebbles
+                for (let i = 0; i < pebbles.length; i++) {
+                    const pb = pebbles[i];
+                    pb.angle += dt * pb.speed;
+                    getOrbitPoint(pb.angle, tempVec);
+                    tempVec.multiplyScalar(pb.radiusOffset);
+                    tempVec.y += pb.yOffset;
+                    pb.mesh.position.copy(tempVec);
+                    pb.mesh.rotation.x += dt * pb.rotSpeed.x;
+                    pb.mesh.rotation.y += dt * pb.rotSpeed.y;
+                }
+
+                // Move local key light to flatter the Rhino's armor plates & horns at every point in the orbit
+                rhinoKeyLight.position.copy(rhino.root.position)
+                    .addScaledVector(sideRight, 3.0)
+                    .addScaledVector(radialUp, 2.8)
+                    .add(new THREE.Vector3(0, 0, 3.5));
+
+                // 5. Dynamic Cinematography:
+                // Frame both the Earth and the colossal Rhino so that:
+                // - When the Rhino swings into the foreground (+Z), it passes close to the lens with massive visual impact!
+                // - When the Rhino swings behind the Earth (-Z), the camera cranes slightly upward and tracks it cresting over Earth's glowing horizon,
+                //   preserving clear front/back orbital depth without ever letting the Rhino shrink into a tiny speck!
+                const aspect = window.innerWidth / window.innerHeight;
+                const portraitPush = aspect < 1.0 ? (1.0 / aspect) * 3.2 : 0;
+
+                const camX = currentPos.x * 0.34 + Math.sin(elapsed * 0.3) * 0.4;
+                const camY = 1.65 + (1.0 - frontFactor) * 2.15;
+                const camZ = 14.2 + portraitPush - frontFactor * 1.45;
+
+                camera.position.lerp(new THREE.Vector3(camX, camY, camZ), 0.08);
+
+                // Smoothly blend camera lookAt between Earth's center (45%) and the Rhino's sculpted body (55%)
+                tempVec.copy(rhino.root.position).multiplyScalar(0.52);
+                camLookTarget.lerp(tempVec, 0.1);
+                camera.lookAt(camLookTarget);
+
+                renderer.render(scene, camera);
+            }
+
+            // Responsive full-bleed viewport handling
+            window.addEventListener('resize', function () {
+                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+            });
+
+            window.onload = function () {
+                animate();
+            };
+        })();
+    </script>
+<!--zc-home:start--><style>.zc-home-btn{position:fixed;top:16px;left:16px;z-index:2147483647;display:inline-flex;align-items:center;gap:6px;padding:8px 14px;font:500 13px/1.1 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Noto Sans SC",sans-serif;color:#111;background:rgba(255,255,255,.86);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);border:1px solid rgba(0,0,0,.08);border-radius:999px;text-decoration:none;box-shadow:0 2px 12px rgba(0,0,0,.2);transition:background .2s ease,transform .2s ease,box-shadow .2s ease}.zc-home-btn:hover{background:#fff;transform:translateY(-1px);box-shadow:0 4px 18px rgba(0,0,0,.26)}</style><a class="zc-home-btn" href="../">← 返回首页</a><!--zc-home:end-->
+</body>
+</html>

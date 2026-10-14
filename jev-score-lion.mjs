@@ -96,6 +96,8 @@ const ITEMS = [
     desc: "A very dark, low-contrast stage. A faint lion shape sits at the lower left and a faint flaming ring is at the right; the ring brightens slightly over the loop but the lion does not visibly run or leap through it. The scene is hard to read because it is so dark, and no clear jump through the ring is shown." },
   { slug: "qwen-3.8-flash-next", render: "2D (animated HTML canvas)",
     desc: "A dark arena with spotlights and a tall, narrow upright flaming hoop on a small stand center stage. No lion is visible at any point in the loop — only the burning hoop and the empty stage are shown." },
+  { slug: "gemini4argon", render: "2D (animated HTML canvas)",
+    desc: "A 2D canvas animation on a deep crimson-to-dark-red background with warm circus-stage lighting. A tawny cartoon lion with a full mane is caught in mid-leap in side view, its body stretched and arcing through the air with legs extended and tail streaming. A large circular hoop wreathed in orange-and-yellow flames sits in its path, and the lion's arc carries it through the fiery ring. Warm rim lighting and simple flat shading." },
 ];
 
 const questions = Object.fromEntries(

@@ -1,0 +1,1911 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>一只鹈鹕骑自行车 — A Pelican Riding a Bicycle</title>
+  <style>
+    *, *::before, *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background-color: #1a1025;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    canvas {
+      display: block;
+      width: 100vw;
+      height: 100vh;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="scene"></canvas>
+
+  <script>
+    (function () {
+      'use strict';
+
+      const canvas = document.getElementById('scene');
+      const ctx = canvas.getContext('2d', { alpha: false });
+
+      let width = 0;
+      let height = 0;
+      let dpr = 1;
+      let sceneScale = 1;
+      let originX = 0;
+      let originY = 0;
+
+      // Virtual coordinate boundaries relative to bike ground contact (0, 0)
+      let viewLeft = -800;
+      let viewRight = 800;
+      let viewTop = -650;
+      let viewBottom = 250;
+
+      const TAU = Math.PI * 2;
+      const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
+      const lerp = (a, b, t) => a + (b - a) * t;
+
+      /**
+       * Exact 2-Bone Analytic Inverse Kinematics Solver
+       * @param {number} ax - Root joint X (hip or shoulder)
+       * @param {number} ay - Root joint Y
+       * @param {number} cx - Target effector X (ankle or wrist)
+       * @param {number} cy - Target effector Y
+       * @param {number} L1 - Upper bone length (thigh or humerus)
+       * @param {number} L2 - Lower bone length (tibiotarsus or ulna/radius)
+       * @param {number} bendDir - -1 to bend counter-clockwise (knee forward), +1 to bend clockwise (elbow down)
+       */
+      function solveIK2Bone(ax, ay, cx, cy, L1, L2, bendDir) {
+        const dx = cx - ax;
+        const dy = cy - ay;
+        const rawDist = Math.hypot(dx, dy) || 0.0001;
+        const minDist = Math.abs(L1 - L2) + 0.01;
+        const maxDist = (L1 + L2) - 0.01;
+        const d = clamp(rawDist, minDist, maxDist);
+
+        const baseAngle = Math.atan2(dy, dx);
+        const cosAngle1 = clamp((L1 * L1 + d * d - L2 * L2) / (2 * L1 * d), -1, 1);
+        const angle1 = baseAngle + bendDir * Math.acos(cosAngle1);
+
+        const bx = ax + Math.cos(angle1) * L1;
+        const by = ay + Math.sin(angle1) * L1;
+
+        return {
+          bx,
+          by,
+          cx: ax + (dx / rawDist) * d,
+          cy: ay + (dy / rawDist) * d,
+          angle1,
+          angle2: Math.atan2(cy - by, cx - bx)
+        };
+      }
+
+      const BIKE = {
+        wheelRadius: 106,
+        tireThickness: 13,
+        rimRadius: 93,
+        rearAxle: { x: -172, y: -106 },
+        frontAxle: { x: 176, y: -106 },
+        bb: { x: -38, y: -100 }, // Bottom bracket (crank center)
+        seatCluster: { x: -94, y: -242 },
+        saddlePos: { x: -104, y: -272 },
+        headBottom: { x: 124, y: -214 },
+        headTop: { x: 110, y: -262 },
+        stemTop: { x: 100, y: -302 },
+        barClamp: { x: 116, y: -308 },
+        gripFar: { x: 64, y: -308 },
+        gripNear: { x: 50, y: -292 },
+        crankRadius: 43,
+        chainringRadius: 26,
+        cogRadius: 12,
+        groundSpeed: 285, // Virtual pixels per second
+        crankOmega: 3.7   // Crank radians per second
+      };
+
+      const pouchPhysics = {
+        offsetY: 0,
+        velY: 0,
+        swingX: 0,
+        velX: 0
+      };
+
+      // Pre-populated procedural background clouds, distant birds, and dust motes
+      const clouds = [
+        { x: -720, y: -510, w: 260, h: 54, speed: 12, alpha: 0.85 },
+        { x: -240, y: -560, w: 340, h: 68, speed: 8, alpha: 0.7 },
+        { x: 290, y: -485, w: 230, h: 48, speed: 15, alpha: 0.8 },
+        { x: 680, y: -540, w: 300, h: 60, speed: 10, alpha: 0.75 },
+        { x: -500, y: -430, w: 190, h: 38, speed: 18, alpha: 0.65 }
+      ];
+
+      const distantFlock = [
+        { x: -380, y: -440, scale: 0.9, speed: 38, phase: 0.2 },
+        { x: -415, y: -458, scale: 0.75, speed: 38, phase: 1.1 },
+        { x: -348, y: -464, scale: 0.7, speed: 38, phase: 2.0 },
+        { x: 420, y: -495, scale: 0.65, speed: 29, phase: 3.4 },
+        { x: 455, y: -510, scale: 0.55, speed: 29, phase: 4.2 }
+      ];
+
+      const seaSparkles = Array.from({ length: 65 }, (_, i) => ({
+        xRatio: ((i * 73) % 100) / 100,
+        yRatio: ((i * 37) % 100) / 100,
+        phase: i * 0.7,
+        size: 1.5 + (i % 3) * 1.1
+      }));
+
+      const pollenMotes = Array.from({ length: 36 }, (_, i) => ({
+        x: -800 + ((i * 97) % 1600),
+        y: -480 + ((i * 131) % 580),
+        r: 1.2 + (i % 4) * 0.75,
+        speedX: 110 + (i % 5) * 35,
+        phase: i * 0.9
+      }));
+
+      // Occasional joyful bell ring ripple
+      const bellRipples = [];
+      let nextBellTime = 2.4;
+
+      function resize() {
+        dpr = Math.min(window.devicePixelRatio || 1, 2.5);
+        width = window.innerWidth;
+        height = window.innerHeight;
+        canvas.width = Math.round(width * dpr);
+        canvas.height = Math.round(height * dpr);
+
+        // Fit both vertical height and horizontal bicycle span comfortably on any aspect ratio
+        sceneScale = Math.min(height / 820, width / 1020);
+        originX = width * 0.5;
+        originY = height * 0.79; // Ground level of bicycle tires
+
+        viewLeft = -originX / sceneScale - 80;
+        viewRight = (width - originX) / sceneScale + 80;
+        viewTop = -originY / sceneScale - 60;
+        viewBottom = (height - originY) / sceneScale + 60;
+      }
+
+      window.addEventListener('resize', resize);
+      resize();
+
+      function drawSkyAndSun(time) {
+        // Sunset gradient from deep twilight violet-blue to warm coral and golden amber
+        const skyGrad = ctx.createLinearGradient(0, viewTop, 0, -175);
+        skyGrad.addColorStop(0.0, '#1c1638');
+        skyGrad.addColorStop(0.28, '#3f2854');
+        skyGrad.addColorStop(0.56, '#8c3f5d');
+        skyGrad.addColorStop(0.80, '#d96b43');
+        skyGrad.addColorStop(0.94, '#f7a348');
+        skyGrad.addColorStop(1.0, '#ffd46b');
+
+        ctx.fillStyle = skyGrad;
+        ctx.fillRect(viewLeft, viewTop, viewRight - viewLeft, -170 - viewTop);
+
+        // Position the glowing golden sun in the left-center background
+        const sunX = -260;
+        const sunY = -315;
+
+        // Outer atmospheric bloom
+        const sunGlow = ctx.createRadialGradient(sunX, sunY, 30, sunX, sunY, 390);
+        sunGlow.addColorStop(0.0, 'rgba(255, 244, 185, 0.75)');
+        sunGlow.addColorStop(0.3, 'rgba(255, 186, 82, 0.35)');
+        sunGlow.addColorStop(0.65, 'rgba(235, 105, 68, 0.12)');
+        sunGlow.addColorStop(1.0, 'rgba(235, 105, 68, 0.0)');
+        ctx.fillStyle = sunGlow;
+        ctx.beginPath();
+        ctx.arc(sunX, sunY, 390, 0, TAU);
+        ctx.fill();
+
+        // Crisp solar disc with subtle warm gradient
+        const sunDisc = ctx.createLinearGradient(sunX, sunY - 78, sunX, sunY + 78);
+        sunDisc.addColorStop(0, '#fffbe0');
+        sunDisc.addColorStop(0.6, '#ffe07d');
+        sunDisc.addColorStop(1, '#ff9e44');
+        ctx.fillStyle = sunDisc;
+        ctx.beginPath();
+        ctx.arc(sunX, sunY, 76, 0, TAU);
+        ctx.fill();
+
+        // Drifting sunset clouds with lit golden undersides
+        const spanW = (viewRight - viewLeft) + 500;
+        for (let i = 0; i < clouds.length; i++) {
+          const c = clouds[i];
+          const cx = ((c.x - time * c.speed - viewLeft + 250) % spanW + spanW) % spanW + viewLeft - 250;
+          const cy = c.y;
+          drawSunsetCloud(cx, cy, c.w, c.h, c.alpha);
+        }
+
+        // Gliding seabirds in the sky
+        ctx.strokeStyle = 'rgba(58, 30, 56, 0.72)';
+        ctx.lineCap = 'round';
+        for (let i = 0; i < distantFlock.length; i++) {
+          const b = distantFlock[i];
+          const bx = ((b.x - time * b.speed - viewLeft + 150) % spanW + spanW) % spanW + viewLeft - 150;
+          const by = b.y + Math.sin(time * 2.2 + b.phase) * 7;
+          const flap = Math.sin(time * 6.5 + b.phase) * 9 * b.scale;
+          const wingSpan = 16 * b.scale;
+
+          ctx.lineWidth = 2.2 * b.scale;
+          ctx.beginPath();
+          ctx.moveTo(bx - wingSpan, by + flap);
+          ctx.quadraticCurveTo(bx - wingSpan * 0.45, by - 5 * b.scale + flap * 0.3, bx, by);
+          ctx.quadraticCurveTo(bx + wingSpan * 0.45, by - 5 * b.scale + flap * 0.3, bx + wingSpan, by + flap);
+          ctx.stroke();
+        }
+      }
+
+      function drawSunsetCloud(x, y, w, h, alpha) {
+        ctx.save();
+        ctx.globalAlpha = alpha;
+
+        const grad = ctx.createLinearGradient(x, y - h * 0.6, x, y + h * 0.5);
+        grad.addColorStop(0, '#59335c');
+        grad.addColorStop(0.65, '#a84c60');
+        grad.addColorStop(1, '#ffbe66');
+        ctx.fillStyle = grad;
+
+        ctx.beginPath();
+        ctx.moveTo(x - w * 0.5, y + h * 0.35);
+        ctx.quadraticCurveTo(x - w * 0.52, y - h * 0.1, x - w * 0.3, y - h * 0.12);
+        ctx.quadraticCurveTo(x - w * 0.18, y - h * 0.65, x + w * 0.04, y - h * 0.42);
+        ctx.quadraticCurveTo(x + w * 0.22, y - h * 0.55, x + w * 0.34, y - h * 0.08);
+        ctx.quadraticCurveTo(x + w * 0.52, y - h * 0.04, x + w * 0.5, y + h * 0.35);
+        ctx.closePath();
+        ctx.fill();
+
+        // Warm golden rim along the bottom edge
+        ctx.strokeStyle = 'rgba(255, 226, 138, 0.65)';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(x - w * 0.48, y + h * 0.34);
+        ctx.lineTo(x + w * 0.48, y + h * 0.34);
+        ctx.stroke();
+
+        ctx.restore();
+      }
+
+      function drawDistantCoastAndOcean(time) {
+        const horizonY = -178;
+
+        // Distant headland & lighthouse slowly scrolling in deep parallax
+        const islandSpan = 2200;
+        const islandOffset = -((time * 14) % islandSpan);
+
+        for (let rep = -1; rep <= 1; rep++) {
+          const ix = islandOffset + rep * islandSpan;
+
+          // Far misty mountain range
+          ctx.fillStyle = '#4e3154';
+          ctx.beginPath();
+          ctx.moveTo(ix - 900, horizonY);
+          ctx.quadraticCurveTo(ix - 650, horizonY - 95, ix - 410, horizonY - 42);
+          ctx.quadraticCurveTo(ix - 220, horizonY - 115, ix + 40, horizonY);
+          ctx.closePath();
+          ctx.fill();
+
+          // Closer island silhouette with cape and lighthouse
+          ctx.fillStyle = '#382240';
+          ctx.beginPath();
+          ctx.moveTo(ix + 160, horizonY);
+          ctx.quadraticCurveTo(ix + 290, horizonY - 62, ix + 410, horizonY - 48);
+          ctx.quadraticCurveTo(ix + 510, horizonY - 38, ix + 565, horizonY - 26);
+          ctx.lineTo(ix + 595, horizonY);
+          ctx.closePath();
+          ctx.fill();
+
+          // Lighthouse tower at cape (ix + 545)
+          const lx = ix + 545;
+          const ly = horizonY - 24;
+          ctx.fillStyle = '#e8cbb1';
+          ctx.beginPath();
+          ctx.moveTo(lx - 6, ly + 4);
+          ctx.lineTo(lx - 3.5, ly - 32);
+          ctx.lineTo(lx + 3.5, ly - 32);
+          ctx.lineTo(lx + 6, ly + 4);
+          ctx.closePath();
+          ctx.fill();
+
+          // Red lighthouse stripe
+          ctx.fillStyle = '#b84248';
+          ctx.fillRect(lx - 4.5, ly - 18, 9, 9);
+
+          // Lantern room
+          ctx.fillStyle = '#26152b';
+          ctx.fillRect(lx - 5, ly - 38, 10, 6);
+          ctx.beginPath();
+          ctx.moveTo(lx - 6.5, ly - 32);
+          ctx.lineTo(lx, ly - 43);
+          ctx.lineTo(lx + 6.5, ly - 32);
+          ctx.closePath();
+          ctx.fill();
+
+          // Sweeping lighthouse light beam
+          const beamPulse = 0.55 + 0.45 * Math.sin(time * 2.4);
+          ctx.save();
+          ctx.globalAlpha = beamPulse * 0.45;
+          const beamGrad = ctx.createLinearGradient(lx, ly - 35, lx - 220, ly - 65);
+          beamGrad.addColorStop(0, 'rgba(255, 245, 180, 0.95)');
+          beamGrad.addColorStop(1, 'rgba(255, 220, 120, 0)');
+          ctx.fillStyle = beamGrad;
+          ctx.beginPath();
+          ctx.moveTo(lx, ly - 35);
+          ctx.lineTo(lx - 230, ly - 68);
+          ctx.lineTo(lx - 230, ly - 18);
+          ctx.closePath();
+          ctx.fill();
+
+          const beamGradR = ctx.createLinearGradient(lx, ly - 35, lx + 220, ly - 65);
+          beamGradR.addColorStop(0, 'rgba(255, 245, 180, 0.95)');
+          beamGradR.addColorStop(1, 'rgba(255, 220, 120, 0)');
+          ctx.fillStyle = beamGradR;
+          ctx.beginPath();
+          ctx.moveTo(lx, ly - 35);
+          ctx.lineTo(lx + 230, ly - 68);
+          ctx.lineTo(lx + 230, ly - 18);
+          ctx.closePath();
+          ctx.fill();
+          ctx.restore();
+
+          // Distant sailboat silhouette
+          const sx = ix - 110;
+          const sy = horizonY - 2;
+          ctx.fillStyle = '#2d1a36';
+          ctx.beginPath();
+          ctx.moveTo(sx - 14, sy);
+          ctx.lineTo(sx + 14, sy);
+          ctx.lineTo(sx + 10, sy + 4);
+          ctx.lineTo(sx - 10, sy + 4);
+          ctx.closePath();
+          ctx.fill();
+
+          ctx.fillStyle = '#f2b880';
+          ctx.beginPath();
+          ctx.moveTo(sx, sy - 2);
+          ctx.lineTo(sx, sy - 28);
+          ctx.lineTo(sx + 12, sy - 4);
+          ctx.closePath();
+          ctx.fill();
+        }
+
+        // Ocean surface between horizonY (-178) and boardwalk top (-42)
+        const seaTop = horizonY;
+        const seaBottom = -42;
+        const seaGrad = ctx.createLinearGradient(0, seaTop, 0, seaBottom);
+        seaGrad.addColorStop(0.0, '#d96e48');
+        seaGrad.addColorStop(0.22, '#9e4458');
+        seaGrad.addColorStop(0.55, '#4c2c56');
+        seaGrad.addColorStop(1.0, '#221c3d');
+        ctx.fillStyle = seaGrad;
+        ctx.fillRect(viewLeft, seaTop, viewRight - viewLeft, seaBottom - seaTop);
+
+        // Sun reflection column on water around sunX = -260
+        const sunX = -260;
+        ctx.fillStyle = 'rgba(255, 224, 125, 0.68)';
+        for (let i = 0; i < 24; i++) {
+          const t = i / 24;
+          const ry = seaTop + 4 + t * (seaBottom - seaTop - 10);
+          const waveShift = Math.sin(time * 3.5 + i * 1.3) * (6 + t * 18);
+          const rw = (22 + t * 75) * (0.75 + 0.25 * Math.cos(time * 4.2 + i * 2.1));
+          const rh = 1.6 + t * 2.2;
+          ctx.beginPath();
+          ctx.roundRect(sunX + waveShift - rw * 0.5, ry, rw, rh, rh * 0.5);
+          ctx.fill();
+        }
+
+        // Rolling parallax wave crests & golden sparkles across the sea
+        const totalW = viewRight - viewLeft;
+        for (let i = 0; i < seaSparkles.length; i++) {
+          const sp = seaSparkles[i];
+          const depth = sp.yRatio;
+          const wy = seaTop + 6 + depth * (seaBottom - seaTop - 12);
+          const scrollSpeed = 25 + depth * 95;
+          const wx = ((sp.xRatio * totalW - time * scrollSpeed) % totalW + totalW) % totalW + viewLeft;
+          const twinkle = Math.sin(time * 5 + sp.phase);
+          if (twinkle > -0.2) {
+            ctx.fillStyle = `rgba(255, 232, 156, ${(twinkle + 0.2) * 0.55})`;
+            ctx.fillRect(wx, wy, (10 + depth * 22) * sp.size, 1.5 + depth * 1.2);
+          }
+        }
+      }
+
+      function drawPromenadeAndBoardwalk(time) {
+        const scrollX = time * BIKE.groundSpeed;
+
+        // 1. Vintage Wrought-Iron Coastal Lamp Posts (spaced every 580 units)
+        const lampSpacing = 580;
+        const firstLamp = Math.floor((viewLeft + scrollX) / lampSpacing) * lampSpacing;
+        for (let worldX = firstLamp; worldX <= viewRight + scrollX + lampSpacing; worldX += lampSpacing) {
+          const lx = worldX - scrollX;
+          drawCoastalLampPost(lx, -34, time);
+        }
+
+        // 2. Wooden Seawall Promenade Railing & Nautical Rope Swags (spaced every 165 units)
+        const postSpacing = 165;
+        const firstPost = Math.floor((viewLeft + scrollX) / postSpacing) * postSpacing;
+
+        // Continuous upper & lower horizontal rails
+        ctx.fillStyle = '#33202a';
+        ctx.fillRect(viewLeft, -96, viewRight - viewLeft, 6);
+        ctx.fillStyle = '#5c3842';
+        ctx.fillRect(viewLeft, -96, viewRight - viewLeft, 2);
+
+        ctx.fillStyle = '#2d1c26';
+        ctx.fillRect(viewLeft, -62, viewRight - viewLeft, 5);
+
+        // Nautical rope swags & vertical wooden bollards
+        for (let worldX = firstPost - postSpacing; worldX <= viewRight + scrollX + postSpacing; worldX += postSpacing) {
+          const px = worldX - scrollX;
+          const nextPx = px + postSpacing;
+
+          // Hanging rope swag between posts
+          ctx.strokeStyle = '#7d5646';
+          ctx.lineWidth = 3.5;
+          ctx.beginPath();
+          ctx.moveTo(px, -86);
+          ctx.quadraticCurveTo((px + nextPx) * 0.5, -58, nextPx, -86);
+          ctx.stroke();
+
+          // Wooden bollard post
+          ctx.fillStyle = '#3d252e';
+          ctx.beginPath();
+          ctx.roundRect(px - 7, -106, 14, 74, 3);
+          ctx.fill();
+
+          // Sunlit left bevel on post
+          ctx.fillStyle = '#754848';
+          ctx.fillRect(px - 7, -104, 3.5, 70);
+
+          // White painted decorative cap on bollard
+          ctx.fillStyle = '#e8d0b8';
+          ctx.beginPath();
+          ctx.roundRect(px - 8.5, -109, 17, 6, 2);
+          ctx.fill();
+        }
+
+        // 3. Stone Curb & Timber Boardwalk Decking (y = -34 down to viewBottom)
+        const deckTop = -34;
+        ctx.fillStyle = '#4a3136';
+        ctx.fillRect(viewLeft, deckTop, viewRight - viewLeft, 9);
+        ctx.fillStyle = '#875a52';
+        ctx.fillRect(viewLeft, deckTop, viewRight - viewLeft, 2.5);
+
+        // Warm weathered cedar boardwalk surface gradient
+        const deckGrad = ctx.createLinearGradient(0, deckTop + 9, 0, viewBottom);
+        deckGrad.addColorStop(0.0, '#6e453b');
+        deckGrad.addColorStop(0.18, '#593730');
+        deckGrad.addColorStop(0.55, '#3d2424');
+        deckGrad.addColorStop(1.0, '#221419');
+        ctx.fillStyle = deckGrad;
+        ctx.fillRect(viewLeft, deckTop + 9, viewRight - viewLeft, viewBottom - (deckTop + 9));
+
+        // Individual perspective boardwalk planks & nail heads scrolling at exact groundSpeed
+        const plankWidth = 46;
+        const firstPlank = Math.floor((viewLeft + scrollX) / plankWidth) * plankWidth;
+        const slant = 38; // Perspective slant towards foreground
+
+        ctx.lineWidth = 2;
+        for (let worldX = firstPlank - plankWidth * 2; worldX <= viewRight + scrollX + plankWidth * 2; worldX += plankWidth) {
+          const xTop = worldX - scrollX;
+          const xBot = xTop - slant;
+
+          // Subtle tonal variation per plank
+          const plankIndex = Math.abs(Math.round(worldX / plankWidth));
+          if (plankIndex % 3 === 0) {
+            ctx.fillStyle = 'rgba(255, 190, 130, 0.045)';
+            ctx.beginPath();
+            ctx.moveTo(xTop, deckTop + 9);
+            ctx.lineTo(xTop + plankWidth, deckTop + 9);
+            ctx.lineTo(xBot + plankWidth, viewBottom);
+            ctx.lineTo(xBot, viewBottom);
+            ctx.closePath();
+            ctx.fill();
+          }
+
+          // Dark gap between planks
+          ctx.strokeStyle = 'rgba(22, 10, 14, 0.65)';
+          ctx.beginPath();
+          ctx.moveTo(xTop, deckTop + 9);
+          ctx.lineTo(xBot, viewBottom);
+          ctx.stroke();
+
+          // Warm specular highlight on plank edge
+          ctx.strokeStyle = 'rgba(235, 165, 115, 0.16)';
+          ctx.beginPath();
+          ctx.moveTo(xTop + 2, deckTop + 9);
+          ctx.lineTo(xBot + 2, viewBottom);
+          ctx.stroke();
+
+          // Brass deck nails along the plank
+          ctx.fillStyle = 'rgba(35, 18, 20, 0.7)';
+          ctx.beginPath();
+          ctx.arc(xTop + 10, -14, 1.8, 0, TAU);
+          ctx.arc(xTop + plankWidth - 12, -14, 1.8, 0, TAU);
+          ctx.arc(xTop - 2, 22, 2.1, 0, TAU);
+          ctx.arc(xTop + plankWidth - 24, 22, 2.1, 0, TAU);
+          ctx.fill();
+        }
+
+        // Subtle sunlit horizon sheen along the wheel track (y = 0)
+        const trackGrad = ctx.createLinearGradient(0, -12, 0, 18);
+        trackGrad.addColorStop(0, 'rgba(255, 195, 120, 0)');
+        trackGrad.addColorStop(0.5, 'rgba(255, 195, 120, 0.09)');
+        trackGrad.addColorStop(1, 'rgba(255, 195, 120, 0)');
+        ctx.fillStyle = trackGrad;
+        ctx.fillRect(viewLeft, -12, viewRight - viewLeft, 30);
+      }
+
+      function drawCoastalLampPost(x, baseY, time) {
+        const lampTopY = baseY - 310;
+        const lanternX = x + 34;
+        const lanternY = lampTopY + 18;
+
+        // Warm ambient light halo around lantern
+        const flicker = 0.94 + 0.06 * Math.sin(time * 9 + x);
+        const halo = ctx.createRadialGradient(lanternX, lanternY, 4, lanternX, lanternY, 115);
+        halo.addColorStop(0, `rgba(255, 240, 175, ${0.65 * flicker})`);
+        halo.addColorStop(0.35, `rgba(255, 185, 85, ${0.26 * flicker})`);
+        halo.addColorStop(1, 'rgba(255, 150, 60, 0)');
+        ctx.fillStyle = halo;
+        ctx.beginPath();
+        ctx.arc(lanternX, lanternY, 115, 0, TAU);
+        ctx.fill();
+
+        // Cast-iron fluted base & column
+        ctx.fillStyle = '#231c2b';
+        ctx.beginPath();
+        ctx.roundRect(x - 11, baseY - 38, 22, 38, 4);
+        ctx.roundRect(x - 7, baseY - 95, 14, 58, 3);
+        ctx.fill();
+
+        ctx.fillRect(x - 4, lampTopY, 8, 215);
+
+        // Decorative crossbars
+        ctx.fillRect(x - 14, lampTopY + 42, 28, 4);
+
+        // Curved gooseneck arm holding the lantern
+        ctx.strokeStyle = '#231c2b';
+        ctx.lineWidth = 4.5;
+        ctx.beginPath();
+        ctx.moveTo(x, lampTopY + 14);
+        ctx.bezierCurveTo(x, lampTopY - 22, lanternX, lampTopY - 20, lanternX, lanternY - 16);
+        ctx.stroke();
+
+        // Ornamental scroll inside curve
+        ctx.lineWidth = 2.2;
+        ctx.beginPath();
+        ctx.moveTo(x + 3, lampTopY + 26);
+        ctx.quadraticCurveTo(x + 18, lampTopY + 4, lanternX - 8, lampTopY - 4);
+        ctx.stroke();
+
+        // Lantern housing & warm glowing glass panes
+        ctx.fillStyle = '#fff5bd';
+        ctx.beginPath();
+        ctx.moveTo(lanternX - 11, lanternY - 8);
+        ctx.lineTo(lanternX + 11, lanternY - 8);
+        ctx.lineTo(lanternX + 8, lanternY + 14);
+        ctx.lineTo(lanternX - 8, lanternY + 14);
+        ctx.closePath();
+        ctx.fill();
+
+        ctx.strokeStyle = '#231c2b';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        // Lantern roof cap
+        ctx.fillStyle = '#231c2b';
+        ctx.beginPath();
+        ctx.moveTo(lanternX - 15, lanternY - 8);
+        ctx.lineTo(lanternX, lanternY - 19);
+        ctx.lineTo(lanternX + 15, lanternY - 8);
+        ctx.closePath();
+        ctx.fill();
+      }
+
+      function drawGroundShadows(bobY) {
+        ctx.save();
+
+        // Long warm sunset shadow beneath the whole bicycle
+        const mainShadow = ctx.createRadialGradient(0, 6, 15, 0, 6, 255);
+        mainShadow.addColorStop(0, 'rgba(20, 8, 14, 0.55)');
+        mainShadow.addColorStop(0.65, 'rgba(20, 8, 14, 0.28)');
+        mainShadow.addColorStop(1, 'rgba(20, 8, 14, 0)');
+        ctx.fillStyle = mainShadow;
+        ctx.beginPath();
+        ctx.ellipse(4, 6, 255, 16 - bobY * 0.15, 0, 0, TAU);
+        ctx.fill();
+
+        // Crisp tire contact shadows
+        for (const axleX of [BIKE.rearAxle.x, BIKE.frontAxle.x]) {
+          ctx.fillStyle = 'rgba(15, 5, 10, 0.72)';
+          ctx.beginPath();
+          ctx.ellipse(axleX, 2, 46, 6.5, 0, 0, TAU);
+          ctx.fill();
+        }
+
+        ctx.restore();
+      }
+
+      function drawWheel(cx, cy, wheelAngle) {
+        const R = BIKE.wheelRadius;
+        const rimR = BIKE.rimRadius;
+
+        ctx.save();
+        ctx.translate(cx, cy);
+
+        // 1. Rotating wire spokes (24 spokes in two laced cross-layers)
+        const numSpokes = 24;
+        ctx.lineWidth = 1.35;
+        for (let i = 0; i < numSpokes; i++) {
+          const a = wheelAngle + (i / numSpokes) * TAU;
+          // Subtle golden sunset glint when spokes pass through sun reflection angle
+          const glint = Math.pow(Math.max(0, Math.cos(a * 2 - 0.8)), 6);
+          ctx.strokeStyle = glint > 0.35
+            ? `rgba(255, 236, 175, ${0.55 + glint * 0.45})`
+            : 'rgba(220, 212, 205, 0.48)';
+
+          const hubOffset = (i % 2 === 0 ? 1 : -1) * 0.22;
+          ctx.beginPath();
+          ctx.moveTo(Math.cos(a + hubOffset) * 11, Math.sin(a + hubOffset) * 11);
+          ctx.lineTo(Math.cos(a) * (rimR - 4), Math.sin(a) * (rimR - 4));
+          ctx.stroke();
+
+          // Brass spoke nipple at rim
+          ctx.fillStyle = '#d4a259';
+          ctx.beginPath();
+          ctx.arc(Math.cos(a) * (rimR - 4), Math.sin(a) * (rimR - 4), 1.6, 0, TAU);
+          ctx.fill();
+        }
+
+        // Brass Schrader valve stem rotating with wheel
+        const valveA = wheelAngle + 0.5;
+        ctx.strokeStyle = '#d9a74a';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(Math.cos(valveA) * (rimR - 3), Math.sin(valveA) * (rimR - 3));
+        ctx.lineTo(Math.cos(valveA) * (rimR - 14), Math.sin(valveA) * (rimR - 14));
+        ctx.stroke();
+
+        // Revolving motion blur arcs inside wheel
+        ctx.strokeStyle = 'rgba(255, 230, 170, 0.14)';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(0, 0, rimR * 0.68, wheelAngle * 1.2, wheelAngle * 1.2 + 0.9);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(0, 0, rimR * 0.45, wheelAngle * 1.2 + Math.PI, wheelAngle * 1.2 + Math.PI + 0.9);
+        ctx.stroke();
+
+        // 2. Chrome Alloy Rim
+        ctx.strokeStyle = '#d8d5d0';
+        ctx.lineWidth = 5;
+        ctx.beginPath();
+        ctx.arc(0, 0, rimR - 2, 0, TAU);
+        ctx.stroke();
+
+        // 3. Vintage Cream / Whitewall Sidewall
+        ctx.strokeStyle = '#f5e8cf';
+        ctx.lineWidth = 7.5;
+        ctx.beginPath();
+        ctx.arc(0, 0, rimR + 3.5, 0, TAU);
+        ctx.stroke();
+
+        // 4. Outer Charcoal Rubber Tire Tread
+        ctx.strokeStyle = '#242028';
+        ctx.lineWidth = 7.5;
+        ctx.beginPath();
+        ctx.arc(0, 0, R - 3.5, 0, TAU);
+        ctx.stroke();
+
+        // Subtle warm highlight along upper tire tread
+        ctx.strokeStyle = 'rgba(255, 195, 130, 0.25)';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(0, 0, R - 1, -Math.PI * 0.85, -Math.PI * 0.15);
+        ctx.stroke();
+
+        // 5. Center Chrome Hub
+        ctx.fillStyle = '#b8b4b0';
+        ctx.beginPath();
+        ctx.arc(0, 0, 12, 0, TAU);
+        ctx.fill();
+
+        ctx.fillStyle = '#453e4a';
+        ctx.beginPath();
+        ctx.arc(0, 0, 6.5, 0, TAU);
+        ctx.fill();
+
+        ctx.fillStyle = '#fff2c2';
+        ctx.beginPath();
+        ctx.arc(-2.5, -2.5, 2.5, 0, TAU);
+        ctx.fill();
+
+        ctx.restore();
+      }
+
+      function drawBicycleFrameAndDrivetrain(time, crankAngle, bobY) {
+        const rear = BIKE.rearAxle;
+        const front = BIKE.frontAxle;
+        const bb = { x: BIKE.bb.x, y: BIKE.bb.y + bobY * 0.2 };
+        const seatC = { x: BIKE.seatCluster.x, y: BIKE.seatCluster.y + bobY * 0.35 };
+        const headB = { x: BIKE.headBottom.x, y: BIKE.headBottom.y + bobY * 0.25 };
+        const headT = { x: BIKE.headTop.x, y: BIKE.headTop.y + bobY * 0.25 };
+        const stemT = { x: BIKE.stemTop.x, y: BIKE.stemTop.y + bobY * 0.25 };
+        const barC = { x: BIKE.barClamp.x, y: BIKE.barClamp.y + bobY * 0.25 };
+
+        // 1. Rear & Front Fender Stays (chrome wire struts)
+        ctx.strokeStyle = '#c9c4be';
+        ctx.lineWidth = 2.4;
+        ctx.lineCap = 'round';
+        // Rear stays
+        const fR = BIKE.wheelRadius + 9;
+        ctx.beginPath();
+        ctx.moveTo(rear.x, rear.y);
+        ctx.lineTo(rear.x + Math.cos(-2.45) * fR, rear.y + Math.sin(-2.45) * fR);
+        ctx.moveTo(rear.x, rear.y);
+        ctx.lineTo(rear.x + Math.cos(-1.75) * fR, rear.y + Math.sin(-1.75) * fR);
+        // Front stays
+        ctx.moveTo(front.x, front.y);
+        ctx.lineTo(front.x + Math.cos(-2.4) * fR, front.y + Math.sin(-2.4) * fR);
+        ctx.moveTo(front.x, front.y);
+        ctx.lineTo(front.x + Math.cos(-1.8) * fR, front.y + Math.sin(-1.8) * fR);
+        ctx.stroke();
+
+        // 2. Vintage Rear Luggage Rack over back wheel
+        ctx.strokeStyle = '#2d7a78';
+        ctx.lineWidth = 5;
+        ctx.beginPath();
+        ctx.moveTo(seatC.x + 2, seatC.y + 18);
+        ctx.lineTo(rear.x - 16, seatC.y + 18);
+        ctx.lineTo(rear.x, rear.y);
+        ctx.stroke();
+
+        // 3. Roller Chain & Rear Sprocket
+        const cogR = BIKE.cogRadius;
+        const ringR = BIKE.chainringRadius;
+
+        // Rear cog
+        ctx.fillStyle = '#787276';
+        ctx.beginPath();
+        ctx.arc(rear.x, rear.y, cogR, 0, TAU);
+        ctx.fill();
+
+        // Upper & lower chain tangent paths
+        const chainAngle = Math.atan2(bb.y - rear.y, bb.x - rear.x);
+        const topStart = { x: rear.x, y: rear.y - cogR };
+        const topEnd = { x: bb.x, y: bb.y - ringR };
+        const botStart = { x: bb.x, y: bb.y + ringR };
+        const botEnd = { x: rear.x, y: rear.y + cogR };
+
+        // Base chain line
+        ctx.strokeStyle = '#383238';
+        ctx.lineWidth = 3.8;
+        ctx.beginPath();
+        ctx.moveTo(topStart.x, topStart.y);
+        ctx.lineTo(topEnd.x, topEnd.y);
+        ctx.arc(bb.x, bb.y, ringR, -Math.PI * 0.5, Math.PI * 0.5);
+        ctx.lineTo(botEnd.x, botEnd.y);
+        ctx.arc(rear.x, rear.y, cogR, Math.PI * 0.5, -Math.PI * 0.5);
+        ctx.closePath();
+        ctx.stroke();
+
+        // Animated brass/steel roller links along chain
+        ctx.save();
+        ctx.strokeStyle = '#b89b72';
+        ctx.lineWidth = 2.2;
+        ctx.setLineDash([4, 5]);
+        ctx.lineDashOffset = -(crankAngle * ringR);
+        ctx.beginPath();
+        ctx.moveTo(topStart.x, topStart.y);
+        ctx.lineTo(topEnd.x, topEnd.y);
+        ctx.arc(bb.x, bb.y, ringR, -Math.PI * 0.5, Math.PI * 0.5);
+        ctx.lineTo(botEnd.x, botEnd.y);
+        ctx.arc(rear.x, rear.y, cogR, Math.PI * 0.5, -Math.PI * 0.5);
+        ctx.stroke();
+        ctx.restore();
+
+        // 4. Painted Ducktail Fenders (Teal with Cream Pinstripe)
+        ctx.lineCap = 'round';
+        // Rear fender
+        ctx.strokeStyle = '#1e5e5c';
+        ctx.lineWidth = 10;
+        ctx.beginPath();
+        ctx.arc(rear.x, rear.y, fR, -Math.PI * 0.92, -Math.PI * 0.08);
+        ctx.stroke();
+        ctx.strokeStyle = '#f5e4c3';
+        ctx.lineWidth = 2.2;
+        ctx.beginPath();
+        ctx.arc(rear.x, rear.y, fR + 1.5, -Math.PI * 0.90, -Math.PI * 0.10);
+        ctx.stroke();
+
+        // Front fender
+        ctx.strokeStyle = '#1e5e5c';
+        ctx.lineWidth = 10;
+        ctx.beginPath();
+        ctx.arc(front.x, front.y, fR, -Math.PI * 0.85, -Math.PI * 0.14);
+        ctx.stroke();
+        ctx.strokeStyle = '#f5e4c3';
+        ctx.lineWidth = 2.2;
+        ctx.beginPath();
+        ctx.arc(front.x, front.y, fR + 1.5, -Math.PI * 0.83, -Math.PI * 0.16);
+        ctx.stroke();
+
+        // 5. Chrome Seat Post & Handlebar Quill Stem
+        ctx.strokeStyle = '#d9d5d0';
+        ctx.lineWidth = 7;
+        ctx.beginPath();
+        ctx.moveTo(seatC.x, seatC.y);
+        ctx.lineTo(BIKE.saddlePos.x, BIKE.saddlePos.y + bobY * 0.65);
+        ctx.stroke();
+
+        // Far (Left) handlebar sweep (drawn behind stem/basket)
+        ctx.strokeStyle = '#b8b2ac';
+        ctx.lineWidth = 6.5;
+        ctx.beginPath();
+        ctx.moveTo(barC.x, barC.y);
+        ctx.bezierCurveTo(barC.x + 12, barC.y - 16, BIKE.gripFar.x + 25, BIKE.gripFar.y - 6, BIKE.gripFar.x, BIKE.gripFar.y + bobY * 0.25);
+        ctx.stroke();
+
+        // Far leather grip
+        drawLeatherGrip(BIKE.gripFar.x, BIKE.gripFar.y + bobY * 0.25, -0.1);
+
+        // Quill stem
+        ctx.strokeStyle = '#e0dcd6';
+        ctx.lineWidth = 7.5;
+        ctx.beginPath();
+        ctx.moveTo(headT.x, headT.y);
+        ctx.lineTo(stemT.x, stemT.y);
+        ctx.lineTo(barC.x, barC.y);
+        ctx.stroke();
+
+        // 6. Vintage Cruiser Tubular Steel Frame (Seafoam Teal with Warm Rim Highlight)
+        const drawTube = (pathFn, width) => {
+          ctx.lineCap = 'round';
+          ctx.lineJoin = 'round';
+          // Base dark shadow underside
+          ctx.strokeStyle = '#164544';
+          ctx.lineWidth = width;
+          ctx.beginPath();
+          pathFn();
+          ctx.stroke();
+
+          // Main seafoam teal enamel
+          ctx.strokeStyle = '#2d8582';
+          ctx.lineWidth = width - 2;
+          ctx.beginPath();
+          pathFn();
+          ctx.stroke();
+
+          // Golden sunset top highlight
+          ctx.save();
+          ctx.translate(0, -1.5);
+          ctx.strokeStyle = '#7cd1c4';
+          ctx.lineWidth = 2.2;
+          ctx.beginPath();
+          pathFn();
+          ctx.stroke();
+          ctx.restore();
+        };
+
+        // Chain stays & Seat stays
+        drawTube(() => {
+          ctx.moveTo(rear.x, rear.y);
+          ctx.lineTo(bb.x, bb.y);
+          ctx.moveTo(rear.x, rear.y);
+          ctx.lineTo(seatC.x, seatC.y);
+        }, 7.5);
+
+        // Down tube & Seat tube
+        drawTube(() => {
+          ctx.moveTo(bb.x, bb.y);
+          ctx.quadraticCurveTo(32, -148 + bobY * 0.22, headB.x, headB.y);
+          ctx.moveTo(bb.x, bb.y);
+          ctx.lineTo(seatC.x, seatC.y);
+        }, 10);
+
+        // Cantilever lower top bar (signature coastal cruiser curve)
+        drawTube(() => {
+          ctx.moveTo(seatC.x + 14, seatC.y + 38);
+          ctx.bezierCurveTo(-15, seatC.y + 34, 52, headB.y - 6, (headT.x + headB.x) * 0.5, (headT.y + headB.y) * 0.5);
+        }, 8.5);
+
+        // Arched upper top tube
+        drawTube(() => {
+          ctx.moveTo(seatC.x, seatC.y);
+          ctx.quadraticCurveTo(8, seatC.y - 34, headT.x, headT.y);
+        }, 10.5);
+
+        // Cream tank plate nestled between the twin top tubes
+        ctx.fillStyle = '#f7ebd2';
+        ctx.strokeStyle = '#c9a368';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(seatC.x + 18, seatC.y + 8);
+        ctx.quadraticCurveTo(12, seatC.y - 20, headT.x - 10, headT.y + 8);
+        ctx.lineTo(headT.x - 4, headT.y + 22);
+        ctx.quadraticCurveTo(18, seatC.y + 18, seatC.x + 22, seatC.y + 28);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+
+        // Head tube with cream headbadge
+        drawTube(() => {
+          ctx.moveTo(headT.x, headT.y);
+          ctx.lineTo(headB.x, headB.y);
+        }, 12.5);
+
+        // Front Fork with graceful curved rake at bottom
+        drawTube(() => {
+          ctx.moveTo(headB.x, headB.y);
+          ctx.bezierCurveTo(headB.x + 18, headB.y + 48, front.x - 24, front.y - 22, front.x, front.y);
+        }, 9.5);
+
+        // 7. Vintage Chrome Headlamp & Warm Light Beam
+        const lampX = headT.x + 22;
+        const lampY = headT.y + 14;
+        const beamGrad = ctx.createLinearGradient(lampX + 10, lampY, lampX + 260, lampY + 75);
+        beamGrad.addColorStop(0, 'rgba(255, 244, 180, 0.42)');
+        beamGrad.addColorStop(1, 'rgba(255, 220, 120, 0)');
+        ctx.fillStyle = beamGrad;
+        ctx.beginPath();
+        ctx.moveTo(lampX + 8, lampY - 4);
+        ctx.lineTo(lampX + 275, lampY + 25);
+        ctx.lineTo(lampX + 255, lampY + 115);
+        ctx.lineTo(lampX + 6, lampY + 6);
+        ctx.closePath();
+        ctx.fill();
+
+        ctx.fillStyle = '#d9d5d0';
+        ctx.beginPath();
+        ctx.ellipse(lampX, lampY, 11, 8, 0.15, 0, TAU);
+        ctx.fill();
+        ctx.fillStyle = '#fff8c4';
+        ctx.beginPath();
+        ctx.ellipse(lampX + 9, lampY + 1, 3, 7, 0.15, 0, TAU);
+        ctx.fill();
+
+        // 8. Woven Wicker Front Basket with a Freshly Caught Silver Fish!
+        drawWickerBasketAndFish(barC.x + 12, barC.y + 6, time);
+
+        // 9. Sprung Leather Cruiser Saddle
+        drawSprungSaddle(BIKE.saddlePos.x, BIKE.saddlePos.y + bobY * 0.72, bobY);
+
+        // 10. Crankset & Chainring Spider
+        ctx.save();
+        ctx.translate(bb.x, bb.y);
+        ctx.rotate(crankAngle);
+
+        // Outer chainring
+        ctx.strokeStyle = '#d8d4ce';
+        ctx.lineWidth = 4.5;
+        ctx.beginPath();
+        ctx.arc(0, 0, ringR, 0, TAU);
+        ctx.stroke();
+
+        // 5-star chainring spokes
+        ctx.lineWidth = 3.5;
+        for (let k = 0; k < 5; k++) {
+          const sa = (k / 5) * TAU;
+          ctx.beginPath();
+          ctx.moveTo(0, 0);
+          ctx.lineTo(Math.cos(sa) * (ringR - 2), Math.sin(sa) * (ringR - 2));
+          ctx.stroke();
+        }
+        ctx.restore();
+      }
+
+      function drawWickerBasketAndFish(bx, by, time) {
+        ctx.save();
+        ctx.translate(bx, by);
+
+        // Leather mounting straps around handlebar
+        ctx.strokeStyle = '#6e3d26';
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.moveTo(-12, -2);
+        ctx.lineTo(4, 6);
+        ctx.moveTo(-10, 12);
+        ctx.lineTo(6, 18);
+        ctx.stroke();
+
+        // Playful silver mackerel peeking out of the top of the basket
+        const tailWiggle = Math.sin(time * 9.5) * 0.14;
+        ctx.save();
+        ctx.translate(22, -4);
+        ctx.rotate(-0.35 + tailWiggle);
+
+        // Fish body
+        const fishGrad = ctx.createLinearGradient(-8, -10, 8, 12);
+        fishGrad.addColorStop(0, '#5a7d9a');
+        fishGrad.addColorStop(0.5, '#c8dce8');
+        fishGrad.addColorStop(1, '#f2f7fa');
+        ctx.fillStyle = fishGrad;
+        ctx.beginPath();
+        ctx.ellipse(0, 0, 9, 20, 0, 0, TAU);
+        ctx.fill();
+
+        // Forked silver tail fin sticking up
+        ctx.beginPath();
+        ctx.moveTo(0, -17);
+        ctx.lineTo(-11, -30);
+        ctx.lineTo(0, -24);
+        ctx.lineTo(11, -30);
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+
+        // Woven wicker basket trapezoid
+        const wGrad = ctx.createLinearGradient(0, 0, 42, 46);
+        wGrad.addColorStop(0, '#e0ac69');
+        wGrad.addColorStop(0.6, '#ba8242');
+        wGrad.addColorStop(1, '#7d5124');
+        ctx.fillStyle = wGrad;
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.lineTo(44, 3);
+        ctx.lineTo(36, 46);
+        ctx.lineTo(6, 44);
+        ctx.closePath();
+        ctx.fill();
+
+        // Cross-hatch wicker weave lines
+        ctx.strokeStyle = 'rgba(74, 42, 14, 0.45)';
+        ctx.lineWidth = 1.6;
+        for (let r = 8; r < 42; r += 8) {
+          ctx.beginPath();
+          ctx.moveTo(2, r);
+          ctx.lineTo(40 - r * 0.15, r + 2);
+          ctx.stroke();
+        }
+        for (let c = 8; c < 40; c += 8) {
+          ctx.beginPath();
+          ctx.moveTo(c, 2);
+          ctx.lineTo(c - 2, 44);
+          ctx.stroke();
+        }
+
+        // Rolled top rim of basket
+        ctx.strokeStyle = '#eab875';
+        ctx.lineWidth = 5.5;
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.moveTo(-2, 0);
+        ctx.lineTo(46, 3);
+        ctx.stroke();
+
+        ctx.restore();
+      }
+
+      function drawSprungSaddle(sx, sy, bobY) {
+        ctx.save();
+        ctx.translate(sx, sy);
+
+        // Twin rear chrome coil springs underneath saddle
+        ctx.strokeStyle = '#c8c2bc';
+        ctx.lineWidth = 2.6;
+        const springH = 16 + bobY * 0.25;
+        for (let s = 0; s < 4; s++) {
+          const y1 = 4 + (s / 4) * springH;
+          ctx.beginPath();
+          ctx.ellipse(-20, y1, 7, 2.3, 0, 0, TAU);
+          ctx.stroke();
+        }
+
+        // Under-saddle steel rails
+        ctx.strokeStyle = '#857e82';
+        ctx.lineWidth = 2.8;
+        ctx.beginPath();
+        ctx.moveTo(-18, 16);
+        ctx.lineTo(24, 4);
+        ctx.stroke();
+
+        // Molded honey-brown leather saddle body
+        const sadGrad = ctx.createLinearGradient(-34, -14, 28, 8);
+        sadGrad.addColorStop(0, '#a85a32');
+        sadGrad.addColorStop(0.5, '#7d3c1d');
+        sadGrad.addColorStop(1, '#4f220e');
+        ctx.fillStyle = sadGrad;
+        ctx.beginPath();
+        ctx.moveTo(-34, -4);
+        ctx.quadraticCurveTo(-36, -15, -14, -12);
+        ctx.quadraticCurveTo(10, -8, 32, -5);
+        ctx.quadraticCurveTo(36, 2, 24, 4);
+        ctx.quadraticCurveTo(-6, 4, -22, 10);
+        ctx.quadraticCurveTo(-34, 8, -34, -4);
+        ctx.closePath();
+        ctx.fill();
+
+        // Brass rivets along back edge of leather saddle
+        ctx.fillStyle = '#e8c170';
+        for (let r = 0; r < 4; r++) {
+          ctx.beginPath();
+          ctx.arc(-29 + r * 4, -2 + r * 2.2, 1.5, 0, TAU);
+          ctx.fill();
+        }
+
+        ctx.restore();
+      }
+
+      function drawLeatherGrip(gx, gy, angle) {
+        ctx.save();
+        ctx.translate(gx, gy);
+        ctx.rotate(angle);
+
+        ctx.fillStyle = '#73381c';
+        ctx.beginPath();
+        ctx.roundRect(-24, -5.5, 26, 11, 5);
+        ctx.fill();
+
+        // Ribbed leather rings
+        ctx.strokeStyle = '#47200d';
+        ctx.lineWidth = 1.5;
+        for (let i = -18; i <= -4; i += 4.5) {
+          ctx.beginPath();
+          ctx.moveTo(i, -5);
+          ctx.lineTo(i, 5);
+          ctx.stroke();
+        }
+
+        // Chrome end-cap
+        ctx.fillStyle = '#e0dcd5';
+        ctx.beginPath();
+        ctx.arc(-23, 0, 5, 0, TAU);
+        ctx.fill();
+
+        ctx.restore();
+      }
+
+      function drawNearHandlebarAndBell(bobY, time) {
+        const barC = { x: BIKE.barClamp.x, y: BIKE.barClamp.y + bobY * 0.25 };
+        const gripN = { x: BIKE.gripNear.x, y: BIKE.gripNear.y + bobY * 0.25 };
+
+        // Swept-back near chrome handlebar tube
+        ctx.strokeStyle = '#e6e2dc';
+        ctx.lineWidth = 7.5;
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.moveTo(barC.x, barC.y);
+        ctx.bezierCurveTo(barC.x + 8, barC.y + 8, gripN.x + 34, gripN.y - 2, gripN.x, gripN.y);
+        ctx.stroke();
+
+        // Vintage brass bell mounted near the curve
+        const bellX = gripN.x + 28;
+        const bellY = gripN.y - 9;
+        ctx.fillStyle = '#f2c15a';
+        ctx.strokeStyle = '#9c6e21';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.arc(bellX, bellY, 7.5, Math.PI, 0);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+
+        // Animated acoustic ring ripples when the bell chimes
+        for (let i = bellRipples.length - 1; i >= 0; i--) {
+          const rp = bellRipples[i];
+          const age = time - rp.start;
+          if (age > 0.9) {
+            bellRipples.splice(i, 1);
+            continue;
+          }
+          const prog = age / 0.9;
+          ctx.save();
+          ctx.strokeStyle = `rgba(255, 240, 165, ${(1 - prog) * 0.75})`;
+          ctx.lineWidth = 2 * (1 - prog * 0.5);
+          ctx.beginPath();
+          ctx.arc(bellX, bellY - 6, 8 + prog * 28, -Math.PI * 0.85, -Math.PI * 0.15);
+          ctx.stroke();
+          ctx.restore();
+        }
+
+        drawLeatherGrip(gripN.x, gripN.y, 0.08);
+      }
+
+      function drawCrankAndPedal(bbX, bbY, pedalX, pedalY, isNear) {
+        // Crank arm
+        ctx.strokeStyle = isNear ? '#dfdbd4' : '#9c9694';
+        ctx.lineWidth = isNear ? 7 : 6;
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.moveTo(bbX, bbY);
+        ctx.lineTo(pedalX, pedalY);
+        ctx.stroke();
+
+        // Horizontal rubber/metal block pedal
+        ctx.fillStyle = isNear ? '#2e2930' : '#1f1b21';
+        ctx.strokeStyle = isNear ? '#c9c3bc' : '#8a8480';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.roundRect(pedalX - 16, pedalY - 4.5, 32, 9, 3);
+        ctx.fill();
+        ctx.stroke();
+
+        // Amber pedal reflectors
+        ctx.fillStyle = '#f59b3d';
+        ctx.fillRect(pedalX - 13, pedalY - 2, 6, 4);
+        ctx.fillRect(pedalX + 7, pedalY - 2, 6, 4);
+      }
+
+      function drawPelicanLeg(hipX, hipY, pedalX, pedalY, pedalPhase, isNear) {
+        // The webbed foot rests on top of the pedal, while the ankle joint sits slightly above & behind
+        const footTilt = Math.sin(pedalPhase) * 0.22 - 0.06;
+        const ankleX = pedalX - Math.cos(footTilt) * 14;
+        const ankleY = pedalY - 12 - Math.sin(footTilt) * 8;
+
+        // Solve 2-bone IK: Thigh (L1 = 108) + Tibiotarsus/Shin (L2 = 112), bending knee forward (bendDir = -1)
+        const ik = solveIK2Bone(hipX, hipY, ankleX, ankleY, 108, 112, -1);
+
+        // 1. Feathered Upper Thigh (drumstick plumage)
+        ctx.save();
+        ctx.strokeStyle = isNear ? '#f5efe6' : '#cfc5bc';
+        ctx.lineWidth = 24;
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.moveTo(hipX, hipY);
+        ctx.lineTo(lerp(hipX, ik.bx, 0.58), lerp(hipY, ik.by, 0.58));
+        ctx.stroke();
+
+        // 2. Scaly Golden-Orange Lower Thigh & Shin
+        const legColor = isNear ? '#f27d29' : '#c95f18';
+        const legHighlight = isNear ? '#ffa94d' : '#db7a2e';
+
+        ctx.strokeStyle = legColor;
+        ctx.lineWidth = 10.5;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        ctx.beginPath();
+        ctx.moveTo(lerp(hipX, ik.bx, 0.45), lerp(hipY, ik.by, 0.45));
+        ctx.lineTo(ik.bx, ik.by);
+        ctx.lineTo(ik.cx, ik.cy);
+        ctx.stroke();
+
+        // Warm highlight along front edge of leg
+        ctx.strokeStyle = legHighlight;
+        ctx.lineWidth = 3.2;
+        ctx.beginPath();
+        ctx.moveTo(lerp(hipX, ik.bx, 0.5) + 2, lerp(hipY, ik.by, 0.5));
+        ctx.lineTo(ik.bx + 2, ik.by);
+        ctx.lineTo(ik.cx + 1.5, ik.cy);
+        ctx.stroke();
+
+        // Knobby bird knee joint
+        ctx.fillStyle = legColor;
+        ctx.beginPath();
+        ctx.arc(ik.bx, ik.by, 6.8, 0, TAU);
+        ctx.fill();
+
+        // 3. Large Webbed Pelican Foot planted on the pedal
+        ctx.translate(ik.cx, ik.cy);
+        ctx.rotate(footTilt);
+
+        ctx.fillStyle = legColor;
+        ctx.strokeStyle = isNear ? '#bf5311' : '#963e09';
+        ctx.lineWidth = 1.8;
+
+        ctx.beginPath();
+        ctx.moveTo(-4, 0);
+        // Back hallux toe
+        ctx.lineTo(-14, 10);
+        ctx.lineTo(-4, 11);
+        // Webbed front toes draping over the pedal
+        ctx.lineTo(28, 13);
+        ctx.quadraticCurveTo(36, 9, 32, 4);
+        ctx.quadraticCurveTo(22, 2, 4, -2);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+
+        // Toe ridge lines across webbing
+        ctx.beginPath();
+        ctx.moveTo(0, 4);
+        ctx.lineTo(29, 8);
+        ctx.moveTo(0, 7);
+        ctx.lineTo(25, 11);
+        ctx.stroke();
+
+        ctx.restore();
+      }
+
+      function drawPelicanWing(shoulderX, shoulderY, gripX, gripY, isNear, time) {
+        // Solve 2-bone IK for wing-arm (Humerus L1 = 82, Radius/Ulna L2 = 88, elbow droops down: bendDir = +1)
+        const ik = solveIK2Bone(shoulderX, shoulderY, gripX, gripY, 82, 88, 1);
+
+        const baseWhite = isNear ? '#fdf9f2' : '#d9d0c7';
+        const covertGrey = isNear ? '#6b7785' : '#505966';
+        const primaryDark = isNear ? '#37404d' : '#282f38';
+        const outlineCol = '#2a232e';
+
+        ctx.save();
+
+        // 1. Forearm & Secondary Flight Feathers (Elbow -> Handlebar Grip)
+        ctx.fillStyle = covertGrey;
+        ctx.strokeStyle = outlineCol;
+        ctx.lineWidth = 2.2;
+        ctx.beginPath();
+        ctx.moveTo(ik.bx - 8, ik.by - 8);
+        ctx.quadraticCurveTo(
+          (ik.bx + ik.cx) * 0.5 - 6,
+          (ik.by + ik.cy) * 0.5 + 26,
+          ik.cx - 4,
+          ik.cy + 8
+        );
+        ctx.lineTo(ik.cx + 6, ik.cy - 5);
+        ctx.quadraticCurveTo(
+          (ik.bx + ik.cx) * 0.5 + 4,
+          (ik.by + ik.cy) * 0.5 - 6,
+          ik.bx + 8,
+          ik.by - 10
+        );
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+
+        // Layered secondary feather scallops along lower edge of forearm
+        ctx.strokeStyle = isNear ? '#98a6b5' : '#6e7b8a';
+        ctx.lineWidth = 1.6;
+        for (let f = 1; f <= 4; f++) {
+          const t = f / 5;
+          const fx = lerp(ik.bx, ik.cx, t);
+          const fy = lerp(ik.by, ik.cy, t);
+          ctx.beginPath();
+          ctx.moveTo(fx - 2, fy - 2);
+          ctx.lineTo(fx - 6, fy + 11 - f * 1.4);
+          ctx.stroke();
+        }
+
+        // 2. Upper Wing Coverts (Shoulder -> Elbow)
+        const humGrad = ctx.createLinearGradient(shoulderX, shoulderY - 20, ik.bx, ik.by + 20);
+        humGrad.addColorStop(0, baseWhite);
+        humGrad.addColorStop(0.75, baseWhite);
+        humGrad.addColorStop(1, isNear ? '#e3dad0' : '#c4bab0');
+
+        ctx.fillStyle = humGrad;
+        ctx.strokeStyle = outlineCol;
+        ctx.lineWidth = 2.2;
+        ctx.beginPath();
+        ctx.moveTo(shoulderX - 18, shoulderY - 12);
+        ctx.bezierCurveTo(
+          shoulderX - 24,
+          shoulderY + 26,
+          ik.bx - 22,
+          ik.by + 22,
+          ik.bx + 6,
+          ik.by + 12
+        );
+        ctx.quadraticCurveTo(ik.bx + 16, ik.by - 4, ik.bx + 4, ik.by - 14);
+        ctx.quadraticCurveTo(
+          (shoulderX + ik.bx) * 0.5 + 10,
+          (shoulderY + ik.by) * 0.5 - 16,
+          shoulderX + 12,
+          shoulderY - 16
+        );
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+
+        // 3. Primary Wingtip Feathers wrapping around the handlebar grip
+        ctx.translate(ik.cx, ik.cy);
+        const fingerTwitch = isNear ? Math.sin(time * 4.5) * 0.04 : 0;
+        ctx.rotate(fingerTwitch);
+
+        ctx.fillStyle = primaryDark;
+        ctx.strokeStyle = outlineCol;
+        ctx.lineWidth = 2;
+        for (let p = 0; p < 3; p++) {
+          ctx.beginPath();
+          ctx.ellipse(3 - p * 3.5, -2 + p * 3.2, 11, 4.2, 0.25 + p * 0.18, 0, TAU);
+          ctx.fill();
+          ctx.stroke();
+        }
+
+        ctx.restore();
+      }
+
+      function drawPelicanBodyAndHead(time, crankAngle, bobY) {
+        const pitch = Math.sin(crankAngle * 2) * 0.024;
+        const hipCenter = { x: -92, y: -282 + bobY };
+
+        ctx.save();
+        ctx.translate(hipCenter.x, hipCenter.y);
+        ctx.rotate(pitch);
+
+        // 1. Jaunty Upturned Tail Feathers (wagging subtly with cadence)
+        const tailWag = Math.sin(crankAngle * 2 - 0.6) * 0.08;
+        ctx.save();
+        ctx.translate(-38, -8);
+        ctx.rotate(tailWag);
+        for (let t = 0; t < 4; t++) {
+          ctx.fillStyle = t % 2 === 0 ? '#5c6775' : '#fdf9f2';
+          ctx.strokeStyle = '#2a232e';
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.ellipse(-18 + t * 2, -10 + t * 5, 22, 6.5, 0.45 - t * 0.14, 0, TAU);
+          ctx.fill();
+          ctx.stroke();
+        }
+        ctx.restore();
+
+        // 2. Plump Feathered Torso (warm cream-white with sunset rim shading)
+        const bodyGrad = ctx.createLinearGradient(-45, -115, 65, 20);
+        bodyGrad.addColorStop(0.0, '#fffdf9');
+        bodyGrad.addColorStop(0.55, '#f7efe4');
+        bodyGrad.addColorStop(0.85, '#e5d4c3');
+        bodyGrad.addColorStop(1.0, '#c9b3a3');
+
+        ctx.fillStyle = bodyGrad;
+        ctx.strokeStyle = '#2a232e';
+        ctx.lineWidth = 2.6;
+
+        ctx.beginPath();
+        // Rump sitting on saddle
+        ctx.moveTo(-42, -4);
+        // Arched back rising to shoulders
+        ctx.bezierCurveTo(-56, -48, -18, -108, 32, -106);
+        // Base of neck
+        ctx.lineTo(66, -92);
+        // Plump chest & belly curving down to saddle
+        ctx.bezierCurveTo(86, -48, 52, 16, -8, 12);
+        ctx.quadraticCurveTo(-32, 10, -42, -4);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+
+        // Sculpted Slate-Grey Scapular / Back Plumage Patch
+        ctx.fillStyle = '#6c7887';
+        ctx.beginPath();
+        ctx.moveTo(-32, -26);
+        ctx.bezierCurveTo(-34, -64, 2, -96, 36, -90);
+        ctx.quadraticCurveTo(22, -46, -12, -22);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+
+        // Warm golden sunset backlight along the pelican's back & chest
+        ctx.strokeStyle = 'rgba(255, 222, 145, 0.7)';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(-38, -22);
+        ctx.bezierCurveTo(-46, -54, -12, -102, 30, -103);
+        ctx.stroke();
+
+        // 3. Flowing S-Curved Pelican Neck
+        const headBobX = Math.cos(crankAngle * 2 - 0.5) * 2.5;
+        const headBobY = Math.sin(crankAngle * 2 - 0.5) * 4.2;
+        const headX = 58 + headBobX;
+        const headY = -168 + headBobY;
+
+        const neckGrad = ctx.createLinearGradient(35, -170, 75, -90);
+        neckGrad.addColorStop(0, '#fffcf7');
+        neckGrad.addColorStop(0.6, '#f5ece0');
+        neckGrad.addColorStop(1, '#dfd0c0');
+
+        ctx.fillStyle = neckGrad;
+        ctx.strokeStyle = '#2a232e';
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.moveTo(28, -98);
+        ctx.bezierCurveTo(22, -128, 36, -148, headX - 18, headY + 4);
+        ctx.lineTo(headX + 14, headY + 8);
+        ctx.bezierCurveTo(64, -138, 54, -118, 66, -88);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+
+        // 4. Fluttering Nautical Striped Scarf (Sine-wave cloth simulation)
+        drawFlutteringScarf(46, -98, time);
+
+        // 5. Pelican Head, Expressive Eye, Long Bill & Flexible Gular Throat Pouch
+        ctx.save();
+        ctx.translate(headX, headY);
+        const headNod = Math.sin(crankAngle * 2 - 0.8) * 0.035;
+        ctx.rotate(headNod);
+
+        // Feathery occipital crest tufts at back of head
+        ctx.fillStyle = '#f7efe4';
+        ctx.strokeStyle = '#2a232e';
+        ctx.lineWidth = 2.2;
+        ctx.beginPath();
+        ctx.moveTo(-18, -8);
+        ctx.lineTo(-34, -14);
+        ctx.lineTo(-22, -2);
+        ctx.lineTo(-32, 4);
+        ctx.lineTo(-16, 6);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+
+        // Playful Little Silver Fish Tail peeking out from inside the gular pouch!
+        const fishPeekWiggle = Math.sin(time * 11) * 0.16;
+        ctx.save();
+        ctx.translate(108, -2 + pouchPhysics.offsetY * 0.25);
+        ctx.rotate(0.25 + fishPeekWiggle);
+        ctx.fillStyle = '#9bb8cc';
+        ctx.strokeStyle = '#2a232e';
+        ctx.lineWidth = 1.6;
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.lineTo(18, -11);
+        ctx.lineTo(13, 0);
+        ctx.lineTo(19, 9);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+        ctx.restore();
+
+        // Elastic Golden-Amber Gular Throat Pouch (with secondary spring jiggle!)
+        const pouchSag = 64 + pouchPhysics.offsetY;
+        const pouchSway = 56 + pouchPhysics.swingX;
+
+        // Subsurface sunset glow inside the translucent throat pouch
+        const pouchGrad = ctx.createRadialGradient(54, 18, 8, 52, 26, 78);
+        pouchGrad.addColorStop(0.0, '#ffe373');
+        pouchGrad.addColorStop(0.45, '#ff9d3b');
+        pouchGrad.addColorStop(0.82, '#e05d26');
+        pouchGrad.addColorStop(1.0, '#b53b1b');
+
+        ctx.fillStyle = pouchGrad;
+        ctx.strokeStyle = '#2a232e';
+        ctx.lineWidth = 2.4;
+        ctx.beginPath();
+        ctx.moveTo(10, 6);
+        // Upper edge attached along lower mandible
+        ctx.quadraticCurveTo(75, 4, 148, -2);
+        // Deep flexible belly of the gular pouch
+        ctx.bezierCurveTo(
+          122,
+          pouchSag * 0.82,
+          pouchSway,
+          pouchSag * 1.15,
+          6,
+          28
+        );
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+
+        // Delicate longitudinal skin striation folds across the pouch
+        ctx.strokeStyle = 'rgba(150, 42, 16, 0.32)';
+        ctx.lineWidth = 1.5;
+        for (let s = 1; s <= 3; s++) {
+          const f = s * 0.23;
+          ctx.beginPath();
+          ctx.moveTo(14 + s * 8, 12 + s * 3);
+          ctx.quadraticCurveTo(
+            pouchSway + 10,
+            pouchSag * (0.35 + f * 0.55),
+            136 - s * 10,
+            0
+          );
+          ctx.stroke();
+        }
+
+        // Rounded Skull Dome
+        ctx.fillStyle = '#fffdf9';
+        ctx.strokeStyle = '#2a232e';
+        ctx.lineWidth = 2.4;
+        ctx.beginPath();
+        ctx.arc(-2, -4, 21, Math.PI * 0.65, Math.PI * 2.05);
+        ctx.lineTo(18, 8);
+        ctx.quadraticCurveTo(-2, 14, -16, 8);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+
+        // Long Sculpted Upper Mandible (Pelican Beak)
+        const beakGrad = ctx.createLinearGradient(12, -16, 156, 2);
+        beakGrad.addColorStop(0.0, '#ffe89e');
+        beakGrad.addColorStop(0.55, '#f7b952');
+        beakGrad.addColorStop(0.9, '#eb7b34');
+        beakGrad.addColorStop(1.0, '#d93829');
+
+        ctx.fillStyle = beakGrad;
+        ctx.beginPath();
+        ctx.moveTo(12, -14);
+        ctx.quadraticCurveTo(82, -14, 152, -7);
+        // Iconic hooked crimson nail at tip of pelican bill
+        ctx.quadraticCurveTo(161, -5, 156, 4);
+        ctx.quadraticCurveTo(151, 5, 147, -1);
+        ctx.quadraticCurveTo(75, 4, 10, 6);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+
+        // Upper beak ridge line & nostril slit
+        ctx.strokeStyle = 'rgba(130, 52, 20, 0.45)';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(16, -7);
+        ctx.quadraticCurveTo(82, -8, 148, -4);
+        ctx.stroke();
+
+        // Golden-Yellow Eye Patch & Expressive Eye (with periodic blink)
+        const blinkCycle = time % 4.6;
+        const isBlinking = blinkCycle > 4.42;
+
+        ctx.fillStyle = '#ffd15c';
+        ctx.beginPath();
+        ctx.ellipse(6, -8, 7.5, 6.2, -0.1, 0, TAU);
+        ctx.fill();
+
+        if (isBlinking) {
+          ctx.strokeStyle = '#2a232e';
+          ctx.lineWidth = 2.2;
+          ctx.beginPath();
+          ctx.moveTo(1, -8);
+          ctx.quadraticCurveTo(6, -5, 11, -8);
+          ctx.stroke();
+        } else {
+          ctx.fillStyle = '#1f1824';
+          ctx.beginPath();
+          ctx.arc(7, -8, 4.2, 0, TAU);
+          ctx.fill();
+
+          // Bright sunset catchlight in eye
+          ctx.fillStyle = '#ffffff';
+          ctx.beginPath();
+          ctx.arc(8.4, -9.5, 1.6, 0, TAU);
+          ctx.fill();
+        }
+
+        // Jaunty Vintage Seaside Captain's / Sailor Cap perched on head
+        drawCaptainCap(-5, -23);
+
+        ctx.restore(); // End head transform
+        ctx.restore(); // End torso transform
+      }
+
+      function drawCaptainCap(cx, cy) {
+        ctx.save();
+        ctx.translate(cx, cy);
+        ctx.rotate(-0.18);
+
+        // Navy visor brim
+        ctx.fillStyle = '#1d263b';
+        ctx.strokeStyle = '#2a232e';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(4, 2);
+        ctx.quadraticCurveTo(24, 1, 26, 6);
+        ctx.quadraticCurveTo(14, 9, -2, 5);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+
+        // Dark navy cap band
+        ctx.fillStyle = '#253352';
+        ctx.beginPath();
+        ctx.roundRect(-14, -4, 28, 7, 2);
+        ctx.fill();
+        ctx.stroke();
+
+        // Crisp white sailor crown
+        ctx.fillStyle = '#fcf8f0';
+        ctx.beginPath();
+        ctx.moveTo(-14, -4);
+        ctx.lineTo(-19, -14);
+        ctx.quadraticCurveTo(0, -19, 19, -11);
+        ctx.lineTo(14, -4);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+
+        // Golden braided cord & emblem badge
+        ctx.strokeStyle = '#f2bd52';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(-13, 2);
+        ctx.lineTo(13, 2);
+        ctx.stroke();
+
+        ctx.fillStyle = '#f2bd52';
+        ctx.beginPath();
+        ctx.arc(4, -1, 2.8, 0, TAU);
+        ctx.fill();
+
+        ctx.restore();
+      }
+
+      function drawFlutteringScarf(nx, ny, time) {
+        ctx.save();
+        ctx.translate(nx, ny);
+
+        // Trailing scarf tail (multi-segment traveling sine wave)
+        const numPts = 14;
+        const segLen = 9.5;
+        const topEdge = [];
+        const botEdge = [];
+
+        for (let i = 0; i <= numPts; i++) {
+          const t = i / numPts;
+          const sx = -i * segLen;
+          const wave =
+            Math.sin(time * 9.5 - i * 0.55) * (3 + t * 14) +
+            Math.cos(time * 5.2 - i * 0.35) * (t * 5);
+          const sy = -4 + t * 8 + wave;
+          const halfW = 7.5 + t * 2.5;
+          topEdge.push({ x: sx, y: sy - halfW, idx: i });
+          botEdge.push({ x: sx, y: sy + halfW });
+        }
+
+        // Draw striped segments along the scarf tail
+        for (let i = 0; i < numPts; i++) {
+          ctx.fillStyle = i % 2 === 0 ? '#d94338' : '#f7ebd2';
+          ctx.strokeStyle = '#2a232e';
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.moveTo(topEdge[i].x, topEdge[i].y);
+          ctx.lineTo(topEdge[i + 1].x, topEdge[i + 1].y);
+          ctx.lineTo(botEdge[i + 1].x, botEdge[i + 1].y);
+          ctx.lineTo(botEdge[i].x, botEdge[i].y);
+          ctx.closePath();
+          ctx.fill();
+          ctx.stroke();
+        }
+
+        // Cozy wrapped collar around the pelican's neck
+        ctx.fillStyle = '#d94338';
+        ctx.strokeStyle = '#2a232e';
+        ctx.lineWidth = 2.4;
+        ctx.beginPath();
+        ctx.roundRect(-24, -12, 46, 17, 8);
+        ctx.fill();
+        ctx.stroke();
+
+        // Cream vertical stripes on collar
+        ctx.fillStyle = '#f7ebd2';
+        ctx.fillRect(-12, -10, 7, 13);
+        ctx.fillRect(6, -10, 7, 13);
+
+        ctx.restore();
+      }
+
+      function drawForegroundAtmosphere(time) {
+        const spanW = viewRight - viewLeft;
+
+        // Floating golden sea-spray / pollen motes catching sunset rays
+        for (let i = 0; i < pollenMotes.length; i++) {
+          const m = pollenMotes[i];
+          const mx = ((m.x - time * m.speedX - viewLeft) % spanW + spanW) % spanW + viewLeft;
+          const my = m.y + Math.sin(time * 2.6 + m.phase) * 14;
+          const alpha = 0.35 + 0.35 * Math.sin(time * 4.2 + m.phase);
+
+          ctx.fillStyle = `rgba(255, 234, 160, ${alpha})`;
+          ctx.beginPath();
+          ctx.arc(mx, my, m.r, 0, TAU);
+          ctx.fill();
+        }
+
+        // Subtle warm golden-hour vignette / sunlight wash from top-left
+        const wash = ctx.createRadialGradient(-260, -315, 60, -100, -180, 950);
+        wash.addColorStop(0, 'rgba(255, 230, 145, 0.12)');
+        wash.addColorStop(0.5, 'rgba(255, 165, 85, 0.05)');
+        wash.addColorStop(1, 'rgba(255, 140, 60, 0)');
+        ctx.fillStyle = wash;
+        ctx.fillRect(viewLeft, viewTop, viewRight - viewLeft, viewBottom - viewTop);
+      }
+
+      let lastTimestamp = performance.now();
+
+      function animate(now) {
+        const dt = clamp((now - lastTimestamp) / 1000, 0.001, 0.05);
+        lastTimestamp = now;
+        const time = now * 0.001;
+
+        // Trigger occasional cheerful bell ring ripple
+        if (time > nextBellTime) {
+          bellRipples.push({ start: time });
+          bellRipples.push({ start: time + 0.18 });
+          nextBellTime = time + 4.8 + Math.sin(time) * 1.2;
+        }
+
+        // Mechanical kinematics: exact angular velocity matching ground scroll speed
+        const wheelAngle = (time * BIKE.groundSpeed) / BIKE.wheelRadius;
+        const crankAngle = time * BIKE.crankOmega;
+
+        // Subtle vertical suspension bobbing synced to 2x pedaling cadence
+        const bobY = Math.sin(crankAngle * 2) * 4.5;
+        const bobAccel = -Math.sin(crankAngle * 2) * (BIKE.crankOmega * 2) ** 2 * 4.5;
+
+        // Update damped spring physics for the elastic gular throat pouch
+        const targetOffsetY = clamp(-bobAccel * 0.055 + Math.sin(time * 6.8) * 3.2, -14, 18);
+        const springK = 155;
+        const damping = 11.5;
+        const forceY = (targetOffsetY - pouchPhysics.offsetY) * springK - pouchPhysics.velY * damping;
+        pouchPhysics.velY += forceY * dt;
+        pouchPhysics.offsetY += pouchPhysics.velY * dt;
+
+        const targetSwingX = Math.cos(crankAngle * 2 - 0.4) * 6.5;
+        const forceX = (targetSwingX - pouchPhysics.swingX) * 120 - pouchPhysics.velX * 10;
+        pouchPhysics.velX += forceX * dt;
+        pouchPhysics.swingX += pouchPhysics.velX * dt;
+
+        // Compute left (far) and right (near) pedal positions (180 degrees out of phase)
+        const bbX = BIKE.bb.x;
+        const bbY = BIKE.bb.y + bobY * 0.2;
+        const angleNear = crankAngle;
+        const angleFar = crankAngle + Math.PI;
+
+        const pedalNear = {
+          x: bbX + Math.cos(angleNear) * BIKE.crankRadius,
+          y: bbY + Math.sin(angleNear) * BIKE.crankRadius
+        };
+        const pedalFar = {
+          x: bbX + Math.cos(angleFar) * BIKE.crankRadius,
+          y: bbY + Math.sin(angleFar) * BIKE.crankRadius
+        };
+
+        // Hip & Shoulder anchors on the pelican's body
+        const hipFar = { x: -86, y: -282 + bobY };
+        const hipNear = { x: -94, y: -278 + bobY };
+        const shoulderFar = { x: -42, y: -366 + bobY };
+        const shoulderNear = { x: -52, y: -360 + bobY };
+
+        // Transform into responsive high-DPI virtual coordinate space
+        ctx.save();
+        ctx.setTransform(
+          dpr * sceneScale,
+          0,
+          0,
+          dpr * sceneScale,
+           originX * dpr,
+          originY * dpr
+        );
+
+        // --- LAYER 1: Sunset Sky, Glowing Sun, Clouds, Ocean & Lighthouse ---
+        drawSkyAndSun(time);
+        drawDistantCoastAndOcean(time);
+
+        // --- LAYER 2: Coastal Lamp Posts, Seawall Railing & Wooden Boardwalk ---
+        drawPromenadeAndBoardwalk(time);
+        drawGroundShadows(bobY);
+
+        // --- LAYER 3: Far Side of Pelican (Left Wing, Left Crank & Left IK Leg) ---
+        drawPelicanWing(
+          shoulderFar.x,
+          shoulderFar.y,
+          BIKE.gripFar.x,
+          BIKE.gripFar.y + bobY * 0.25,
+          false,
+          time
+        );
+        drawCrankAndPedal(bbX, bbY, pedalFar.x, pedalFar.y, false);
+        drawPelicanLeg(hipFar.x, hipFar.y, pedalFar.x, pedalFar.y, angleFar, false);
+
+        // --- LAYER 4: Rotating Bicycle Wheels, Cruiser Frame, Basket & Saddle ---
+        drawWheel(BIKE.rearAxle.x, BIKE.rearAxle.y, wheelAngle);
+        drawWheel(BIKE.frontAxle.x, BIKE.frontAxle.y, wheelAngle);
+        drawBicycleFrameAndDrivetrain(time, crankAngle, bobY);
+
+        // --- LAYER 5: Pelican Body, Tail, Neck, Scarf, Head, Beak & Gular Pouch ---
+        drawPelicanBodyAndHead(time, crankAngle, bobY);
+
+        // --- LAYER 6: Near Side of Pelican (Right Crank, Right IK Leg, Near Handlebar & Right Wing) ---
+        drawCrankAndPedal(bbX, bbY, pedalNear.x, pedalNear.y, true);
+        drawPelicanLeg(hipNear.x, hipNear.y, pedalNear.x, pedalNear.y, angleNear, true);
+        drawNearHandlebarAndBell(bobY, time);
+        drawPelicanWing(
+          shoulderNear.x,
+          shoulderNear.y,
+          BIKE.gripNear.x,
+          BIKE.gripNear.y + bobY * 0.25,
+          true,
+          time
+        );
+
+        // --- LAYER 7: Golden-Hour Atmospheric Motes & Sun Wash ---
+        drawForegroundAtmosphere(time);
+
+        ctx.restore();
+        requestAnimationFrame(animate);
+      }
+
+      requestAnimationFrame(animate);
+    })();
+  </script>
+<!--zc-home:start--><style>.zc-home-btn{position:fixed;top:16px;left:16px;z-index:2147483647;display:inline-flex;align-items:center;gap:6px;padding:8px 14px;font:500 13px/1.1 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Noto Sans SC",sans-serif;color:#111;background:rgba(255,255,255,.86);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);border:1px solid rgba(0,0,0,.08);border-radius:999px;text-decoration:none;box-shadow:0 2px 12px rgba(0,0,0,.2);transition:background .2s ease,transform .2s ease,box-shadow .2s ease}.zc-home-btn:hover{background:#fff;transform:translateY(-1px);box-shadow:0 4px 18px rgba(0,0,0,.26)}</style><a class="zc-home-btn" href="../">← 返回首页</a><!--zc-home:end-->
+</body>
+</html>

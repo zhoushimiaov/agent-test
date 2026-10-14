@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-12T23:21:03.221Z",
+  "generatedAt": "2026-10-14T08:03:19.626Z",
   "model": "jev-1.13.0",
   "weights": {
     "scale": 30,
@@ -19,24 +19,24 @@
       "total": 86,
       "dims": {
         "scale": {
-          "score": 2.98,
-          "confidence": 0.98,
-          "frac": 0.993
+          "score": 2.96,
+          "confidence": 0.96,
+          "frac": 0.987
         },
         "occlusion": {
           "score": 1.92,
-          "confidence": 0.92,
+          "confidence": 0.93,
           "frac": 0.64
         },
         "whale": {
-          "score": 2.81,
-          "confidence": 0.8,
-          "frac": 0.937
+          "score": 2.8,
+          "confidence": 0.81,
+          "frac": 0.933
         },
         "scene": {
-          "score": 2.81,
-          "confidence": 0.81,
-          "frac": 0.937
+          "score": 2.83,
+          "confidence": 0.83,
+          "frac": 0.943
         }
       },
       "jev": "jev-1.13.0",
@@ -57,27 +57,55 @@
           "frac": 0.983
         },
         "whale": {
-          "score": 1.65,
-          "confidence": 0.63,
-          "frac": 0.55
+          "score": 1.67,
+          "confidence": 0.66,
+          "frac": 0.557
         },
         "scene": {
-          "score": 1.89,
-          "confidence": 0.88,
-          "frac": 0.63
+          "score": 1.87,
+          "confidence": 0.87,
+          "frac": 0.623
         }
       },
       "jev": "jev-1.13.0",
       "rank": 2
     },
     {
-      "slug": "step-5-preview",
-      "total": 59,
+      "slug": "gemini4argon",
+      "total": 61,
       "dims": {
         "scale": {
-          "score": 1.46,
-          "confidence": 0.54,
-          "frac": 0.487
+          "score": 2.45,
+          "confidence": 0.45,
+          "frac": 0.817
+        },
+        "occlusion": {
+          "score": 1.08,
+          "confidence": 0,
+          "frac": 0.36
+        },
+        "whale": {
+          "score": 1.65,
+          "confidence": 0,
+          "frac": 0.55
+        },
+        "scene": {
+          "score": 2.21,
+          "confidence": 0.55,
+          "frac": 0.737
+        }
+      },
+      "jev": "jev-1.13.0",
+      "rank": 3
+    },
+    {
+      "slug": "step-5-preview",
+      "total": 60,
+      "dims": {
+        "scale": {
+          "score": 1.53,
+          "confidence": 0.53,
+          "frac": 0.51
         },
         "occlusion": {
           "score": 1.99,
@@ -85,37 +113,37 @@
           "frac": 0.663
         },
         "whale": {
-          "score": 2,
+          "score": 1.98,
           "confidence": 0.94,
-          "frac": 0.667
+          "frac": 0.66
         },
         "scene": {
-          "score": 1.62,
-          "confidence": 0.62,
-          "frac": 0.54
+          "score": 1.68,
+          "confidence": 0.68,
+          "frac": 0.56
         }
       },
       "jev": "jev-1.13.0",
-      "rank": 3
+      "rank": 4
     },
     {
       "slug": "opus-4.8",
-      "total": 51,
+      "total": 53,
       "dims": {
         "scale": {
-          "score": 1.12,
-          "confidence": 0.87,
-          "frac": 0.373
+          "score": 1.17,
+          "confidence": 0.83,
+          "frac": 0.39
         },
         "occlusion": {
-          "score": 1.33,
-          "confidence": 0.42,
-          "frac": 0.443
+          "score": 1.43,
+          "confidence": 0.35,
+          "frac": 0.477
         },
         "whale": {
-          "score": 1.04,
+          "score": 1.07,
           "confidence": 0.76,
-          "frac": 0.347
+          "frac": 0.357
         },
         "scene": {
           "score": 2.95,
@@ -124,35 +152,35 @@
         }
       },
       "jev": "jev-1.13.0",
-      "rank": 4
+      "rank": 5
     },
     {
       "slug": "longcat-2.0",
-      "total": 44,
+      "total": 45,
       "dims": {
         "scale": {
-          "score": 2.2,
-          "confidence": 0.19,
-          "frac": 0.733
+          "score": 2.23,
+          "confidence": 0.24,
+          "frac": 0.743
         },
         "occlusion": {
-          "score": 0.89,
-          "confidence": 0.87,
-          "frac": 0.297
+          "score": 0.9,
+          "confidence": 0.88,
+          "frac": 0.3
         },
         "whale": {
-          "score": 0.95,
-          "confidence": 0.95,
-          "frac": 0.317
+          "score": 0.96,
+          "confidence": 0.96,
+          "frac": 0.32
         },
         "scene": {
           "score": 1.05,
-          "confidence": 0.94,
+          "confidence": 0.95,
           "frac": 0.35
         }
       },
       "jev": "jev-1.13.0",
-      "rank": 5
+      "rank": 6
     },
     {
       "slug": "gemini-3.8-flash",
@@ -169,18 +197,18 @@
           "frac": 0
         },
         "whale": {
-          "score": 1.62,
-          "confidence": 0.59,
-          "frac": 0.54
+          "score": 1.58,
+          "confidence": 0.56,
+          "frac": 0.527
         },
         "scene": {
-          "score": 1.88,
-          "confidence": 0.82,
-          "frac": 0.627
+          "score": 1.92,
+          "confidence": 0.84,
+          "frac": 0.64
         }
       },
       "jev": "jev-1.13.0",
-      "rank": 6
+      "rank": 7
     },
     {
       "slug": "qwen-3.8-flash",
@@ -197,27 +225,27 @@
           "frac": 0
         },
         "whale": {
-          "score": 1.24,
+          "score": 1.25,
           "confidence": 0.72,
-          "frac": 0.413
+          "frac": 0.417
         },
         "scene": {
-          "score": 0.9,
-          "confidence": 0.9,
-          "frac": 0.3
+          "score": 0.87,
+          "confidence": 0.87,
+          "frac": 0.29
         }
       },
       "jev": "jev-1.13.0",
-      "rank": 7
+      "rank": 8
     },
     {
       "slug": "glm-5.3-flash",
       "total": 15,
       "dims": {
         "scale": {
-          "score": 0.37,
-          "confidence": 0.64,
-          "frac": 0.123
+          "score": 0.35,
+          "confidence": 0.65,
+          "frac": 0.117
         },
         "occlusion": {
           "score": 0.01,
@@ -225,18 +253,18 @@
           "frac": 0.003
         },
         "whale": {
-          "score": 0.77,
-          "confidence": 0.77,
-          "frac": 0.257
+          "score": 0.79,
+          "confidence": 0.79,
+          "frac": 0.263
         },
         "scene": {
-          "score": 0.94,
-          "confidence": 0.94,
-          "frac": 0.313
+          "score": 0.92,
+          "confidence": 0.92,
+          "frac": 0.307
         }
       },
       "jev": "jev-1.13.0",
-      "rank": 8
+      "rank": 9
     },
     {
       "slug": "glm-5.3-raccoon",
@@ -253,27 +281,27 @@
           "frac": 0
         },
         "whale": {
-          "score": 1.03,
-          "confidence": 0.87,
-          "frac": 0.343
+          "score": 1.02,
+          "confidence": 0.85,
+          "frac": 0.34
         },
         "scene": {
-          "score": 0.06,
-          "confidence": 0.94,
-          "frac": 0.02
+          "score": 0.07,
+          "confidence": 0.93,
+          "frac": 0.023
         }
       },
       "jev": "jev-1.13.0",
-      "rank": 9
+      "rank": 10
     },
     {
       "slug": "gpt6-luna",
-      "total": 5,
+      "total": 4,
       "dims": {
         "scale": {
-          "score": 0.05,
-          "confidence": 0.96,
-          "frac": 0.017
+          "score": 0.03,
+          "confidence": 0.97,
+          "frac": 0.01
         },
         "occlusion": {
           "score": 0,
@@ -286,13 +314,13 @@
           "frac": 0.15
         },
         "scene": {
-          "score": 0.16,
-          "confidence": 0.84,
-          "frac": 0.053
+          "score": 0.14,
+          "confidence": 0.87,
+          "frac": 0.047
         }
       },
       "jev": "jev-1.13.0",
-      "rank": 10
+      "rank": 11
     },
     {
       "slug": "deepseek-4.1-flash-raccoon",
@@ -309,9 +337,9 @@
           "frac": 0
         },
         "whale": {
-          "score": 0.16,
-          "confidence": 0.84,
-          "frac": 0.053
+          "score": 0.2,
+          "confidence": 0.8,
+          "frac": 0.067
         },
         "scene": {
           "score": 0.01,
@@ -320,7 +348,7 @@
         }
       },
       "jev": "jev-1.13.0",
-      "rank": 11
+      "rank": 12
     }
   ]
 }

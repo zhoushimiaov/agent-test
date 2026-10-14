@@ -1,0 +1,1594 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>云端钢丝上的平衡大象</title>
+<style>
+  * {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+  }
+  html, body {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: #090b1a;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  canvas {
+    display: block;
+    width: 100vw;
+    height: 100vh;
+  }
+</style>
+</head>
+<body>
+<canvas id="scene"></canvas>
+<script>
+(() => {
+  const canvas = document.getElementById('scene');
+  const ctx = canvas.getContext('2d');
+
+  let W = window.innerWidth;
+  let H = window.innerHeight;
+  let dpr = Math.min(window.devicePixelRatio || 1, 2);
+
+  function resize() {
+    W = window.innerWidth;
+    H = window.innerHeight;
+    dpr = Math.min(window.devicePixelRatio || 1, 2);
+    canvas.width = Math.floor(W * dpr);
+    canvas.height = Math.floor(H * dpr);
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  // ==========================================
+  // DETERMINISTIC PRNG FOR PROCEDURAL SCENERY
+  // ==========================================
+  let seed = 42197;
+  function rand() {
+    seed = (seed * 1664525 + 1013904223) % 4294967296;
+    return seed / 4294967296;
+  }
+
+  // Stars in upper twilight sky
+  const stars = Array.from({ length: 170 }, () => ({
+    x: rand(),
+    y: Math.pow(rand(), 1.5) * 0.62,
+    r: 0.5 + rand() * 1.55,
+    phase: rand() * Math.PI * 2,
+    speed: 1.2 + rand() * 2.8,
+    tint: rand() > 0.7 ? '#ffe6c2' : (rand() > 0.4 ? '#d9e8ff' : '#ffffff')
+  }));
+
+  // Distant mountain / canyon silhouettes in the mist below
+  const mountainPeaks = [
+    { x: 0.0, y: 0.88 }, { x: 0.08, y: 0.79 }, { x: 0.16, y: 0.84 },
+    { x: 0.25, y: 0.75 }, { x: 0.35, y: 0.83 }, { x: 0.46, y: 0.78 },
+    { x: 0.58, y: 0.85 }, { x: 0.69, y: 0.76 }, { x: 0.79, y: 0.82 },
+    { x: 0.90, y: 0.74 }, { x: 1.0, y: 0.84 }
+  ];
+
+  // Multi-layered rolling clouds in the abyss below the wire
+  const cloudBands = [
+    { yRatio: 0.80, speed: 5,  scale: 0.72, alpha: 0.50, topCol: '#433260', botCol: '#1b1630', count: 18 },
+    { yRatio: 0.88, speed: 11, scale: 0.92, alpha: 0.78, topCol: '#613c68', botCol: '#221836', count: 16 },
+    { yRatio: 0.96, speed: 19, scale: 1.15, alpha: 0.95, topCol: '#824967', botCol: '#191229', count: 14 }
+  ].map(band => {
+    const puffs = [];
+    for (let i = 0; i < band.count; i++) {
+      puffs.push({
+        offset: (i / band.count) + (rand() - 0.5) * 0.04,
+        rx: (85 + rand() * 95) * band.scale,
+        ry: (38 + rand() * 42) * band.scale,
+        dy: (rand() - 0.5) * 20 * band.scale
+      });
+    }
+    return { ...band, puffs };
+  });
+
+  // Floating atmospheric dust motes & wind leaves/seeds
+  const windParticles = Array.from({ length: 80 }, () => ({
+    x: rand() * 2000 - 200,
+    y: rand() * 900,
+    z: 0.4 + rand() * 1.1,
+    size: 1.2 + rand() * 2.4,
+    swayPhase: rand() * Math.PI * 2,
+    isSeed: rand() > 0.78
+  }));
+
+  // Wind ribbons (visible air currents during gusts)
+  const windRibbons = Array.from({ length: 7 }, (_, i) => ({
+    x: rand() * 1920,
+    y: 130 + i * 78 + rand() * 40,
+    len: 190 + rand() * 220,
+    amp: 7 + rand() * 12,
+    speed: 360 + rand() * 220,
+    phase: rand() * Math.PI * 2
+  }));
+
+  // Sweat droplets emitted radially during intense balance recovery
+  const droplets = [];
+
+  // ==========================================
+  // COUPLED BALANCE PHYSICS & STATE MACHINE
+  // ==========================================
+  const state = {
+    t: 0,
+    roll: 0,
+    rollVel: 0,
+    rollAcc: 0,
+    poleAngle: 0,
+    poleVel: 0,
+    poleFlex: 0,
+    poleFlexVel: 0,
+    lanternL: { angle: 0, vel: 0 },
+    lanternR: { angle: 0, vel: 0 },
+    wireSagDynamic: 0,
+    wireSagVel: 0,
+    wireVibAmp: 0,
+    wireVibPhase: 0,
+    bellyBounce: 0,
+    bellyVel: 0,
+    earFlap: 0,
+    earVel: 0,
+    tailAngle: 0,
+    tailVel: 0,
+    windStrength: 0,
+    walkPhase: 0,
+    walkSpeed: 1.0,
+    liftBalanceAmount: 0,
+    panicLevel: 0,
+    dropletCooldown: 0
+  };
+
+  function getEnvironmentAtTime(t) {
+    const cycle = t % 16.0;
+    let windTorque = 0;
+    let windStr = 0.14 + 0.07 * Math.sin(t * 0.9);
+    let targetLift = 0;
+
+    // Gust 1: Strong crosswind between t = 3.0s and 7.2s
+    if (cycle > 3.0 && cycle < 7.2) {
+      const env = Math.sin(((cycle - 3.0) / 4.2) * Math.PI);
+      const gust = Math.pow(Math.max(0, env), 1.25);
+      windTorque += gust * 1.15 + 0.30 * Math.sin((cycle - 3.0) * 4.8) * gust;
+      windStr = Math.max(windStr, 0.22 + gust * 0.82);
+      targetLift = Math.pow(gust, 0.75) * 0.92;
+    }
+
+    // Gust 2: Dramatic oscillating gust crisis between t = 9.4s and 14.2s
+    if (cycle > 9.4 && cycle < 14.2) {
+      const env = Math.sin(((cycle - 9.4) / 4.8) * Math.PI);
+      const gust = Math.pow(Math.max(0, env), 1.15);
+      const osc = Math.cos((cycle - 9.4) * 3.2);
+      windTorque += -gust * 1.35 * osc + 0.32 * Math.sin(t * 6.8) * gust;
+      windStr = Math.max(windStr, 0.25 + gust * 0.92);
+      targetLift = Math.pow(gust, 0.7) * 1.0;
+    }
+
+    // Subtle stepping weight transfer
+    const stepImbalance = 0.16 * Math.sin(t * 2.6) * (1 - targetLift * 0.65);
+    return {
+      windTorque: windTorque + stepImbalance,
+      windStr,
+      targetLift
+    };
+  }
+
+  function stepPhysics(dt) {
+    state.t += dt;
+    const t = state.t;
+    const env = getEnvironmentAtTime(t);
+
+    state.windStrength += (env.windStr - state.windStrength) * Math.min(1, dt * 4.5);
+    state.liftBalanceAmount += (env.targetLift - state.liftBalanceAmount) * Math.min(1, dt * 3.8);
+
+    const targetWalkSpeed = Math.max(0.15, 1.0 - state.liftBalanceAmount * 0.80);
+    state.walkSpeed += (targetWalkSpeed - state.walkSpeed) * Math.min(1, dt * 5.0);
+    state.walkPhase += dt * state.walkSpeed * 2.5;
+
+    // Inverted pendulum + active PD reflex controller
+    const gravityDestabilize = 6.0 * Math.sin(state.roll);
+    const activeRecovery = -19.5 * state.roll - 5.6 * state.rollVel;
+
+    state.rollAcc = gravityDestabilize + activeRecovery + env.windTorque * 3.1;
+    state.rollVel += state.rollAcc * dt;
+    state.roll += state.rollVel * dt;
+    state.roll = Math.max(-0.28, Math.min(0.28, state.roll));
+
+    const rawPanic = Math.min(1, (Math.abs(state.roll) / 0.18) * 0.75 + (Math.abs(state.rollVel) / 0.75) * 0.35);
+    state.panicLevel += (rawPanic - state.panicLevel) * Math.min(1, dt * 6.0);
+
+    // Balancing pole actively counter-rotates within a dramatic yet realistic +/- 18 deg range
+    const targetPoleAngle = Math.max(-0.34, Math.min(0.34, -state.roll * 1.45 - state.rollVel * 0.22 + 0.035 * Math.sin(t * 4.0)));
+    const poleAcc = (targetPoleAngle - state.poleAngle) * 40.0 - state.poleVel * 8.2;
+    state.poleVel += poleAcc * dt;
+    state.poleAngle += state.poleVel * dt;
+
+    // Elastic downward sag + inertial flex of the long pole tips
+    const targetFlex = 0.34 + state.poleVel * 0.15 - state.rollAcc * 0.022 + 0.04 * Math.sin(t * 8.5);
+    const flexAcc = (targetFlex - state.poleFlex) * 62.0 - state.poleFlexVel * 7.2;
+    state.poleFlexVel += flexAcc * dt;
+    state.poleFlex += state.poleFlexVel * dt;
+
+    // Hanging lanterns at pole ends (coupled pendulums)
+    const tipAccL = -poleAcc * 0.42 + env.windTorque * 1.6;
+    const tipAccR = poleAcc * 0.42 + env.windTorque * 1.6;
+    state.lanternL.vel += (-14.0 * Math.sin(state.lanternL.angle) - 2.3 * state.lanternL.vel + tipAccL) * dt;
+    state.lanternL.angle += state.lanternL.vel * dt;
+    state.lanternR.vel += (-14.0 * Math.sin(state.lanternR.angle) - 2.3 * state.lanternR.vel + tipAccR) * dt;
+    state.lanternR.angle += state.lanternR.vel * dt;
+
+    // Footstep impact impulses on wire sag & belly jiggle
+    const footImpact = Math.pow(Math.max(0, Math.cos(state.walkPhase * 2.0)), 6) * state.walkSpeed;
+    const wireForce = footImpact * 18.0 + Math.abs(state.rollVel) * 12.0 - 55.0 * state.wireSagDynamic - 6.5 * state.wireSagVel;
+    state.wireSagVel += wireForce * dt;
+    state.wireSagDynamic += state.wireSagVel * dt;
+
+    const targetVib = 0.22 + footImpact * 0.85 + state.panicLevel * 1.45;
+    state.wireVibAmp += (targetVib - state.wireVibAmp) * Math.min(1, dt * 8.0);
+    state.wireVibPhase += dt * 54.0;
+
+    // Belly secondary soft-body bounce
+    const bellyForce = footImpact * 22.0 - state.wireSagVel * 0.3 - 48.0 * state.bellyBounce - 5.8 * state.bellyVel;
+    state.bellyVel += bellyForce * dt;
+    state.bellyBounce += state.bellyVel * dt;
+
+    // Ear flap physics
+    const targetEar = state.windStrength * 0.65 + Math.abs(state.rollVel) * 0.4 + 0.12 * Math.sin(t * 6.5);
+    state.earVel += ((targetEar - state.earFlap) * 36.0 - state.earVel * 5.2) * dt;
+    state.earFlap += state.earVel * dt;
+
+    // Tail pendulum
+    const tailTarget = state.roll * 1.4 + state.windStrength * 0.45 + 0.18 * Math.sin(t * 4.8);
+    state.tailVel += ((tailTarget - state.tailAngle) * 28.0 - state.tailVel * 4.0) * dt;
+    state.tailAngle += state.tailVel * dt;
+
+    // Emit crisp flying sweat droplets periodically when panicLevel is high
+    state.dropletCooldown -= dt;
+    if (state.panicLevel > 0.45 && state.dropletCooldown <= 0) {
+      state.dropletCooldown = 0.14;
+      const launchAng = -1.1 + (Math.random() - 0.5) * 0.9;
+      const spd = 95 + Math.random() * 55;
+      droplets.push({
+        ox: 10 + Math.random() * 14,
+        oy: -28 - Math.random() * 10,
+        vx: Math.cos(launchAng) * spd + state.rollVel * 60,
+        vy: Math.sin(launchAng) * spd,
+        life: 1.0,
+        size: 2.6 + Math.random() * 1.4
+      });
+    }
+    for (let i = droplets.length - 1; i >= 0; i--) {
+      const d = droplets[i];
+      d.ox += d.vx * dt;
+      d.oy += d.vy * dt;
+      d.vy += 280 * dt;
+      d.life -= dt * 1.8;
+      if (d.life <= 0) droplets.splice(i, 1);
+    }
+  }
+
+  // Pre-warm physics by 1.8s so the scene opens in smooth, lively motion
+  for (let s = 0; s < 1.8; s += 1 / 120) {
+    stepPhysics(1 / 120);
+  }
+
+  // ==========================================
+  // GEOMETRY & 2-BONE INVERSE KINEMATICS (IK)
+  // ==========================================
+  function solveIK2Bone(hx, hy, tx, ty, L1, L2, bendDir) {
+    let dx = tx - hx;
+    let dy = ty - hy;
+    let dist = Math.hypot(dx, dy);
+    const maxReach = (L1 + L2) * 0.992;
+    const minReach = Math.abs(L1 - L2) * 1.08;
+    if (dist > maxReach) {
+      dx = (dx / dist) * maxReach;
+      dy = (dy / dist) * maxReach;
+      dist = maxReach;
+    } else if (dist < minReach) {
+      dx = (dx / dist) * minReach;
+      dy = (dy / dist) * minReach;
+      dist = minReach;
+    }
+    const cosAngle = (L1 * L1 + dist * dist - L2 * L2) / (2 * L1 * dist);
+    const clampedCos = Math.max(-1, Math.min(1, cosAngle));
+    const baseAngle = Math.atan2(dy, dx);
+    const kneeOffsetAngle = Math.acos(clampedCos) * bendDir;
+    const thighAngle = baseAngle + kneeOffsetAngle;
+    return {
+      kx: hx + Math.cos(thighAngle) * L1,
+      ky: hy + Math.sin(thighAngle) * L1,
+      fx: hx + dx,
+      fy: hy + dy
+    };
+  }
+
+  // Evaluate the loaded steel wire Y position at any screen X
+  function getWireY(x, wireCfg, loadPoints) {
+    const { x1, y1, x2, y2, baseSag, vibAmp, vibPhase } = wireCfg;
+    const u = Math.max(0, Math.min(1, (x - x1) / (x2 - x1)));
+    const lineY = y1 + (y2 - y1) * u;
+    const catenary = 4 * u * (1 - u) * baseSag;
+
+    let loadSag = 0;
+    for (let i = 0; i < loadPoints.length; i++) {
+      const lp = loadPoints[i];
+      const lu = Math.max(0.05, Math.min(0.95, (lp.x - x1) / (x2 - x1)));
+      let green = 0;
+      if (u <= lu) {
+        green = (u * (1 - lu)) / (lu * (1 - lu));
+      } else {
+        green = ((1 - u) * lu) / (lu * (1 - lu));
+      }
+      const localPeak = Math.exp(-Math.pow((u - lu) / 0.13, 2)) * 0.46;
+      loadSag += lp.weight * (green * 0.65 + localPeak * 4 * u * (1 - u));
+    }
+
+    const harmonic = vibAmp * (
+      Math.sin(u * Math.PI * 3 + vibPhase) * 1.4 +
+      Math.sin(u * Math.PI * 7 - vibPhase * 1.6) * 0.7
+    ) * Math.sin(u * Math.PI);
+
+    return lineY + catenary + loadSag + harmonic;
+  }
+
+  // ==========================================
+  // SEAMLESS UNIFIED ELEPHANT LEG GEOMETRY
+  // ==========================================
+  function drawElephantLeg(ctx, hipX, hipY, footX, footY, scale, isNear, footTilt, isLifted) {
+    // Columnar pillar-like elephant leg bone lengths with natural forward knee bend (-1)
+    const L1 = 62 * scale;
+    const L2 = 58 * scale;
+    const ankleY = footY - 4 * scale;
+    const ik = solveIK2Bone(hipX, hipY, footX, ankleY, L1, L2, -1);
+
+    const rHip = 26 * scale;
+    const rKnee = 19.5 * scale;
+    const rAnkle = 17.5 * scale;
+
+    // Tangent normals for upper and lower leg segments
+    const ang1 = Math.atan2(ik.ky - hipY, ik.kx - hipX);
+    const n1x = -Math.sin(ang1); // points to front (right) of thigh
+    const n1y = Math.cos(ang1);
+
+    const ang2 = Math.atan2(ankleY - ik.ky, footX - ik.kx);
+    const n2x = -Math.sin(ang2); // points to front (right) of shin
+    const n2y = Math.cos(ang2);
+
+    // Average normal at knee for seamless joint curve
+    let nkx = n1x + n2x;
+    let nky = n1y + n2y;
+    const nkLen = Math.hypot(nkx, nky) || 1;
+    nkx /= nkLen;
+    nky /= nkLen;
+
+    const baseDark = isNear ? '#434b60' : '#303646';
+    const baseMid  = isNear ? '#67728c' : '#475066';
+    const baseLit  = isNear ? '#94a0ba' : '#616c85';
+
+    const legGrad = ctx.createLinearGradient(hipX - 28 * scale, hipY, footX + 28 * scale, ankleY);
+    legGrad.addColorStop(0, baseDark);
+    legGrad.addColorStop(0.55, baseMid);
+    legGrad.addColorStop(1, baseLit);
+
+    // Points along back (left) and front (right) of leg
+    const hipBackX = hipX - n1x * rHip;
+    const hipBackY = hipY - n1y * rHip;
+    const kneeBackX = ik.kx - nkx * rKnee;
+    const kneeBackY = ik.ky - nky * rKnee;
+    const csF = Math.cos(footTilt);
+    const snF = Math.sin(footTilt);
+    const ankleBackX = footX - csF * rAnkle;
+    const ankleBackY = (footY - 5 * scale) - snF * rAnkle;
+
+    const ankleFrontX = footX + csF * rAnkle;
+    const ankleFrontY = (footY - 5 * scale) + snF * rAnkle;
+    const kneeFrontX = ik.kx + nkx * rKnee;
+    const kneeFrontY = ik.ky + nky * rKnee;
+    const hipFrontX = hipX + n1x * rHip;
+    const hipFrontY = hipY + n1y * rHip;
+
+    ctx.save();
+    // Draw single unified leg volume (no overlapping joint circles!)
+    ctx.beginPath();
+    ctx.moveTo(hipBackX, hipBackY);
+    ctx.quadraticCurveTo(
+      (hipBackX + kneeBackX) * 0.5 - n1x * 2 * scale,
+      (hipBackY + kneeBackY) * 0.5 - n1y * 2 * scale,
+      kneeBackX,
+      kneeBackY
+    );
+    ctx.quadraticCurveTo(
+      (kneeBackX + ankleBackX) * 0.5,
+      (kneeBackY + ankleBackY) * 0.5,
+      ankleBackX,
+      ankleBackY
+    );
+    ctx.lineTo(ankleFrontX, ankleFrontY);
+    ctx.quadraticCurveTo(
+      (ankleFrontX + kneeFrontX) * 0.5 + n2x * 1.5 * scale,
+      (ankleFrontY + kneeFrontY) * 0.5 + n2y * 1.5 * scale,
+      kneeFrontX,
+      kneeFrontY
+    );
+    ctx.quadraticCurveTo(
+      (kneeFrontX + hipFrontX) * 0.5 + n1x * 3 * scale,
+      (kneeFrontY + hipFrontY) * 0.5 + n1y * 3 * scale,
+      hipFrontX,
+      hipFrontY
+    );
+    ctx.arc(hipX, hipY, rHip, ang1 + Math.PI * 0.5, ang1 - Math.PI * 0.5, true);
+    ctx.closePath();
+
+    ctx.fillStyle = legGrad;
+    ctx.fill();
+
+    // Stroke only the front and back contours of the leg (leaving top hip open so it blends into torso)
+    ctx.beginPath();
+    ctx.moveTo(hipBackX, hipBackY);
+    ctx.quadraticCurveTo(
+      (hipBackX + kneeBackX) * 0.5 - n1x * 2 * scale,
+      (hipBackY + kneeBackY) * 0.5 - n1y * 2 * scale,
+      kneeBackX,
+      kneeBackY
+    );
+    ctx.quadraticCurveTo(
+      (kneeBackX + ankleBackX) * 0.5,
+      (kneeBackY + ankleBackY) * 0.5,
+      ankleBackX,
+      ankleBackY
+    );
+    ctx.moveTo(ankleFrontX, ankleFrontY);
+    ctx.quadraticCurveTo(
+      (ankleFrontX + kneeFrontX) * 0.5 + n2x * 1.5 * scale,
+      (ankleFrontY + kneeFrontY) * 0.5 + n2y * 1.5 * scale,
+      kneeFrontX,
+      kneeFrontY
+    );
+    ctx.quadraticCurveTo(
+      (kneeFrontX + hipFrontX) * 0.5 + n1x * 3 * scale,
+      (kneeFrontY + hipFrontY) * 0.5 + n1y * 3 * scale,
+      hipFrontX,
+      hipFrontY
+    );
+    ctx.strokeStyle = 'rgba(20, 24, 36, 0.52)';
+    ctx.lineWidth = 1.5 * scale;
+    ctx.stroke();
+
+    // Subtle horizontal skin wrinkle creases across the front of the knee
+    ctx.strokeStyle = isNear ? 'rgba(32, 37, 52, 0.38)' : 'rgba(20, 24, 36, 0.38)';
+    ctx.lineWidth = 1.4 * scale;
+    ctx.beginPath();
+    ctx.moveTo(ik.kx - nkx * 4 * scale, ik.ky - 2 * scale);
+    ctx.quadraticCurveTo(ik.kx + nkx * 6 * scale, ik.ky + 1 * scale, ik.kx + nkx * 13 * scale, ik.ky - 1 * scale);
+    ctx.moveTo(ik.kx - nkx * 2 * scale, ik.ky + 4 * scale);
+    ctx.quadraticCurveTo(ik.kx + nkx * 5 * scale, ik.ky + 6 * scale, ik.kx + nkx * 11 * scale, ik.ky + 4 * scale);
+    ctx.stroke();
+
+    // Padded elephant foot sole & 3 ivory toenails
+    ctx.translate(footX, footY);
+    ctx.rotate(footTilt);
+
+    ctx.beginPath();
+    ctx.ellipse(2 * scale, -4 * scale, 19.5 * scale, 11 * scale, 0, Math.PI, Math.PI * 2);
+    ctx.bezierCurveTo(21.5 * scale, 3 * scale, -16.5 * scale, 3 * scale, -17.5 * scale, -4 * scale);
+    ctx.closePath();
+    ctx.fillStyle = isNear ? '#67738e' : '#475066';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(20, 24, 38, 0.58)';
+    ctx.lineWidth = 1.4 * scale;
+    ctx.stroke();
+
+    if (isLifted > 0.15) {
+      ctx.beginPath();
+      ctx.ellipse(1 * scale, 1.5 * scale, 15.5 * scale, 4.5 * scale * Math.min(1, isLifted), 0, 0, Math.PI * 2);
+      ctx.fillStyle = '#423f4d';
+      ctx.fill();
+    }
+
+    const nails = [
+      { x: -7 * scale, y: -1.5 * scale, rx: 3.6 * scale, ry: 4.6 * scale },
+      { x: 2 * scale,  y: -1.0 * scale, rx: 4.0 * scale, ry: 5.0 * scale },
+      { x: 11 * scale, y: -1.8 * scale, rx: 3.5 * scale, ry: 4.4 * scale }
+    ];
+    for (const n of nails) {
+      ctx.beginPath();
+      ctx.ellipse(n.x, n.y, n.rx, n.ry, 0.08, Math.PI * 0.95, Math.PI * 2.05);
+      ctx.closePath();
+      ctx.fillStyle = isNear ? '#ede2cc' : '#b8b0a0';
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(35,35,45,0.45)';
+      ctx.lineWidth = 1.0 * scale;
+      ctx.stroke();
+    }
+
+    ctx.restore();
+  }
+
+  function drawHangingLantern(ctx, x, y, angle, scale, time) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(angle);
+
+    const chainLen = 26 * scale;
+    ctx.strokeStyle = '#e5b567';
+    ctx.lineWidth = 2.2 * scale;
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(0, chainLen);
+    ctx.stroke();
+
+    const ly = chainLen + 14 * scale;
+
+    // Warm outer glow halo
+    const glowR = (72 + 8 * Math.sin(time * 6.5)) * scale;
+    const glow = ctx.createRadialGradient(0, ly, 2 * scale, 0, ly, glowR);
+    glow.addColorStop(0, 'rgba(255, 235, 160, 0.88)');
+    glow.addColorStop(0.32, 'rgba(255, 180, 80, 0.45)');
+    glow.addColorStop(0.68, 'rgba(255, 120, 55, 0.14)');
+    glow.addColorStop(1, 'rgba(255, 90, 40, 0)');
+    ctx.fillStyle = glow;
+    ctx.beginPath();
+    ctx.arc(0, ly, glowR, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Brass suspension ring
+    ctx.fillStyle = '#d49b4b';
+    ctx.beginPath();
+    ctx.arc(0, chainLen, 4.5 * scale, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Lantern glass globe
+    const glassGrad = ctx.createRadialGradient(-3 * scale, ly - 3 * scale, 2 * scale, 0, ly, 15 * scale);
+    glassGrad.addColorStop(0, '#fffdf0');
+    glassGrad.addColorStop(0.55, '#ffd05b');
+    glassGrad.addColorStop(0.9, '#ea7e26');
+    glassGrad.addColorStop(1, '#9e3b14');
+    ctx.fillStyle = glassGrad;
+    ctx.beginPath();
+    ctx.ellipse(0, ly, 13 * scale, 15.5 * scale, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Brass cap & bottom finial
+    ctx.fillStyle = '#3a2618';
+    ctx.strokeStyle = '#f2c166';
+    ctx.lineWidth = 1.4 * scale;
+    ctx.beginPath();
+    ctx.moveTo(-11.5 * scale, ly - 11 * scale);
+    ctx.quadraticCurveTo(0, ly - 20 * scale, 11.5 * scale, ly - 11 * scale);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.moveTo(-8.5 * scale, ly + 12 * scale);
+    ctx.lineTo(8.5 * scale, ly + 12 * scale);
+    ctx.lineTo(0, ly + 22 * scale);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+
+    // Red/gold silk tassel under lantern
+    ctx.strokeStyle = '#e64833';
+    ctx.lineWidth = 2.4 * scale;
+    ctx.beginPath();
+    ctx.moveTo(0, ly + 22 * scale);
+    ctx.quadraticCurveTo(
+      Math.sin(time * 8 + angle * 2) * 6 * scale,
+      ly + 30 * scale,
+      Math.sin(time * 8 + angle * 3) * 10 * scale,
+      ly + 38 * scale
+    );
+    ctx.stroke();
+
+    ctx.restore();
+  }
+
+  // ==========================================
+  // MAIN SCENE RENDER
+  // ==========================================
+  function render() {
+    const t = state.t;
+    ctx.save();
+    ctx.scale(dpr, dpr);
+
+    const S = Math.min(W / 1440, H / 900) * 1.06;
+    const cx = W * 0.5;
+    const cy = H * 0.5;
+
+    // Subtle high-altitude camera drift & tension reaction
+    const camZoom = 1.0 + state.panicLevel * 0.032 + 0.008 * Math.sin(t * 0.7);
+    const camShakeX = Math.sin(t * 1.3) * 6 * S + Math.sin(t * 17.0) * state.panicLevel * 2.2 * S;
+    const camShakeY = Math.cos(t * 1.1) * 5 * S + Math.cos(t * 15.0) * state.panicLevel * 2.2 * S;
+    const camTilt = state.roll * 0.055 + 0.005 * Math.sin(t * 0.8);
+
+    // ------------------------------------------
+    // 1. TWILIGHT SKY & CRESCENT MOON
+    // ------------------------------------------
+    const skyGrad = ctx.createLinearGradient(0, 0, 0, H);
+    skyGrad.addColorStop(0.0, '#080a18');
+    skyGrad.addColorStop(0.26, '#151836');
+    skyGrad.addColorStop(0.52, '#322454');
+    skyGrad.addColorStop(0.73, '#753b64');
+    skyGrad.addColorStop(0.89, '#c46658');
+    skyGrad.addColorStop(1.0, '#f0a260');
+    ctx.fillStyle = skyGrad;
+    ctx.fillRect(0, 0, W, H);
+
+    // Warm horizon glow behind the elephant
+    const sunGlow = ctx.createRadialGradient(W * 0.52, H * 0.72, 20 * S, W * 0.52, H * 0.72, 680 * S);
+    sunGlow.addColorStop(0, 'rgba(255, 210, 140, 0.52)');
+    sunGlow.addColorStop(0.42, 'rgba(240, 120, 95, 0.24)');
+    sunGlow.addColorStop(1, 'rgba(120, 45, 90, 0)');
+    ctx.fillStyle = sunGlow;
+    ctx.fillRect(0, 0, W, H);
+
+    // Twinkling stars
+    for (const st of stars) {
+      const tw = 0.35 + 0.65 * Math.pow(0.5 + 0.5 * Math.sin(t * st.speed + st.phase), 2);
+      ctx.globalAlpha = tw * (1 - st.y * 1.15);
+      ctx.fillStyle = st.tint;
+      ctx.beginPath();
+      ctx.arc(st.x * W, st.y * H, st.r * S, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+
+    // Pure Vector Crescent Moon (no dark circle artifact!)
+    const moonX = W * 0.80 - camShakeX * 0.15;
+    const moonY = H * 0.20 - camShakeY * 0.15;
+    const moonR = 52 * S;
+
+    const moonHalo = ctx.createRadialGradient(moonX, moonY, moonR * 0.5, moonX, moonY, moonR * 3.8);
+    moonHalo.addColorStop(0, 'rgba(255, 238, 195, 0.32)');
+    moonHalo.addColorStop(0.4, 'rgba(255, 210, 165, 0.10)');
+    moonHalo.addColorStop(1, 'rgba(255, 200, 150, 0)');
+    ctx.fillStyle = moonHalo;
+    ctx.beginPath();
+    ctx.arc(moonX, moonY, moonR * 3.8, 0, Math.PI * 2);
+    ctx.fill();
+
+    // True geometric crescent path using outer arc + inner terminator bezier
+    ctx.save();
+    ctx.translate(moonX, moonY);
+    ctx.rotate(-0.42);
+    ctx.beginPath();
+    ctx.arc(0, 0, moonR, -Math.PI * 0.42, Math.PI * 0.42, false);
+    ctx.bezierCurveTo(
+      moonR * 0.52,  moonR * 0.48,
+      moonR * 0.52, -moonR * 0.48,
+      Math.cos(-Math.PI * 0.42) * moonR,
+      Math.sin(-Math.PI * 0.42) * moonR
+    );
+    ctx.closePath();
+    const moonFill = ctx.createLinearGradient(-moonR * 0.2, -moonR, moonR, moonR);
+    moonFill.addColorStop(0, '#fffdf2');
+    moonFill.addColorStop(1, '#f7df9c');
+    ctx.fillStyle = moonFill;
+    ctx.shadowColor = 'rgba(255, 235, 175, 0.65)';
+    ctx.shadowBlur = 18 * S;
+    ctx.fill();
+    ctx.restore();
+
+    // Apply camera transform
+    ctx.save();
+    ctx.translate(cx + camShakeX, cy + camShakeY);
+    ctx.scale(camZoom, camZoom);
+    ctx.rotate(camTilt);
+    ctx.translate(-cx, -cy);
+
+    // ------------------------------------------
+    // 2. VOLUMETRIC SPOTLIGHT BEAMS & SEA OF CLOUDS
+    // ------------------------------------------
+    ctx.save();
+    ctx.globalCompositeOperation = 'screen';
+    const spot1Angle = -0.30 + 0.08 * Math.sin(t * 0.55);
+    const spot2Angle = 0.28 + 0.07 * Math.cos(t * 0.48);
+
+    function drawSpotlight(baseX, baseY, angle, spread, len) {
+      ctx.save();
+      ctx.translate(baseX, baseY);
+      ctx.rotate(angle);
+      const grad = ctx.createLinearGradient(0, 0, 0, -len);
+      grad.addColorStop(0, 'rgba(255, 215, 145, 0.16)');
+      grad.addColorStop(0.55, 'rgba(255, 195, 135, 0.07)');
+      grad.addColorStop(1, 'rgba(255, 180, 130, 0)');
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.moveTo(-18 * S, 0);
+      ctx.lineTo(-spread, -len);
+      ctx.lineTo(spread, -len);
+      ctx.lineTo(18 * S, 0);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    }
+    drawSpotlight(W * 0.25, H * 1.05, -spot1Angle, 210 * S, H * 1.15);
+    drawSpotlight(W * 0.75, H * 1.05, -spot2Angle, 210 * S, H * 1.15);
+    ctx.restore();
+
+    // Distant Canyon Silhouettes
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(-80, H + 80);
+    for (const pk of mountainPeaks) {
+      ctx.lineTo(pk.x * (W + 160) - 80, pk.y * H);
+    }
+    ctx.lineTo(W + 80, H + 80);
+    ctx.closePath();
+    const mtnGrad = ctx.createLinearGradient(0, H * 0.72, 0, H);
+    mtnGrad.addColorStop(0, 'rgba(56, 36, 76, 0.55)');
+    mtnGrad.addColorStop(1, 'rgba(22, 16, 38, 0.9)');
+    ctx.fillStyle = mtnGrad;
+    ctx.fill();
+    ctx.restore();
+
+    // Soft Billowy Sea of Clouds (all drawn cleanly in the background below the high-wire!)
+    function drawCloudBand(band) {
+      const baseY = H * band.yRatio;
+      ctx.save();
+      ctx.globalAlpha = band.alpha;
+
+      // Soft upper rim glow union
+      ctx.fillStyle = 'rgba(255, 185, 135, 0.18)';
+      ctx.beginPath();
+      ctx.moveTo(-120, H + 100);
+      ctx.lineTo(-120, baseY + 35 * S);
+      for (const p of band.puffs) {
+        const px = ((p.offset * (W + 360) + t * band.speed * S) % (W + 360)) - 180;
+        const py = baseY + p.dy * S + Math.sin(t * 0.6 + p.offset * 12) * 5 * S - 3.5 * S;
+        ctx.moveTo(px + p.rx * S, py);
+        ctx.ellipse(px, py, p.rx * S, p.ry * S, 0, 0, Math.PI * 2);
+      }
+      ctx.fillRect(-120, baseY + 12 * S, W + 240, H - baseY + 120);
+      ctx.fill();
+
+      // Main cloud body fill
+      const grad = ctx.createLinearGradient(0, baseY - 65 * S, 0, H + 40);
+      grad.addColorStop(0, band.topCol);
+      grad.addColorStop(0.5, band.botCol);
+      grad.addColorStop(1, '#0d0a1a');
+      ctx.fillStyle = grad;
+
+      ctx.beginPath();
+      ctx.moveTo(-120, H + 100);
+      ctx.lineTo(-120, baseY + 35 * S);
+      for (const p of band.puffs) {
+        const px = ((p.offset * (W + 360) + t * band.speed * S) % (W + 360)) - 180;
+        const py = baseY + p.dy * S + Math.sin(t * 0.6 + p.offset * 12) * 5 * S;
+        ctx.moveTo(px + p.rx * S, py);
+        ctx.ellipse(px, py, p.rx * S, p.ry * S, 0, 0, Math.PI * 2);
+      }
+      ctx.fillRect(-120, baseY + 15 * S, W + 240, H - baseY + 120);
+      ctx.fill();
+      ctx.restore();
+    }
+
+    drawCloudBand(cloudBands[0]);
+    drawCloudBand(cloudBands[1]);
+    drawCloudBand(cloudBands[2]);
+
+    // ------------------------------------------
+    // 3. HIGH-WIRE ANCHOR TOWERS & TAUT STEEL CABLE
+    // ------------------------------------------
+    const wireCfg = {
+      x1: W * 0.055,
+      y1: H * 0.56,
+      x2: W * 0.945,
+      y2: H * 0.63,
+      baseSag: 20 * S + state.wireSagDynamic * S,
+      vibAmp: state.wireVibAmp * S,
+      vibPhase: state.wireVibPhase
+    };
+
+    function drawAnchorTower(tx, ty, scaleT, isLeft) {
+      ctx.save();
+      ctx.translate(tx, ty);
+      ctx.scale(scaleT, scaleT);
+
+      const towerCol = '#1b172b';
+      const rimCol = 'rgba(255, 185, 125, 0.5)';
+
+      ctx.fillStyle = towerCol;
+      ctx.strokeStyle = '#2e2644';
+      ctx.lineWidth = 3 * S;
+      ctx.beginPath();
+      ctx.moveTo(-14 * S, 0);
+      ctx.lineTo(-48 * S, 440 * S);
+      ctx.lineTo(48 * S, 440 * S);
+      ctx.lineTo(14 * S, 0);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.strokeStyle = 'rgba(255, 175, 120, 0.24)';
+      ctx.lineWidth = 2 * S;
+      for (let i = 0; i < 6; i++) {
+        const yA = i * 62 * S;
+        const yB = (i + 1) * 62 * S;
+        const wA = (14 + i * 5.2) * S;
+        const wB = (14 + (i + 1) * 5.2) * S;
+        ctx.beginPath();
+        ctx.moveTo(-wA, yA);
+        ctx.lineTo(wB, yB);
+        ctx.moveTo(wA, yA);
+        ctx.lineTo(-wB, yB);
+        ctx.moveTo(-wA, yA);
+        ctx.lineTo(wA, yA);
+        ctx.stroke();
+      }
+
+      // Platform deck
+      ctx.fillStyle = '#29213d';
+      ctx.strokeStyle = rimCol;
+      ctx.lineWidth = 2 * S;
+      ctx.fillRect(-26 * S, -8 * S, 52 * S, 12 * S);
+      ctx.strokeRect(-26 * S, -8 * S, 52 * S, 12 * S);
+
+      // Spire & fluttering circus pennant
+      ctx.beginPath();
+      ctx.moveTo(0, -8 * S);
+      ctx.lineTo(0, -68 * S);
+      ctx.strokeStyle = '#e5a967';
+      ctx.lineWidth = 3 * S;
+      ctx.stroke();
+
+      const flagLen = (48 + state.windStrength * 26) * S;
+      const flagWave = Math.sin(t * (7 + state.windStrength * 8)) * 9 * S;
+      ctx.fillStyle = isLeft ? '#d94b43' : '#e69b35';
+      ctx.beginPath();
+      ctx.moveTo(0, -66 * S);
+      ctx.quadraticCurveTo(
+        flagLen * 0.5,
+        -62 * S + flagWave,
+        flagLen,
+        -56 * S - flagWave * 0.7 - state.windStrength * 8 * S
+      );
+      ctx.lineTo(0, -46 * S);
+      ctx.closePath();
+      ctx.fill();
+
+      const beacon = ctx.createRadialGradient(0, -68 * S, 1 * S, 0, -68 * S, 22 * S);
+      beacon.addColorStop(0, '#fff7cc');
+      beacon.addColorStop(0.4, 'rgba(255, 165, 80, 0.5)');
+      beacon.addColorStop(1, 'rgba(255, 120, 60, 0)');
+      ctx.fillStyle = beacon;
+      ctx.beginPath();
+      ctx.arc(0, -68 * S, 22 * S, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.restore();
+    }
+
+    drawAnchorTower(wireCfg.x1, wireCfg.y1, 0.80, true);
+
+    // ------------------------------------------
+    // 4. COMPUTE ELEPHANT POSTURE & FOOT TARGETS ON WIRE
+    // ------------------------------------------
+    const eleCenterX = W * 0.485 + Math.sin(t * 0.55) * 18 * S;
+    const wireSlopeAngle = Math.atan2(wireCfg.y2 - wireCfg.y1, wireCfg.x2 - wireCfg.x1);
+
+    const stride = 22 * S;
+    const liftAmt = state.liftBalanceAmount;
+    const gp = state.walkPhase;
+    const phases = [gp, gp + Math.PI, gp + Math.PI * 0.5, gp + Math.PI * 1.5];
+    const baseOffsets = [-82 * S, -38 * S, 34 * S, 76 * S];
+
+    const footTargets = [];
+    const loadPoints = [];
+
+    for (let i = 0; i < 4; i++) {
+      const ph = phases[i];
+      const swing = Math.sin(ph);
+      const liftStep = Math.max(0, swing) * (1 - liftAmt * 0.85);
+      let fx = eleCenterX + baseOffsets[i] + Math.cos(ph) * stride * (1 - liftAmt * 0.75);
+      let fyOffset = -Math.pow(liftStep, 0.85) * 24 * S;
+      let isLifted = liftStep;
+      let footTilt = wireSlopeAngle + liftStep * 0.18;
+
+      // During wind gusts, Near Hind leg (index 1) extends gracefully backward/upward to counterbalance!
+      if (i === 1 && liftAmt > 0.05) {
+        const balanceWave = Math.sin(t * 4.6) * 12 * S + state.roll * 55 * S;
+        fx = eleCenterX - 72 * S - liftAmt * 38 * S + balanceWave * 0.4;
+        fyOffset = -liftAmt * (26 * S + Math.abs(state.roll) * 32 * S) + Math.cos(t * 5.2) * 7 * S * liftAmt;
+        isLifted = Math.max(isLifted, liftAmt);
+        footTilt = -0.26 * liftAmt + state.roll * 0.45;
+      }
+
+      const contactWeight = Math.max(0, 1 - isLifted * 1.6) * (15.5 * S);
+      if (contactWeight > 0.5) {
+        loadPoints.push({ x: fx, weight: contactWeight });
+      }
+      footTargets.push({ baseX: fx, fyOffset, isLifted, footTilt });
+    }
+
+    for (let i = 0; i < 4; i++) {
+      const ft = footTargets[i];
+      const wireYAtFoot = getWireY(ft.baseX, wireCfg, loadPoints);
+      ft.x = ft.baseX;
+      ft.y = wireYAtFoot + ft.fyOffset;
+      ft.wireY = wireYAtFoot;
+    }
+
+    // Draw High-Tension Steel Wire
+    function drawSteelWire() {
+      const steps = 140;
+      ctx.save();
+
+      ctx.beginPath();
+      for (let i = 0; i <= steps; i++) {
+        const x = wireCfg.x1 + ((wireCfg.x2 - wireCfg.x1) * i) / steps;
+        const y = getWireY(x, wireCfg, loadPoints);
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.strokeStyle = 'rgba(255, 200, 140, 0.25)';
+      ctx.lineWidth = 7 * S;
+      ctx.stroke();
+
+      ctx.strokeStyle = '#384056';
+      ctx.lineWidth = 3.5 * S;
+      ctx.stroke();
+
+      ctx.beginPath();
+      for (let i = 0; i <= steps; i++) {
+        const x = wireCfg.x1 + ((wireCfg.x2 - wireCfg.x1) * i) / steps;
+        const y = getWireY(x, wireCfg, loadPoints) - 1.0 * S;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.strokeStyle = '#ffeed6';
+      ctx.lineWidth = 1.4 * S;
+      ctx.stroke();
+
+      // Tension vibration ghost lines
+      if (state.wireVibAmp > 0.42) {
+        for (const sign of [-1, 1]) {
+          ctx.beginPath();
+          for (let i = 20; i <= 120; i++) {
+            const x = wireCfg.x1 + ((wireCfg.x2 - wireCfg.x1) * i) / steps;
+            const u = i / steps;
+            const env = Math.sin(u * Math.PI);
+            const y = getWireY(x, wireCfg, loadPoints) + sign * state.wireVibAmp * 3.8 * S * env;
+            if (i === 20) ctx.moveTo(x, y);
+            else ctx.lineTo(x, y);
+          }
+          ctx.strokeStyle = 'rgba(255, 225, 175, 0.26)';
+          ctx.lineWidth = 1.0 * S;
+          ctx.stroke();
+        }
+      }
+
+      ctx.restore();
+    }
+
+    drawSteelWire();
+
+    // ------------------------------------------
+    // 5. DRAW THE HERO ELEPHANT & BALANCING POLE
+    // ------------------------------------------
+    const centerWireY = (footTargets[0].wireY + footTargets[2].wireY + footTargets[3].wireY) / 3;
+
+    const roll = state.roll;
+    const bodySwayX = Math.sin(roll) * 42 * S;
+    const bodySwayY = (1 - Math.cos(roll)) * 16 * S + state.bellyBounce * S - Math.abs(Math.sin(gp * 2)) * 4 * S;
+
+    const torsoX = eleCenterX + bodySwayX;
+    const torsoY = centerWireY - 122 * S + bodySwayY;
+    const bodyPitch = wireSlopeAngle * 0.65 + roll * 0.35 + Math.sin(gp * 2) * 0.025;
+
+    function bodyPoint(lx, ly) {
+      const c = Math.cos(bodyPitch);
+      const s = Math.sin(bodyPitch);
+      return {
+        x: torsoX + (lx * c - ly * s) * S,
+        y: torsoY + (lx * s + ly * c) * S
+      };
+    }
+
+    const hipFar = bodyPoint(-56, 16);
+    const hipNear = bodyPoint(-44, 22);
+    const shoulderFar = bodyPoint(44, 12);
+    const shoulderNear = bodyPoint(56, 18);
+    const headAnchor = bodyPoint(92, -24);
+    const tailAnchor = bodyPoint(-98, -8);
+
+    // 5A. Balancing Pole Coordinates (kept in clear dramatic view above the clouds!)
+    const poleGrip = {
+      x: headAnchor.x + (38 + Math.sin(roll) * 12) * S,
+      y: headAnchor.y + (34 + Math.sin(t * 3.2) * 3) * S
+    };
+
+    const poleHalfLen = 330 * S;
+    const poleTilt = -0.10 + state.poleAngle * 0.82;
+    const cosP = Math.cos(poleTilt);
+    const sinP = Math.sin(poleTilt);
+
+    const bendOffset = state.poleFlex * 44 * S;
+    const perpX = -sinP;
+    const perpY = cosP;
+
+    // Right-Back Tip (Far side of pole)
+    const farTipX = poleGrip.x + cosP * (poleHalfLen * 0.92) + perpX * bendOffset;
+    const farTipY = poleGrip.y + sinP * (poleHalfLen * 0.92) + perpY * bendOffset;
+    const farCtrlX = poleGrip.x + cosP * (poleHalfLen * 0.46) + perpX * (bendOffset * 0.35);
+    const farCtrlY = poleGrip.y + sinP * (poleHalfLen * 0.46) + perpY * (bendOffset * 0.35);
+
+    // Left-Front Tip (Near side of pole)
+    const nearTipX = poleGrip.x - cosP * (poleHalfLen * 1.06) + perpX * bendOffset;
+    const nearTipY = poleGrip.y - sinP * (poleHalfLen * 1.06) + perpY * bendOffset;
+    const nearCtrlX = poleGrip.x - cosP * (poleHalfLen * 0.53) + perpX * (bendOffset * 0.35);
+    const nearCtrlY = poleGrip.y - sinP * (poleHalfLen * 0.53) + perpY * (bendOffset * 0.35);
+
+    // Draw Far Lantern & Far Half of Balancing Pole
+    drawHangingLantern(ctx, farTipX, farTipY, state.lanternR.angle, 0.85 * S, t + 1.5);
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(poleGrip.x, poleGrip.y);
+    ctx.quadraticCurveTo(farCtrlX, farCtrlY, farTipX, farTipY);
+    ctx.strokeStyle = '#5c3a24';
+    ctx.lineWidth = 7.2 * S;
+    ctx.lineCap = 'round';
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.moveTo(poleGrip.x, poleGrip.y - 1.2 * S);
+    ctx.quadraticCurveTo(farCtrlX, farCtrlY - 1.2 * S, farTipX, farTipY - 1.0 * S);
+    ctx.strokeStyle = '#e8b36b';
+    ctx.lineWidth = 2.0 * S;
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.arc(farTipX, farTipY, 7.8 * S, 0, Math.PI * 2);
+    ctx.fillStyle = '#e0a958';
+    ctx.fill();
+    ctx.strokeStyle = '#4a2f18';
+    ctx.lineWidth = 1.5 * S;
+    ctx.stroke();
+    ctx.restore();
+
+    // 5B. Draw FAR Elephant Legs
+    drawElephantLeg(ctx, hipFar.x, hipFar.y, footTargets[0].x, footTargets[0].y, S * 0.94, false, footTargets[0].footTilt, footTargets[0].isLifted);
+    drawElephantLeg(ctx, shoulderFar.x, shoulderFar.y, footTargets[2].x, footTargets[2].y, S * 0.95, false, footTargets[2].footTilt, footTargets[2].isLifted);
+
+    // 5C. Draw FAR Ear
+    ctx.save();
+    ctx.translate(headAnchor.x + 18 * S, headAnchor.y - 18 * S);
+    ctx.rotate(bodyPitch - 0.25 - state.earFlap * 0.55);
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.bezierCurveTo(-18 * S, -48 * S, 42 * S, -64 * S, 52 * S, -18 * S);
+    ctx.bezierCurveTo(58 * S, 18 * S, 18 * S, 36 * S, 0, 12 * S);
+    ctx.closePath();
+    const farEarGrad = ctx.createLinearGradient(0, -50 * S, 45 * S, 30 * S);
+    farEarGrad.addColorStop(0, '#4f5870');
+    farEarGrad.addColorStop(0.7, '#3c4357');
+    farEarGrad.addColorStop(1, '#7a5968');
+    ctx.fillStyle = farEarGrad;
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(20, 24, 38, 0.6)';
+    ctx.lineWidth = 1.5 * S;
+    ctx.stroke();
+    ctx.restore();
+
+    // 5D. Draw Elephant Tail
+    ctx.save();
+    ctx.translate(tailAnchor.x, tailAnchor.y);
+    const tailRot = 0.35 + state.tailAngle;
+    const txEnd = -Math.sin(tailRot) * 62 * S;
+    const tyEnd = Math.cos(tailRot) * 62 * S;
+    const txCtrl = -Math.sin(tailRot * 0.6) * 32 * S - 8 * S;
+    const tyCtrl = Math.cos(tailRot * 0.6) * 32 * S;
+
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.quadraticCurveTo(txCtrl, tyCtrl, txEnd, tyEnd);
+    ctx.strokeStyle = '#556078';
+    ctx.lineWidth = 6.5 * S;
+    ctx.lineCap = 'round';
+    ctx.stroke();
+
+    ctx.translate(txEnd, tyEnd);
+    ctx.rotate(-tailRot);
+    ctx.beginPath();
+    ctx.moveTo(0, -3 * S);
+    ctx.bezierCurveTo(-8 * S, 8 * S, -6 * S, 22 * S, 0, 26 * S);
+    ctx.bezierCurveTo(7 * S, 20 * S, 8 * S, 8 * S, 0, -3 * S);
+    ctx.fillStyle = '#232736';
+    ctx.fill();
+    ctx.restore();
+
+    // 5E. Draw Elephant Massive Torso / Belly / Arched Spine
+    ctx.save();
+    ctx.translate(torsoX, torsoY);
+    ctx.rotate(bodyPitch);
+
+    const bellySag = (4 + state.bellyBounce * 0.8) * S;
+
+    ctx.beginPath();
+    ctx.moveTo(-102 * S, -6 * S);
+    ctx.bezierCurveTo(-78 * S, -68 * S, -12 * S, -82 * S, 55 * S, -56 * S);
+    ctx.bezierCurveTo(85 * S, -45 * S, 96 * S, -10 * S, 88 * S, 22 * S);
+    ctx.bezierCurveTo(72 * S, 52 * S, 22 * S, 64 * S + bellySag, -28 * S, 58 * S + bellySag);
+    ctx.bezierCurveTo(-75 * S, 52 * S, -106 * S, 28 * S, -102 * S, -6 * S);
+    ctx.closePath();
+
+    const torsoGrad = ctx.createRadialGradient(8 * S, -32 * S, 18 * S, -10 * S, 8 * S, 130 * S);
+    torsoGrad.addColorStop(0.0, '#9ba6be');
+    torsoGrad.addColorStop(0.38, '#6e7994');
+    torsoGrad.addColorStop(0.75, '#4b546b');
+    torsoGrad.addColorStop(1.0, '#32394a');
+    ctx.fillStyle = torsoGrad;
+    ctx.fill();
+
+    ctx.save();
+    ctx.clip();
+    ctx.beginPath();
+    ctx.moveTo(-102 * S, -6 * S);
+    ctx.bezierCurveTo(-78 * S, -68 * S, -12 * S, -82 * S, 55 * S, -56 * S);
+    ctx.strokeStyle = 'rgba(255, 200, 135, 0.65)';
+    ctx.lineWidth = 8.5 * S;
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.moveTo(85 * S, 25 * S);
+    ctx.bezierCurveTo(65 * S, 54 * S, 18 * S, 66 * S + bellySag, -35 * S, 58 * S + bellySag);
+    ctx.strokeStyle = 'rgba(22, 24, 42, 0.55)';
+    ctx.lineWidth = 14 * S;
+    ctx.stroke();
+
+    ctx.strokeStyle = 'rgba(38, 44, 62, 0.35)';
+    ctx.lineWidth = 1.6 * S;
+    ctx.beginPath();
+    ctx.moveTo(-48 * S, -18 * S);
+    ctx.quadraticCurveTo(-56 * S, 15 * S, -42 * S, 42 * S);
+    ctx.moveTo(35 * S, -15 * S);
+    ctx.quadraticCurveTo(45 * S, 12 * S, 32 * S, 38 * S);
+    ctx.stroke();
+
+    // 5F. Vintage Crimson & Gold Circus Saddle Blanket
+    const blanketSway = state.roll * 18 * S + Math.sin(t * 5.5) * 3 * S;
+    ctx.beginPath();
+    ctx.moveTo(-46 * S, -68 * S);
+    ctx.quadraticCurveTo(-8 * S, -78 * S, 30 * S, -62 * S);
+    ctx.lineTo(24 * S + blanketSway * 0.4, -2 * S + Math.abs(roll) * 14 * S);
+    ctx.quadraticCurveTo(-10 * S + blanketSway * 0.5, 10 * S + Math.abs(roll) * 18 * S, -42 * S + blanketSway * 0.4, -6 * S + Math.abs(roll) * 12 * S);
+    ctx.closePath();
+
+    const blanketGrad = ctx.createLinearGradient(-40 * S, -70 * S, 20 * S, 10 * S);
+    blanketGrad.addColorStop(0, '#c83e3b');
+    blanketGrad.addColorStop(0.65, '#8f2428');
+    blanketGrad.addColorStop(1, '#5e151d');
+    ctx.fillStyle = blanketGrad;
+    ctx.fill();
+
+    ctx.strokeStyle = '#f2c166';
+    ctx.lineWidth = 2.6 * S;
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.moveTo(-9 * S, -52 * S);
+    ctx.lineTo(6 * S, -34 * S);
+    ctx.lineTo(-9 * S, -16 * S);
+    ctx.lineTo(-24 * S, -34 * S);
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(242, 193, 102, 0.28)';
+    ctx.fill();
+    ctx.strokeStyle = '#f5cf7e';
+    ctx.lineWidth = 1.4 * S;
+    ctx.stroke();
+
+    for (let k = 0; k < 5; k++) {
+      const u = k / 4;
+      const bx = (-38 + u * 58) * S + blanketSway * 0.4;
+      const by = (-4 + Math.sin(u * Math.PI) * 10) * S + Math.abs(roll) * 14 * S;
+      const tasselSwing = state.roll * 12 * S + Math.sin(t * 7.5 + k) * (3 + state.windStrength * 5) * S;
+      ctx.beginPath();
+      ctx.moveTo(bx, by);
+      ctx.lineTo(bx + tasselSwing, by + 11 * S);
+      ctx.strokeStyle = '#f7cf78';
+      ctx.lineWidth = 2.4 * S;
+      ctx.stroke();
+    }
+
+    ctx.restore(); // end torso clip
+    ctx.strokeStyle = 'rgba(22, 26, 40, 0.55)';
+    ctx.lineWidth = 1.6 * S;
+    ctx.stroke();
+    ctx.restore(); // end torso transform
+
+    // 5G. Draw NEAR Elephant Legs
+    drawElephantLeg(ctx, hipNear.x, hipNear.y, footTargets[1].x, footTargets[1].y, S * 1.02, true, footTargets[1].footTilt, footTargets[1].isLifted);
+    drawElephantLeg(ctx, shoulderNear.x, shoulderNear.y, footTargets[3].x, footTargets[3].y, S * 1.02, true, footTargets[3].footTilt, footTargets[3].isLifted);
+
+    // 5H. Draw Elephant Head, Trunk Coiled on Pole, Tusks, Expressive Eye & Near Ear
+    ctx.save();
+    ctx.translate(headAnchor.x, headAnchor.y);
+    const headRot = bodyPitch * 0.7 - state.roll * 0.25 + Math.sin(t * 2.8) * 0.03;
+    ctx.rotate(headRot);
+
+    // Far Ivory Tusk
+    ctx.beginPath();
+    ctx.moveTo(28 * S, 18 * S);
+    ctx.quadraticCurveTo(56 * S, 30 * S, 70 * S, 10 * S);
+    ctx.quadraticCurveTo(52 * S, 20 * S, 26 * S, 10 * S);
+    ctx.closePath();
+    ctx.fillStyle = '#cfc4ae';
+    ctx.fill();
+
+    const localGripX = 38 * S;
+    const localGripY = 34 * S + state.poleAngle * 12 * S;
+
+    ctx.beginPath();
+    ctx.moveTo(-34 * S, -14 * S);
+    ctx.bezierCurveTo(-30 * S, -52 * S, 18 * S, -58 * S, 36 * S, -22 * S);
+    ctx.bezierCurveTo(52 * S, -4 * S, 64 * S, 14 * S, localGripX + 20 * S, localGripY - 6 * S);
+    ctx.bezierCurveTo(
+      localGripX + 26 * S, localGripY + 22 * S,
+      localGripX - 8 * S,  localGripY + 26 * S,
+      localGripX - 14 * S, localGripY + 4 * S
+    );
+    ctx.bezierCurveTo(28 * S, 24 * S, 22 * S, 18 * S, 12 * S, 22 * S);
+    ctx.bezierCurveTo(4 * S, 34 * S, -22 * S, 32 * S, -34 * S, 12 * S);
+    ctx.closePath();
+
+    const headGrad = ctx.createRadialGradient(12 * S, -22 * S, 10 * S, 8 * S, 4 * S, 75 * S);
+    headGrad.addColorStop(0, '#a6b1c9');
+    headGrad.addColorStop(0.45, '#727d98');
+    headGrad.addColorStop(0.85, '#4d566d');
+    headGrad.addColorStop(1, '#363d50');
+    ctx.fillStyle = headGrad;
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(22, 26, 40, 0.55)';
+    ctx.lineWidth = 1.6 * S;
+    ctx.stroke();
+
+    // Warm sunset rim highlight on forehead and upper trunk bridge
+    ctx.beginPath();
+    ctx.moveTo(-18 * S, -42 * S);
+    ctx.bezierCurveTo(14 * S, -54 * S, 32 * S, -26 * S, 50 * S, 2 * S);
+    ctx.strokeStyle = 'rgba(255, 205, 140, 0.65)';
+    ctx.lineWidth = 4.2 * S;
+    ctx.lineCap = 'round';
+    ctx.stroke();
+
+    // Trunk muscular ring creases
+    ctx.strokeStyle = 'rgba(35, 40, 58, 0.42)';
+    ctx.lineWidth = 1.5 * S;
+    for (let r = 0; r < 5; r++) {
+      const rx = (34 + r * 4.5) * S;
+      const ry = (-4 + r * 6.5) * S;
+      ctx.beginPath();
+      ctx.arc(rx, ry, 9 * S, 0.2, 1.3);
+      ctx.stroke();
+    }
+
+    // Cheek blush
+    const blush = ctx.createRadialGradient(12 * S, 8 * S, 2 * S, 12 * S, 8 * S, 14 * S);
+    blush.addColorStop(0, 'rgba(235, 115, 115, 0.32)');
+    blush.addColorStop(1, 'rgba(235, 115, 115, 0)');
+    ctx.fillStyle = blush;
+    ctx.beginPath();
+    ctx.arc(12 * S, 8 * S, 14 * S, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Expressive Eye
+    const eyeX = 16 * S;
+    const eyeY = -10 * S;
+    const eyeOpen = (1.0 + state.panicLevel * 0.38);
+
+    ctx.beginPath();
+    ctx.ellipse(eyeX, eyeY, 6.8 * S, 5.6 * S * eyeOpen, -0.1, 0, Math.PI * 2);
+    ctx.fillStyle = '#f7f4eb';
+    ctx.fill();
+    ctx.strokeStyle = '#252a3a';
+    ctx.lineWidth = 1.5 * S;
+    ctx.stroke();
+
+    const lookX = eyeX + (1.8 + Math.sin(state.roll * 3) * 1.5) * S;
+    const lookY = eyeY + (1.6 + Math.cos(t * 2) * 0.5) * S;
+    ctx.beginPath();
+    ctx.arc(lookX, lookY, 3.6 * S, 0, Math.PI * 2);
+    ctx.fillStyle = '#4a3222';
+    ctx.fill();
+
+    ctx.beginPath();
+    ctx.arc(lookX + 0.3 * S, lookY + 0.3 * S, 2.1 * S * (1 - state.panicLevel * 0.2), 0, Math.PI * 2);
+    ctx.fillStyle = '#12131a';
+    ctx.fill();
+
+    ctx.beginPath();
+    ctx.arc(lookX - 1.2 * S, lookY - 1.4 * S, 1.3 * S, 0, Math.PI * 2);
+    ctx.fillStyle = '#ffffff';
+    ctx.fill();
+
+    // Expressive eyebrow ridge
+    ctx.beginPath();
+    ctx.moveTo(eyeX - 8 * S, eyeY - (6 + state.panicLevel * 3) * S);
+    ctx.quadraticCurveTo(
+      eyeX + 1 * S,
+      eyeY - (10 + state.panicLevel * 4) * S,
+      eyeX + 8 * S,
+      eyeY - (4 - state.panicLevel * 2) * S
+    );
+    ctx.strokeStyle = '#2a3042';
+    ctx.lineWidth = 2.4 * S;
+    ctx.lineCap = 'round';
+    ctx.stroke();
+
+    // Near Ivory Tusk
+    ctx.beginPath();
+    ctx.moveTo(16 * S, 16 * S);
+    ctx.quadraticCurveTo(46 * S, 34 * S, 64 * S, 12 * S);
+    ctx.quadraticCurveTo(44 * S, 22 * S, 22 * S, 8 * S);
+    ctx.closePath();
+    const tuskGrad = ctx.createLinearGradient(16 * S, 16 * S, 64 * S, 12 * S);
+    tuskGrad.addColorStop(0, '#d8ccb4');
+    tuskGrad.addColorStop(0.5, '#f7f0df');
+    tuskGrad.addColorStop(1, '#ffffff');
+    ctx.fillStyle = tuskGrad;
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(60, 52, 42, 0.5)';
+    ctx.lineWidth = 1.3 * S;
+    ctx.stroke();
+
+    // Performer's Cap perched atop the head
+    ctx.save();
+    ctx.translate(2 * S, -44 * S);
+    ctx.rotate(-0.18 + state.roll * 0.45);
+    ctx.beginPath();
+    ctx.moveTo(-13 * S, 4 * S);
+    ctx.lineTo(-9 * S, -14 * S);
+    ctx.quadraticCurveTo(0, -17 * S, 9 * S, -14 * S);
+    ctx.lineTo(13 * S, 4 * S);
+    ctx.closePath();
+    ctx.fillStyle = '#c83b3b';
+    ctx.fill();
+    ctx.strokeStyle = '#f5c76b';
+    ctx.lineWidth = 2.0 * S;
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(0, -15 * S);
+    ctx.quadraticCurveTo(-12 * S - state.roll * 18 * S, -12 * S, -16 * S - state.roll * 25 * S, -2 * S);
+    ctx.strokeStyle = '#f7d070';
+    ctx.lineWidth = 2.2 * S;
+    ctx.stroke();
+    ctx.restore();
+
+    // Near Large Expressive Ear
+    ctx.save();
+    ctx.translate(-14 * S, -12 * S);
+    ctx.rotate(-0.12 + state.earFlap * 0.48 - state.roll * 0.35);
+
+    ctx.beginPath();
+    ctx.moveTo(0, -8 * S);
+    ctx.bezierCurveTo(-28 * S, -42 * S, -74 * S, -26 * S, -72 * S, 16 * S);
+    ctx.bezierCurveTo(-70 * S, 48 * S, -34 * S, 64 * S, -10 * S, 42 * S);
+    ctx.bezierCurveTo(2 * S, 30 * S, 6 * S, 8 * S, 0, -8 * S);
+    ctx.closePath();
+
+    const earGrad = ctx.createRadialGradient(-24 * S, 18 * S, 8 * S, -36 * S, 10 * S, 62 * S);
+    earGrad.addColorStop(0, '#b58d99');
+    earGrad.addColorStop(0.45, '#727d96');
+    earGrad.addColorStop(0.85, '#545e75');
+    earGrad.addColorStop(1, '#8c97b0');
+    ctx.fillStyle = earGrad;
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(24, 28, 42, 0.55)';
+    ctx.lineWidth = 1.6 * S;
+    ctx.stroke();
+
+    ctx.strokeStyle = 'rgba(55, 45, 65, 0.25)';
+    ctx.lineWidth = 1.3 * S;
+    ctx.beginPath();
+    ctx.moveTo(-8 * S, 8 * S);
+    ctx.quadraticCurveTo(-35 * S, 6 * S, -55 * S, 16 * S);
+    ctx.moveTo(-10 * S, 16 * S);
+    ctx.quadraticCurveTo(-32 * S, 26 * S, -46 * S, 40 * S);
+    ctx.stroke();
+    ctx.restore();
+
+    // Teardrop sweat droplets flying outward through the air during intense wobble
+    for (const d of droplets) {
+      if (d.life < 0.88) {
+        ctx.save();
+        ctx.globalAlpha = Math.max(0, d.life * 0.85);
+        ctx.translate(d.ox * S, d.oy * S);
+        ctx.rotate(Math.atan2(d.vy, d.vx));
+        ctx.fillStyle = '#d4f1ff';
+        ctx.beginPath();
+        ctx.moveTo(d.size * 1.5 * S, 0);
+        ctx.arc(0, 0, d.size * 0.75 * S, 0.5, Math.PI * 2 - 0.5);
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+      }
+    }
+
+    ctx.restore(); // end head transform
+
+    // 5I. Draw NEAR Half of the Balancing Pole
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(poleGrip.x, poleGrip.y, 7.2 * S, 0, Math.PI * 2);
+    ctx.fillStyle = '#f2c166';
+    ctx.fill();
+
+    ctx.beginPath();
+    ctx.moveTo(poleGrip.x, poleGrip.y);
+    ctx.quadraticCurveTo(nearCtrlX, nearCtrlY, nearTipX, nearTipY);
+    ctx.strokeStyle = '#6e452b';
+    ctx.lineWidth = 9.2 * S;
+    ctx.lineCap = 'round';
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.moveTo(poleGrip.x, poleGrip.y - 1.8 * S);
+    ctx.quadraticCurveTo(nearCtrlX, nearCtrlY - 1.8 * S, nearTipX, nearTipY - 1.6 * S);
+    ctx.strokeStyle = '#f7ca82';
+    ctx.lineWidth = 2.6 * S;
+    ctx.stroke();
+
+    // Coiled tip of the elephant's trunk gripping the top of the pole
+    ctx.beginPath();
+    ctx.ellipse(poleGrip.x + 2 * S, poleGrip.y - 3 * S, 13 * S, 8.5 * S, -0.25, 0, Math.PI * 2);
+    ctx.fillStyle = '#6c7791';
+    ctx.fill();
+    ctx.strokeStyle = '#2d3346';
+    ctx.lineWidth = 1.6 * S;
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.arc(nearTipX, nearTipY, 9.5 * S, 0, Math.PI * 2);
+    ctx.fillStyle = '#f0b865';
+    ctx.fill();
+    ctx.strokeStyle = '#4a2f18';
+    ctx.lineWidth = 1.8 * S;
+    ctx.stroke();
+    ctx.restore();
+
+    // Hanging Lantern at Near-Left Pole Tip
+    drawHangingLantern(ctx, nearTipX, nearTipY, state.lanternL.angle, 1.04 * S, t);
+
+    // ------------------------------------------
+    // 6. FOREGROUND TOWER, WIND RIBBONS & PARTICLES
+    // ------------------------------------------
+    drawAnchorTower(wireCfg.x2, wireCfg.y2, 1.05, false);
+
+    // Wind Ribbons
+    if (state.windStrength > 0.18) {
+      ctx.save();
+      const windAlpha = Math.min(0.46, (state.windStrength - 0.15) * 0.55);
+      for (const rb of windRibbons) {
+        const rx = ((rb.x + t * rb.speed * (0.6 + state.windStrength * 0.9)) % (W + 500)) - 250;
+        const ry = (rb.y / 900) * H;
+        const grad = ctx.createLinearGradient(rx, ry, rx + rb.len * S, ry);
+        grad.addColorStop(0, 'rgba(255, 225, 185, 0)');
+        grad.addColorStop(0.5, `rgba(255, 230, 195, ${windAlpha})`);
+        grad.addColorStop(1, 'rgba(255, 225, 185, 0)');
+        ctx.strokeStyle = grad;
+        ctx.lineWidth = 1.8 * S;
+        ctx.beginPath();
+        for (let s = 0; s <= 24; s++) {
+          const u = s / 24;
+          const px = rx + u * rb.len * S;
+          const py = ry + Math.sin(u * Math.PI * 2 + t * 5 + rb.phase) * rb.amp * S * state.windStrength;
+          if (s === 0) ctx.moveTo(px, py);
+          else ctx.lineTo(px, py);
+        }
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+
+    // Floating atmospheric dust motes & glowing dandelion seeds
+    ctx.save();
+    for (const pt of windParticles) {
+      const speedX = (35 + state.windStrength * 185) * pt.z;
+      const px = ((pt.x + t * speedX) % (W + 240)) - 120;
+      const py = ((pt.y + Math.sin(t * 1.8 + pt.swayPhase) * 28 * pt.z) % H + H) % H;
+      const alpha = (0.25 + 0.45 * Math.sin(t * 2.4 + pt.swayPhase)) * Math.min(1, pt.z);
+
+      ctx.globalAlpha = Math.max(0.05, alpha);
+      if (pt.isSeed) {
+        ctx.strokeStyle = '#ffefd2';
+        ctx.lineWidth = 1.0 * S;
+        const ang = 0.3 + state.windStrength * 0.5 + Math.sin(t * 3 + pt.swayPhase) * 0.2;
+        const sx = px + Math.cos(ang) * 6 * S * pt.z;
+        const sy = py + Math.sin(ang) * 6 * S * pt.z;
+        ctx.beginPath();
+        ctx.moveTo(px, py);
+        ctx.lineTo(sx, sy);
+        ctx.stroke();
+        ctx.fillStyle = '#fff9e6';
+        ctx.beginPath();
+        ctx.arc(sx, sy, 2.0 * S * pt.z, 0, Math.PI * 2);
+        ctx.fill();
+      } else {
+        ctx.fillStyle = '#ffe5b8';
+        ctx.beginPath();
+        ctx.arc(px, py, pt.size * S * pt.z * 0.65, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+    ctx.restore();
+
+    ctx.restore(); // end camera transform
+
+    // ------------------------------------------
+    // 7. CINEMATIC VIGNETTE
+    // ------------------------------------------
+    const vig = ctx.createRadialGradient(cx, cy, Math.min(W, H) * 0.38, cx, cy, Math.max(W, H) * 0.78);
+    vig.addColorStop(0, 'rgba(10, 10, 22, 0)');
+    vig.addColorStop(0.7, 'rgba(10, 10, 22, 0.14)');
+    vig.addColorStop(1, 'rgba(6, 6, 16, 0.58)');
+    ctx.fillStyle = vig;
+    ctx.fillRect(0, 0, W, H);
+
+    ctx.restore(); // end dpr scale
+  }
+
+  window.seekToTime = function(targetT) {
+    state.t = 0;
+    state.roll = 0;
+    state.rollVel = 0;
+    state.rollAcc = 0;
+    state.poleAngle = 0;
+    state.poleVel = 0;
+    state.poleFlex = 0;
+    state.poleFlexVel = 0;
+    state.lanternL.angle = 0;
+    state.lanternL.vel = 0;
+    state.lanternR.angle = 0;
+    state.lanternR.vel = 0;
+    state.wireSagDynamic = 0;
+    state.wireSagVel = 0;
+    state.wireVibAmp = 0;
+    state.wireVibPhase = 0;
+    state.bellyBounce = 0;
+    state.bellyVel = 0;
+    state.earFlap = 0;
+    state.earVel = 0;
+    state.tailAngle = 0;
+    state.tailVel = 0;
+    state.windStrength = 0;
+    state.walkPhase = 0;
+    state.walkSpeed = 1.0;
+    state.liftBalanceAmount = 0;
+    state.panicLevel = 0;
+    state.dropletCooldown = 0;
+    droplets.length = 0;
+    const simStep = 1 / 120;
+    for (let s = 0; s < targetT; s += simStep) {
+      stepPhysics(simStep);
+    }
+    render();
+  };
+
+  // ==========================================
+  // ANIMATION LOOP
+  // ==========================================
+  let lastTime = performance.now();
+  function animate(now) {
+    const dt = Math.min(0.05, Math.max(0.001, (now - lastTime) / 1000));
+    lastTime = now;
+    stepPhysics(dt);
+    render();
+    requestAnimationFrame(animate);
+  }
+
+  render();
+  requestAnimationFrame(animate);
+})();
+</script>
+<!--zc-home:start--><style>.zc-home-btn{position:fixed;top:16px;left:16px;z-index:2147483647;display:inline-flex;align-items:center;gap:6px;padding:8px 14px;font:500 13px/1.1 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Noto Sans SC",sans-serif;color:#111;background:rgba(255,255,255,.86);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);border:1px solid rgba(0,0,0,.08);border-radius:999px;text-decoration:none;box-shadow:0 2px 12px rgba(0,0,0,.2);transition:background .2s ease,transform .2s ease,box-shadow .2s ease}.zc-home-btn:hover{background:#fff;transform:translateY(-1px);box-shadow:0 4px 18px rgba(0,0,0,.26)}</style><a class="zc-home-btn" href="../">← 返回首页</a><!--zc-home:end-->
+</body>
+</html>

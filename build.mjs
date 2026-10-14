@@ -50,6 +50,7 @@ const pelicanVersions = [
   ["gpt5.6-terra-ultra", "GPT-5.6 Terra Ultra", "SVG 动画"],
   ["opus-4.8", "Claude Opus 4.8", "SVG + SMIL 动画"],
   ["longcat2.5-preview", "LongCat 2.5 Preview", "Three.js 3D"],
+  ["gemini4argon", "Gemini 4 Argon", "Canvas 2D"],
 ].map(([slug, name, sub]) => ({ slug, name, sub }));
 
 // Categories in hub order. `cover` = thumbnail (if versions exist); else emoji.
@@ -80,6 +81,7 @@ const categories = [
       ["muse-spark", "Muse Spark", "Canvas 2D"],
       ["tierflow-pro", "Tierflow-Pro", "Canvas 2D"],
       ["gpt6-luna", "GPT-6", "Luna · CSS 动画"],
+      ["gemini4argon", "Gemini 4 Argon", "Three.js 3D"],
     ].map(([slug, name, sub]) => ({ slug, name, sub })),
   },
   {
@@ -97,6 +99,7 @@ const categories = [
       ["muse-spark", "Muse Spark", "Canvas 2D"],
       ["ling-3.1-flash", "Ling 3.1 Flash", "Three.js 3D"],
       ["step-5-preview", "Step-5 Preview", "Canvas 2D"],
+      ["gemini4argon", "Gemini 4 Argon", "Three.js 3D"],
     ].map(([slug, name, sub]) => ({ slug, name, sub })),
   },
   {
@@ -118,6 +121,7 @@ const categories = [
       ["deepseek-4.1-flash-raccoon", "DeepSeek 4.1 Flash Raccoon", "Three.js 3D"],
       ["glm-5.3-raccoon", "GLM 5.3 Raccoon", "Three.js 3D"],
       ["longcat-2.0", "LongCat 2.0", "Canvas 2D"],
+      ["gemini4argon", "Gemini 4 Argon", "Three.js 3D"],
     ].map(([slug, name, sub]) => ({ slug, name, sub })),
   },
   {
@@ -136,6 +140,7 @@ const categories = [
       ["opus-4.8", "Claude Opus 4.8", "SVG 动画"],
       ["glm-5.3-flash", "GLM 5.3 Flash", "SVG 动画"],
       ["ling-3.1-flash", "Ling 3.1 Flash", "SVG 动画"],
+      ["gemini4argon", "Gemini 4 Argon", "Canvas 2D"],
     ].map(([slug, name, sub]) => ({ slug, name, sub })),
   },
   {
@@ -176,6 +181,7 @@ const categories = [
       ["k3", "K3", "SVG 动画"],
       ["qwen-3.8-flash-next", "Qwen 3.8 Flash Next", "Canvas 2D"],
       ["ling-3.1-flash", "Ling 3.1 Flash", "Canvas 2D"],
+      ["gemini4argon", "Gemini 4 Argon", "Three.js 3D"],
     ].map(([slug, name, sub]) => ({ slug, name, sub })),
   },
   {
@@ -196,6 +202,7 @@ const categories = [
       ["tierflow-pro", "Tierflow-Pro", "Canvas 2D"],
       ["muse-spark", "Muse Spark", "Canvas 2D"],
       ["qwen-3.8-flash-next", "Qwen 3.8 Flash Next", "Canvas 2D"],
+      ["gemini4argon", "Gemini 4 Argon", "Canvas 2D"],
     ].map(([slug, name, sub]) => ({ slug, name, sub })),
   },
 ];

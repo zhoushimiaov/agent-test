@@ -93,6 +93,8 @@ const ITEMS = [
     desc: "Blue water showing a wavy water surface at the top with light rays coming through it. A jellyfish with a translucent pinkish-purple bell and long flowing oral arms/tentacles drifting down, with two faint background jellyfish silhouettes at right. The visible surface plus depth layers give a strong sense of underwater context." },
   { slug: "gpt6-luna", render: "2D (CSS animation)",
     desc: "A brighter teal-blue near-surface water gradient with soft lens-flare light circles. A simple glowing cyan jellyfish with a smooth translucent dome bell and a short wispy bundle of tentacles trailing down, with a small 'SOFT CURRENT / DEEP BLUE' caption along the bottom. Clean and pretty but minimal, with a lighter palette and less depth and detail than the darker deep-sea renders." },
+  { slug: "gemini4argon", render: "3D (Three.js / WebGL)",
+    desc: "A 3D WebGL underwater scene on a deep blue/indigo background with soft light shafts descending from above. A luminous, translucent jellyfish hangs in the upper centre: a rounded, glowing bell with visible inner structure, trailing long thin tentacles that curve downward and sway. Cool cyan/blue rim light on the bell and drifting particles in the dark water." },
 ];
 
 const questions = Object.fromEntries(

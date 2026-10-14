@@ -1,0 +1,1392 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>Abyssal Grace — 深海浮生</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+        html, body {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background: radial-gradient(circle at 50% 15%, #072540 0%, #031124 45%, #01050d 100%);
+            cursor: grab;
+        }
+        body:active {
+            cursor: grabbing;
+        }
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+    </style>
+</head>
+<body>
+    <script>
+        const NOISE_GLSL = `
+            vec3 mod289(vec3 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
+            vec4 mod289(vec4 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
+            vec4 permute(vec4 x) { return mod289(((x * 34.0) + 1.0) * x); }
+            vec4 taylorInvSqrt(vec4 r) { return 1.79284291400159 - 0.85373472095314 * r; }
+
+            float snoise(vec3 v) {
+                const vec2 C = vec2(1.0 / 6.0, 1.0 / 3.0);
+                const vec4 D = vec4(0.0, 0.5, 1.0, 2.0);
+                vec3 i  = floor(v + dot(v, C.yyy));
+                vec3 x0 = v - i + dot(i, C.xxx);
+                vec3 g = step(x0.yzx, x0.xyz);
+                vec3 l = 1.0 - g;
+                vec3 i1 = min(g.xyz, l.zxy);
+                vec3 i2 = max(g.xyz, l.zxy);
+                vec3 x1 = x0 - i1 + C.xxx;
+                vec3 x2 = x0 - i2 + C.yyy;
+                vec3 x3 = x0 - D.yyy;
+                i = mod289(i);
+                vec4 p = permute(permute(permute(
+                         i.z + vec4(0.0, i1.z, i2.z, 1.0))
+                       + i.y + vec4(0.0, i1.y, i2.y, 1.0))
+                       + i.x + vec4(0.0, i1.x, i2.x, 1.0));
+                float n_ = 0.142857142857;
+                vec3 ns = n_ * D.wyz - D.xzx;
+                vec4 j = p - 49.0 * floor(p * ns.z * ns.z);
+                vec4 x_ = floor(j * ns.z);
+                vec4 y_ = floor(j - 7.0 * x_);
+                vec4 x = x_ * ns.x + ns.yyyy;
+                vec4 y = y_ * ns.x + ns.yyyy;
+                vec4 h = 1.0 - abs(x) - abs(y);
+                vec4 b0 = vec4(x.xy, y.xy);
+                vec4 b1 = vec4(x.zw, y.zw);
+                vec4 s0 = floor(b0) * 2.0 + 1.0;
+                vec4 s1 = floor(b1) * 2.0 + 1.0;
+                vec4 sh = -step(h, vec4(0.0));
+                vec4 a0 = b0.xzyw + s0.xzyw * sh.xxyy;
+                vec4 a1 = b1.xzyw + s1.xzyw * sh.zzww;
+                vec3 p0 = vec3(a0.xy, h.x);
+                vec3 p1 = vec3(a0.zw, h.y);
+                vec3 p2 = vec3(a1.xy, h.z);
+                vec3 p3 = vec3(a1.zw, h.w);
+                vec4 norm = taylorInvSqrt(vec4(dot(p0,p0), dot(p1,p1), dot(p2,p2), dot(p3,p3)));
+                p0 *= norm.x; p1 *= norm.y; p2 *= norm.z; p3 *= norm.w;
+                vec4 m = max(0.6 - vec4(dot(x0,x0), dot(x1,x1), dot(x2,x2), dot(x3,x3)), 0.0);
+                m = m * m;
+                return 42.0 * dot(m*m, vec4(dot(p0,x0), dot(p1,x1), dot(p2,x2), dot(p3,x3)));
+            }
+        `;
+
+        const BELL_VERTEX_SHADER = `
+            uniform float uTime;
+            uniform float uPulse;
+            uniform float uPulseWave;
+            varying vec2 vUv;
+            varying vec3 vNormal;
+            varying vec3 vViewPosition;
+            varying vec3 vLocalPos;
+            varying float vRimFactor;
+
+            ${NOISE_GLSL}
+
+            // Compute exact deformed position for a given (theta, v) on the bell
+            vec3 computeBellPoint(float theta, float v) {
+                // Base profile of an elegant Pelagia/Chrysaora umbrella dome
+                // v goes from 0.0 (apex) to 1.0 (scalloped margin)
+                float profileRadius = sin(v * 1.48) * (1.0 + 0.08 * pow(v, 2.5));
+                float profileY = cos(v * 1.48) * 1.15 - 0.15;
+
+                // 16 radial ridges and scalloped lappets along the margin
+                float ribs = cos(theta * 16.0);
+                float subRibs = cos(theta * 32.0);
+                float ribDisplacement = (ribs * 0.032 + subRibs * 0.01) * smoothstep(0.12, 0.85, v);
+
+                // Scalloped lappet edge (缘瓣)
+                float lappetArch = (ribs * 0.5 + 0.5) * 0.075 * pow(v, 3.2);
+                profileY -= lappetArch;
+
+                // Asymmetric biological propulsion wave traveling from apex to margin
+                float delayedPhase = uPulseWave - v * 1.35;
+                float contraction = sin(delayedPhase);
+                // Squeeze inward at lower bell during systole, flare slightly during diastole
+                float radialSqueeze = 1.0 - uPulse * 0.28 * pow(v, 1.45) + 0.06 * sin(delayedPhase) * pow(v, 2.0);
+                float verticalStretch = 1.0 + uPulse * 0.16 * (1.0 - v * 0.5);
+
+                // Subtle organic water turbulence ripple on the bell skirt
+                vec3 noiseCoord = vec3(cos(theta) * 1.3, sin(theta) * 1.3, v * 2.0 - uTime * 0.8);
+                float microWave = snoise(noiseCoord) * 0.035 * pow(v, 1.8);
+
+                // Delicate inward curl at the very tip of the skirt
+                float skirtCurl = smoothstep(0.82, 1.0, v) * 0.09 * (0.6 + 0.4 * uPulse);
+
+                float r = (profileRadius + ribDisplacement + microWave - skirtCurl) * radialSqueeze;
+                float y = profileY * verticalStretch - uPulse * 0.18 * pow(v, 1.7);
+
+                return vec3(cos(theta) * r, y, sin(theta) * r);
+            }
+
+            void main() {
+                vUv = uv;
+                float theta = uv.x * 6.28318530718;
+                float v = uv.y;
+
+                vec3 pos = computeBellPoint(theta, v);
+
+                // Finite difference for accurate smooth dynamic normals
+                float eps = 0.015;
+                vec3 posTheta = computeBellPoint(theta + eps, v);
+                vec3 posV = computeBellPoint(theta, clamp(v + eps, 0.0, 1.0));
+                vec3 tangentTheta = normalize(posTheta - pos);
+                vec3 tangentV = normalize(posV - pos);
+                vec3 computedNormal = normalize(cross(tangentV, tangentTheta));
+                if (v < 0.02) {
+                    computedNormal = vec3(0.0, 1.0, 0.0);
+                }
+
+                vLocalPos = pos;
+                vRimFactor = v;
+
+                vec4 mvPosition = modelViewMatrix * vec4(pos, 1.0);
+                vViewPosition = -mvPosition.xyz;
+                vNormal = normalize(normalMatrix * computedNormal);
+
+                gl_Position = projectionMatrix * mvPosition;
+            }
+        `;
+
+        const BELL_FRAGMENT_SHADER = `
+            uniform float uTime;
+            uniform float uPulse;
+            uniform float uPulseWave;
+            uniform float uIsInner;
+            varying vec2 vUv;
+            varying vec3 vNormal;
+            varying vec3 vViewPosition;
+            varying vec3 vLocalPos;
+            varying float vRimFactor;
+
+            ${NOISE_GLSL}
+
+            void main() {
+                vec3 normal = normalize(vNormal);
+                if (!gl_FrontFacing) {
+                    normal = -normal;
+                }
+                vec3 viewDir = normalize(vViewPosition);
+
+                // Fresnel rim luminescence
+                float NdotV = abs(dot(normal, viewDir));
+                float fresnel = pow(1.0 - NdotV, 2.4);
+                float softFresnel = pow(1.0 - NdotV, 1.3);
+
+                float theta = vUv.x * 6.28318530718;
+                float v = vRimFactor;
+
+                // 16 Radial canals (辐管) & striated muscle rings
+                float canal8 = pow(abs(cos(theta * 4.0)), 28.0);
+                float canal16 = pow(abs(cos(theta * 8.0)), 18.0);
+                float fineRibs = pow(0.5 + 0.5 * cos(theta * 32.0), 4.0) * smoothstep(0.25, 0.95, v);
+
+                // Neural bioluminescent pulse traveling down radial canals
+                float neuralWave = sin(v * 14.0 - uTime * 4.2 + cos(theta * 4.0) * 0.5) * 0.5 + 0.5;
+                neuralWave = pow(neuralWave, 3.0) * (0.4 + 0.6 * uPulse);
+
+                // Cellular mesoglea texture
+                float cellNoise = snoise(vLocalPos * 4.5 + vec3(0.0, uTime * 0.25, 0.0)) * 0.5 + 0.5;
+                float shimmerNoise = snoise(vLocalPos * 12.0 - vec3(0.0, uTime * 0.6, 0.0)) * 0.5 + 0.5;
+
+                // Color palette: Deep abyssal cyan, electric turquoise, neon magenta-violet, and warm rose core
+                vec3 apexColor = vec3(0.06, 0.48, 0.85);
+                vec3 midBellColor = vec3(0.12, 0.78, 0.96);
+                vec3 magentaLappet = vec3(0.92, 0.22, 0.72);
+                vec3 violetRim = vec3(0.55, 0.25, 0.98);
+                vec3 warmCoreGlow = vec3(1.0, 0.45, 0.58);
+
+                // Base gradient from apex to rim
+                vec3 baseColor = mix(apexColor, midBellColor, smoothstep(0.0, 0.65, v));
+                baseColor = mix(baseColor, violetRim, smoothstep(0.55, 0.92, v));
+                baseColor = mix(baseColor, magentaLappet, smoothstep(0.78, 1.0, v) * (0.5 + 0.5 * cos(theta * 16.0)));
+
+                // Internal gastrovascular subsurface scatter near the top-center
+                float coreScatter = smoothstep(0.65, 0.0, v) * (0.55 + 0.45 * uPulse);
+                baseColor = mix(baseColor, warmCoreGlow, coreScatter * 0.52);
+
+                // Add radial canal luminescence
+                vec3 canalColor = mix(vec3(0.35, 0.95, 1.0), vec3(1.0, 0.55, 0.88), v);
+                float canalMask = (canal8 * 0.85 + canal16 * 0.55) * smoothstep(0.05, 0.96, v);
+                vec3 color = baseColor + canalColor * canalMask * (0.65 + 0.75 * neuralWave);
+
+                // Add fine circumferential ring fibers on subumbrella
+                float ringFibers = sin(v * 95.0) * 0.5 + 0.5;
+                ringFibers = pow(ringFibers, 3.0) * smoothstep(0.2, 0.85, v) * 0.18;
+                color += vec3(0.25, 0.85, 1.0) * ringFibers;
+
+                // Iridescent Fresnel edge highlight
+                vec3 fresnelColor = mix(vec3(0.2, 0.92, 1.0), vec3(1.0, 0.38, 0.82), smoothstep(0.3, 0.98, v));
+                color += fresnelColor * fresnel * 1.45;
+                color += vec3(0.4, 0.75, 1.0) * fineRibs * 0.35;
+
+                // Bioluminescent marginal rhopalia (感觉器亮点 - 16 bright sensory nodes on the rim)
+                float rhopaliaAngle = pow(0.5 + 0.5 * cos(theta * 8.0), 40.0);
+                float rhopaliaRim = exp(-pow((v - 0.95) * 28.0, 2.0));
+                float rhopaliaGlow = rhopaliaAngle * rhopaliaRim * (0.8 + 0.5 * sin(uTime * 5.0));
+                color += vec3(1.0, 0.85, 0.55) * rhopaliaGlow * 2.2;
+
+                // Top directional sun/moon shaft light from above
+                float topLight = max(0.0, dot(normal, vec3(0.0, 1.0, 0.2)));
+                color += vec3(0.15, 0.55, 0.85) * pow(topLight, 2.0) * 0.4;
+
+                // Subtle organic sparkle
+                color += vec3(0.6, 0.95, 1.0) * pow(shimmerNoise, 5.0) * fresnel * 0.4;
+
+                // Compute translucent alpha with layered depth feel
+                float alpha = 0.14 + softFresnel * 0.56 + canalMask * 0.28 + smoothstep(0.82, 1.0, v) * 0.25;
+                alpha *= (0.85 + 0.15 * cellNoise);
+                if (uIsInner > 0.5) {
+                    alpha *= 0.55;
+                    color *= 0.85;
+                }
+
+                gl_FragColor = vec4(color, clamp(alpha, 0.0, 0.92));
+            }
+        `;
+
+        const ORAL_ARM_VERTEX_SHADER = `
+            uniform float uTime;
+            varying vec2 vUv;
+            varying vec3 vNormal;
+            varying vec3 vViewPos;
+            varying float vFrill;
+
+            void main() {
+                vUv = uv;
+                // vUv.x is across the ribbon (-1..1 mapped from 0..1), vUv.y is along the length (0=top, 1=bottom tip)
+                float across = (uv.x - 0.5) * 2.0;
+                float along = uv.y;
+
+                // Compute spiral ruffled wave along the edges of the oral arm
+                float envelope = sin(along * 3.14159265) * (1.0 - along * 0.35);
+                float wave1 = sin(along * 26.0 - uTime * 2.4 + across * 2.5);
+                float wave2 = cos(along * 48.0 - uTime * 3.6 - across * 4.0) * 0.45;
+                float frillAmplitude = pow(abs(across), 1.35) * envelope * 0.28;
+                float frillOffset = (wave1 + wave2) * frillAmplitude;
+
+                vFrill = abs(wave1 + wave2) * abs(across);
+
+                vec3 displaced = position + normal * frillOffset;
+                vec4 mvPosition = modelViewMatrix * vec4(displaced, 1.0);
+                vViewPos = -mvPosition.xyz;
+                vNormal = normalize(normalMatrix * normal);
+                gl_Position = projectionMatrix * mvPosition;
+            }
+        `;
+
+        const ORAL_ARM_FRAGMENT_SHADER = `
+            uniform float uTime;
+            uniform float uArmIndex;
+            varying vec2 vUv;
+            varying vec3 vNormal;
+            varying vec3 vViewPos;
+            varying float vFrill;
+
+            void main() {
+                vec3 normal = normalize(vNormal);
+                if (!gl_FrontFacing) normal = -normal;
+                vec3 viewDir = normalize(vViewPos);
+
+                float across = abs((vUv.x - 0.5) * 2.0);
+                float along = vUv.y;
+
+                float fresnel = pow(1.0 - abs(dot(normal, viewDir)), 2.0);
+
+                // Edge ruffle highlight and central midrib
+                float edgeGlow = smoothstep(0.45, 0.98, across);
+                float centerRib = exp(-pow(across * 4.5, 2.0));
+                float tipFade = 1.0 - smoothstep(0.82, 1.0, along);
+
+                // Warm rose-magenta at the top, transitioning toviolet-cyan towards the frilly edges and tips
+                vec3 coreColor = vec3(0.98, 0.38, 0.65);
+                vec3 midColor = vec3(0.68, 0.28, 0.92);
+                vec3 edgeColor = vec3(0.22, 0.88, 1.0);
+
+                vec3 color = mix(coreColor, midColor, smoothstep(0.0, 0.7, along));
+                color = mix(color, edgeColor, edgeGlow * 0.75 + smoothstep(0.6, 1.0, along) * 0.35);
+
+                // Travelling bioluminescent wave down the oral arms
+                float bioPulse = sin(along * 12.0 - uTime * 3.0 + uArmIndex * 1.2) * 0.5 + 0.5;
+                color += vec3(1.0, 0.6, 0.85) * centerRib * 0.5;
+                color += vec3(0.45, 0.95, 1.0) * edgeGlow * vFrill * (0.6 + 0.5 * bioPulse);
+                color += vec3(0.8, 0.5, 1.0) * fresnel * 0.8;
+
+                // Tiny glowing nematocyst dots along the curled margin
+                float dots = pow(0.5 + 0.5 * sin(along * 110.0 + uArmIndex * 5.0), 12.0) * smoothstep(0.75, 0.98, across);
+                color += vec3(1.0, 0.85, 0.95) * dots * 1.4;
+
+                float alpha = (0.16 + fresnel * 0.42 + edgeGlow * 0.32 + centerRib * 0.25) * tipFade;
+                alpha *= smoothstep(0.0, 0.06, along);
+
+                gl_FragColor = vec4(color, clamp(alpha, 0.0, 0.85));
+            }
+        `;
+
+        const GODRAY_VERTEX_SHADER = `
+            varying vec2 vUv;
+            varying vec3 vWorldPos;
+            void main() {
+                vUv = uv;
+                vec4 worldPos = modelMatrix * vec4(position, 1.0);
+                vWorldPos = worldPos.xyz;
+                gl_Position = projectionMatrix * viewMatrix * worldPos;
+            }
+        `;
+
+        const GODRAY_FRAGMENT_SHADER = `
+            uniform float uTime;
+            uniform float uSeed;
+            varying vec2 vUv;
+            varying vec3 vWorldPos;
+
+            void main() {
+                // Soft horizontal and vertical attenuation
+                float horizontalFade = sin(vUv.x * 3.14159265);
+                horizontalFade = pow(horizontalFade, 2.2);
+                float verticalFade = smoothstep(0.0, 0.25, vUv.y) * smoothstep(1.0, 0.15, vUv.y);
+
+                // Shimmering caustic streaks from surface waves
+                float streak1 = sin(vUv.x * 14.0 + uTime * 0.45 + uSeed * 6.0) * 0.5 + 0.5;
+                float streak2 = sin(vUv.x * 27.0 - uTime * 0.32 + vUv.y * 2.0 + uSeed * 3.0) * 0.5 + 0.5;
+                float caustic = pow(streak1 * streak2, 1.6);
+
+                vec3 rayColor = mix(vec3(0.04, 0.36, 0.62), vec3(0.18, 0.72, 0.92), vUv.y);
+                float alpha = horizontalFade * verticalFade * (0.025 + 0.055 * caustic);
+
+                gl_FragColor = vec4(rayColor, alpha);
+            }
+        `;
+
+        let scene, camera, renderer;
+        let jellyfishGroup, bellMesh, innerBellMesh, gonadGroup, coreGlowSprite;
+        let bellUniforms, innerBellUniforms;
+        let tentacles = [];
+        let oralArms = [];
+        let wakeRings = [];
+        let marineSnowSystem, planktonSystem;
+        let godRayMeshes = [];
+
+        // Camera control state (autonomous + optional subtle mouse orbit)
+        const camState = {
+            isDragging: false,
+            prevX: 0,
+            prevY: 0,
+            targetYawOffset: 0,
+            targetPitchOffset: 0,
+            currentYawOffset: 0,
+            currentPitchOffset: 0
+        };
+
+        // Jellyfish locomotion & biomechanics state
+        const jellyState = {
+            position: new THREE.Vector3(0, -0.5, 0),
+            velocity: new THREE.Vector3(0, 0.02, 0),
+            heading: new THREE.Vector3(0, 1, 0),
+            quaternion: new THREE.Quaternion(),
+            cycleTime: 0,
+            pulseValue: 0,
+            pulseWavePhase: 0,
+            lastPeakTriggered: false
+        };
+
+        function createGlowTexture(innerColor, midColor, outerColor) {
+            const canvas = document.createElement('canvas');
+            canvas.width = 128;
+            canvas.height = 128;
+            const ctx = canvas.getContext('2d');
+            const grad = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
+            grad.addColorStop(0.0, innerColor);
+            grad.addColorStop(0.3, midColor);
+            grad.addColorStop(0.7, outerColor);
+            grad.addColorStop(1.0, 'rgba(0, 0, 0, 0)');
+            ctx.fillStyle = grad;
+            ctx.fillRect(0, 0, 128, 128);
+            const tex = new THREE.CanvasTexture(canvas);
+            tex.needsUpdate = true;
+            return tex;
+        }
+
+        function buildJellyfishBell() {
+            jellyfishGroup = new THREE.Group();
+            scene.add(jellyfishGroup);
+
+            // High-resolution parametric grid mapped via UV in the vertex shader
+            const bellGeo = new THREE.PlaneGeometry(1, 1, 128, 64);
+            // Shift UVs or keep 0..1 cleanly (PlaneGeometry already has uv in 0..1)
+
+            bellUniforms = {
+                uTime: { value: 0 },
+                uPulse: { value: 0 },
+                uPulseWave: { value: 0 },
+                uIsInner: { value: 0.0 }
+            };
+
+            const outerBellMat = new THREE.ShaderMaterial({
+                vertexShader: BELL_VERTEX_SHADER,
+                fragmentShader: BELL_FRAGMENT_SHADER,
+                uniforms: bellUniforms,
+                transparent: true,
+                depthWrite: false,
+                side: THREE.DoubleSide,
+                blending: THREE.AdditiveBlending
+            });
+
+            // Base translucent layer using NormalBlending for realistic water-jelly density
+            const baseBellMat = new THREE.ShaderMaterial({
+                vertexShader: BELL_VERTEX_SHADER,
+                fragmentShader: BELL_FRAGMENT_SHADER,
+                uniforms: {
+                    uTime: bellUniforms.uTime,
+                    uPulse: bellUniforms.uPulse,
+                    uPulseWave: bellUniforms.uPulseWave,
+                    uIsInner: { value: 1.0 }
+                },
+                transparent: true,
+                depthWrite: false,
+                side: THREE.DoubleSide,
+                blending: THREE.NormalBlending
+            });
+
+            const baseBellMesh = new THREE.Mesh(bellGeo, baseBellMat);
+            baseBellMesh.scale.set(0.97, 0.97, 0.97);
+            jellyfishGroup.add(baseBellMesh);
+
+            bellMesh = new THREE.Mesh(bellGeo, outerBellMat);
+            jellyfishGroup.add(bellMesh);
+
+            // Internal Gastrovascular Cavity & 4 Horseshoe Gonads (生殖腺与胃腔发光核心)
+            gonadGroup = new THREE.Group();
+            gonadGroup.position.set(0, 0.42, 0);
+            jellyfishGroup.add(gonadGroup);
+
+            const gonadGeo = new THREE.TorusGeometry(0.19, 0.048, 16, 40, Math.PI * 1.35);
+            const gonadMat = new THREE.MeshBasicMaterial({
+                color: 0xff5599,
+                transparent: true,
+                opacity: 0.55,
+                blending: THREE.AdditiveBlending,
+                depthWrite: false
+            });
+
+            for (let i = 0; i < 4; i++) {
+                const angle = (i / 4) * Math.PI * 2 + Math.PI * 0.25;
+                const gonad = new THREE.Mesh(gonadGeo, gonadMat);
+                gonad.position.set(Math.cos(angle) * 0.16, 0, Math.sin(angle) * 0.16);
+                gonad.rotation.x = Math.PI * 0.5 + 0.35;
+                gonad.rotation.z = -angle - Math.PI * 0.5;
+                gonadGroup.add(gonad);
+            }
+
+            // Soft volumetric glow sprites inside and around the bell
+            const roseGlowTex = createGlowTexture(
+                'rgba(255, 140, 195, 0.85)',
+                'rgba(190, 60, 220, 0.35)',
+                'rgba(30, 160, 255, 0.08)'
+            );
+            const coreSpriteMat = new THREE.SpriteMaterial({
+                map: roseGlowTex,
+                transparent: true,
+                blending: THREE.AdditiveBlending,
+                depthWrite: false
+            });
+            coreGlowSprite = new THREE.Sprite(coreSpriteMat);
+            coreGlowSprite.position.set(0, 0.45, 0);
+            coreGlowSprite.scale.set(2.4, 2.2, 1.0);
+            jellyfishGroup.add(coreGlowSprite);
+
+            const cyanHaloTex = createGlowTexture(
+                'rgba(80, 220, 255, 0.38)',
+                'rgba(40, 110, 235, 0.14)',
+                'rgba(10, 40, 120, 0.0)'
+            );
+            const haloSprite = new THREE.Sprite(new THREE.SpriteMaterial({
+                map: cyanHaloTex,
+                transparent: true,
+                blending: THREE.AdditiveBlending,
+                depthWrite: false
+            }));
+            haloSprite.position.set(0, 0.2, 0);
+            haloSprite.scale.set(4.8, 4.5, 1.0);
+            jellyfishGroup.add(haloSprite);
+        }
+
+        function buildOralArms() {
+            const numArms = 6;
+            const numNodes = 26;
+            const segsAcross = 14;
+            const segsAlong = numNodes - 1;
+
+            for (let a = 0; a < numArms; a++) {
+                const angle = (a / numArms) * Math.PI * 2;
+                const radiusOffset = a < 4 ? 0.17 : 0.07;
+                const armLength = 3.2 + (a % 3) * 0.45;
+                const segLen = armLength / segsAlong;
+
+                // Physics nodes in world space
+                const nodes = [];
+                const prevNodes = [];
+                for (let i = 0; i < numNodes; i++) {
+                    const p = new THREE.Vector3(
+                        Math.cos(angle) * radiusOffset,
+                        0.32 - i * segLen,
+                        Math.sin(angle) * radiusOffset
+                    );
+                    nodes.push(p.clone());
+                    prevNodes.push(p.clone());
+                }
+
+                // Ribbon geometry updated dynamically every frame from the physics spine
+                const geo = new THREE.PlaneGeometry(1, 1, segsAcross, segsAlong);
+                const mat = new THREE.ShaderMaterial({
+                    vertexShader: ORAL_ARM_VERTEX_SHADER,
+                    fragmentShader: ORAL_ARM_FRAGMENT_SHADER,
+                    uniforms: {
+                        uTime: bellUniforms.uTime,
+                        uArmIndex: { value: a }
+                    },
+                    transparent: true,
+                    depthWrite: false,
+                    side: THREE.DoubleSide,
+                    blending: THREE.AdditiveBlending
+                });
+
+                const mesh = new THREE.Mesh(geo, mat);
+                mesh.frustumCulled = false;
+                scene.add(mesh);
+
+                oralArms.push({
+                    angle,
+                    radiusOffset,
+                    segLen,
+                    nodes,
+                    prevNodes,
+                    mesh,
+                    segsAcross,
+                    segsAlong,
+                    baseWidth: 0.28 + (a % 2) * 0.06
+                });
+            }
+        }
+
+        function buildMarginalTentacles() {
+            const numTentacles = 32;
+            const numNodes = 34;
+
+            for (let t = 0; t < numTentacles; t++) {
+                const theta = (t / numTentacles) * Math.PI * 2;
+                const isPrimary = t % 2 === 0;
+                const totalLength = isPrimary
+                    ? 4.6 + Math.sin(t * 1.7) * 0.9
+                    : 3.1 + Math.cos(t * 2.3) * 0.6;
+                const segLen = totalLength / (numNodes - 1);
+
+                const nodes = [];
+                const prevNodes = [];
+                const r0 = Math.sin(1.48) * 1.08;
+                const y0 = Math.cos(1.48) * 1.15 - 0.15;
+
+                for (let i = 0; i < numNodes; i++) {
+                    const p = new THREE.Vector3(
+                        Math.cos(theta) * r0,
+                        y0 - i * segLen,
+                        Math.sin(theta) * r0
+                    );
+                    nodes.push(p.clone());
+                    prevNodes.push(p.clone());
+                }
+
+                // Build thin tapered ribbon geometry (2 vertices per node) for silky anti-aliased rendering
+                const positions = new Float32Array(numNodes * 2 * 3);
+                const colors = new Float32Array(numNodes * 2 * 4);
+                const indices = [];
+
+                for (let i = 0; i < numNodes; i++) {
+                    const frac = i / (numNodes - 1);
+                    // Transition from bright magenta/violet at the bell rim to electric cyan/blue at the tip
+                    const c1 = new THREE.Color().setHSL(
+                        0.86 - frac * 0.34 + Math.sin(t) * 0.03,
+                        0.92,
+                        0.68 - frac * 0.22
+                    );
+                    const alpha = Math.pow(1.0 - frac, 0.75) * (isPrimary ? 0.78 : 0.48);
+
+                    for (let side = 0; side < 2; side++) {
+                        const idx = (i * 2 + side) * 4;
+                        colors[idx] = c1.r * alpha;
+                        colors[idx + 1] = c1.g * alpha;
+                        colors[idx + 2] = c1.b * alpha;
+                        colors[idx + 3] = alpha;
+                    }
+
+                    if (i < numNodes - 1) {
+                        const a = i * 2;
+                        const b = i * 2 + 1;
+                        const c = (i + 1) * 2;
+                        const d = (i + 1) * 2 + 1;
+                        indices.push(a, b, c, b, d, c);
+                    }
+                }
+
+                const geo = new THREE.BufferGeometry();
+                geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+                geo.setAttribute('color', new THREE.BufferAttribute(colors, 4));
+                geo.setIndex(indices);
+
+                const mat = new THREE.MeshBasicMaterial({
+                    vertexColors: true,
+                    transparent: true,
+                    depthWrite: false,
+                    side: THREE.DoubleSide,
+                    blending: THREE.AdditiveBlending
+                });
+
+                const mesh = new THREE.Mesh(geo, mat);
+                mesh.frustumCulled = false;
+                scene.add(mesh);
+
+                tentacles.push({
+                    theta,
+                    isPrimary,
+                    segLen,
+                    nodes,
+                    prevNodes,
+                    mesh,
+                    numNodes,
+                    baseWidth: isPrimary ? 0.024 : 0.014,
+                    phaseOffset: t * 0.45
+                });
+            }
+        }
+
+        function buildUnderwaterAtmosphere() {
+            // 1. Volumetric God Rays filtering down from the upper ocean surface
+            const rayCount = 9;
+            const rayGeo = new THREE.PlaneGeometry(5.5, 26, 1, 1);
+
+            for (let i = 0; i < rayCount; i++) {
+                const mat = new THREE.ShaderMaterial({
+                    vertexShader: GODRAY_VERTEX_SHADER,
+                    fragmentShader: GODRAY_FRAGMENT_SHADER,
+                    uniforms: {
+                        uTime: bellUniforms.uTime,
+                        uSeed: { value: i * 1.37 }
+                    },
+                    transparent: true,
+                    depthWrite: false,
+                    side: THREE.DoubleSide,
+                    blending: THREE.AdditiveBlending
+                });
+
+                const ray = new THREE.Mesh(rayGeo, mat);
+                const xSpread = (i - (rayCount - 1) * 0.5) * 2.6 + (Math.random() - 0.5) * 1.2;
+                const zSpread = -4.0 - Math.random() * 8.0;
+                ray.position.set(xSpread, 5.5, zSpread);
+                ray.rotation.z = -0.22 + (Math.random() - 0.5) * 0.08;
+                ray.rotation.y = (Math.random() - 0.5) * 0.4;
+                ray.scale.x = 0.8 + Math.random() * 0.9;
+                scene.add(ray);
+                godRayMeshes.push(ray);
+            }
+
+            // 2. Marine Snow & Bioluminescent Deep-Sea Plankton
+            const snowCount = 850;
+            const snowPositions = new Float32Array(snowCount * 3);
+            const snowColors = new Float32Array(snowCount * 3);
+            const snowVel = [];
+
+            for (let i = 0; i < snowCount; i++) {
+                snowPositions[i * 3] = (Math.random() - 0.5) * 26;
+                snowPositions[i * 3 + 1] = (Math.random() - 0.5) * 24;
+                snowPositions[i * 3 + 2] = (Math.random() - 0.5) * 22;
+
+                const palettePick = Math.random();
+                const col = new THREE.Color();
+                if (palettePick < 0.65) {
+                    col.setHSL(0.54 + Math.random() * 0.06, 0.85, 0.55 + Math.random() * 0.3);
+                } else if (palettePick < 0.88) {
+                    col.setHSL(0.82 + Math.random() * 0.08, 0.85, 0.62);
+                } else {
+                    col.setHSL(0.12 + Math.random() * 0.05, 0.9, 0.72);
+                }
+                const brightness = 0.25 + Math.random() * 0.75;
+                snowColors[i * 3] = col.r * brightness;
+                snowColors[i * 3 + 1] = col.g * brightness;
+                snowColors[i * 3 + 2] = col.b * brightness;
+
+                snowVel.push({
+                    vx: (Math.random() - 0.5) * 0.08,
+                    vy: 0.05 + Math.random() * 0.14,
+                    vz: (Math.random() - 0.5) * 0.08,
+                    phase: Math.random() * Math.PI * 2
+                });
+            }
+
+            const snowGeo = new THREE.BufferGeometry();
+            snowGeo.setAttribute('position', new THREE.BufferAttribute(snowPositions, 3));
+            snowGeo.setAttribute('color', new THREE.BufferAttribute(snowColors, 3));
+
+            const particleTex = createGlowTexture(
+                'rgba(255, 255, 255, 1.0)',
+                'rgba(140, 230, 255, 0.45)',
+                'rgba(0, 80, 180, 0.0)'
+            );
+
+            const snowMat = new THREE.PointsMaterial({
+                size: 0.14,
+                map: particleTex,
+                vertexColors: true,
+                transparent: true,
+                opacity: 0.78,
+                depthWrite: false,
+                blending: THREE.AdditiveBlending
+            });
+
+            marineSnowSystem = {
+                points: new THREE.Points(snowGeo, snowMat),
+                velocities: snowVel,
+                count: snowCount
+            };
+            scene.add(marineSnowSystem.points);
+
+            // 3. Soft Foreground/Background Bokeh Plankton Spores
+            const bokehCount = 90;
+            const bokehPos = new Float32Array(bokehCount * 3);
+            const bokehCol = new Float32Array(bokehCount * 3);
+            for (let i = 0; i < bokehCount; i++) {
+                bokehPos[i * 3] = (Math.random() - 0.5) * 20;
+                bokehPos[i * 3 + 1] = (Math.random() - 0.5) * 20;
+                bokehPos[i * 3 + 2] = (Math.random() - 0.5) * 18;
+                const c = new THREE.Color().setHSL(0.52 + Math.random() * 0.35, 0.9, 0.6);
+                bokehCol[i * 3] = c.r * 0.35;
+                bokehCol[i * 3 + 1] = c.g * 0.35;
+                bokehCol[i * 3 + 2] = c.b * 0.35;
+            }
+            const bokehGeo = new THREE.BufferGeometry();
+            bokehGeo.setAttribute('position', new THREE.BufferAttribute(bokehPos, 3));
+            bokehGeo.setAttribute('color', new THREE.BufferAttribute(bokehCol, 3));
+            const bokehMat = new THREE.PointsMaterial({
+                size: 0.55,
+                map: particleTex,
+                vertexColors: true,
+                transparent: true,
+                opacity: 0.38,
+                depthWrite: false,
+                blending: THREE.AdditiveBlending
+            });
+            planktonSystem = new THREE.Points(bokehGeo, bokehMat);
+            scene.add(planktonSystem);
+        }
+
+        function buildWakeRings() {
+            const ringCount = 3;
+            const pointsPerRing = 64;
+            const particleTex = createGlowTexture(
+                'rgba(160, 245, 255, 0.9)',
+                'rgba(80, 190, 255, 0.35)',
+                'rgba(0, 0, 0, 0)'
+            );
+
+            for (let r = 0; r < ringCount; r++) {
+                const pos = new Float32Array(pointsPerRing * 3);
+                const geo = new THREE.BufferGeometry();
+                geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+
+                const mat = new THREE.PointsMaterial({
+                    size: 0.11,
+                    map: particleTex,
+                    color: 0x66e8ff,
+                    transparent: true,
+                    opacity: 0.0,
+                    depthWrite: false,
+                    blending: THREE.AdditiveBlending
+                });
+
+                const pts = new THREE.Points(geo, mat);
+                pts.frustumCulled = false;
+                scene.add(pts);
+
+                wakeRings.push({
+                    points: pts,
+                    center: new THREE.Vector3(),
+                    quat: new THREE.Quaternion(),
+                    age: 999,
+                    maxAge: 3.4,
+                    pointsPerRing
+                });
+            }
+        }
+
+        function spawnWakeRing() {
+            // Find oldest ring
+            let oldest = wakeRings[0];
+            for (const r of wakeRings) {
+                if (r.age > oldest.age) oldest = r;
+            }
+            oldest.age = 0;
+            const localRimCenter = new THREE.Vector3(0, -0.25, 0);
+            localRimCenter.applyQuaternion(jellyState.quaternion).add(jellyState.position);
+            oldest.center.copy(localRimCenter);
+            oldest.quat.copy(jellyState.quaternion);
+        }
+
+        function updateJellyfishBiomechanics(time, dt) {
+            // Natural heartbeat period (~3.7 seconds per cycle)
+            const cyclePeriod = 3.7;
+            const phase = (time % cyclePeriod) / cyclePeriod; // 0.0 -> 1.0
+
+            // Asymmetric biological contraction curve:
+            // Fast systole (0.0 -> 0.34), slow graceful diastole recovery (0.34 -> 1.0)
+            let pulse = 0;
+            let thrust = 0;
+            if (phase < 0.34) {
+                const p = phase / 0.34;
+                pulse = Math.sin(p * Math.PI * 0.5);
+                thrust = Math.sin(p * Math.PI);
+            } else {
+                const p = (phase - 0.34) / 0.66;
+                pulse = Math.pow(0.5 + 0.5 * Math.cos(p * Math.PI), 1.45);
+                thrust = -0.08 * Math.sin(p * Math.PI);
+            }
+
+            // Trigger a subtle vortex wake ring right as contraction peaks
+            if (phase > 0.22 && phase < 0.32 && !jellyState.lastPeakTriggered) {
+                spawnWakeRing();
+                jellyState.lastPeakTriggered = true;
+            } else if (phase >= 0.34) {
+                jellyState.lastPeakTriggered = false;
+            }
+
+            jellyState.pulseValue = pulse;
+            // Continuous traveling wave phase for smooth vertex animation
+            jellyState.pulseWavePhase = time * ((Math.PI * 2) / cyclePeriod);
+
+            bellUniforms.uTime.value = time;
+            bellUniforms.uPulse.value = pulse;
+            bellUniforms.uPulseWave.value = jellyState.pulseWavePhase;
+
+            // Graceful 3D swimming inclination (tilting gently toward the light shafts)
+            const tiltX = Math.sin(time * 0.27) * 0.24 - 0.08;
+            const tiltZ = Math.cos(time * 0.21) * 0.28 + 0.12;
+            const yawY = time * 0.12 + Math.sin(time * 0.15) * 0.3;
+
+            const euler = new THREE.Euler(tiltX, yawY, tiltZ, 'YXZ');
+            jellyState.quaternion.setFromEuler(euler);
+            jellyState.heading.set(0, 1, 0).applyQuaternion(jellyState.quaternion).normalize();
+
+            // Propulsion burst + buoyant glidearound an organic figure-8 equilibrium path
+            const targetAnchor = new THREE.Vector3(
+                Math.sin(time * 0.21) * 1.15,
+                Math.sin(time * 0.32) * 0.65 + 0.35,
+                Math.cos(time * 0.18) * 0.85
+            );
+
+            // Surge forward along heading during systole, settle softly during diastole
+            const surgeOffset = jellyState.heading.clone().multiplyScalar((pulse - 0.35) * 0.52);
+            const desiredPos = targetAnchor.add(surgeOffset);
+
+            const prevPos = jellyState.position.clone();
+            jellyState.position.lerp(desiredPos, Math.min(1.0, dt * 3.2));
+            jellyState.velocity.subVectors(jellyState.position, prevPos).divideScalar(Math.max(dt, 0.001));
+
+            jellyfishGroup.position.copy(jellyState.position);
+            jellyfishGroup.quaternion.copy(jellyState.quaternion);
+
+            // Pulse the inner core glow and gonads in sync with the bell
+            const glowScale = 2.25 + pulse * 0.55;
+            coreGlowSprite.scale.set(glowScale, glowScale * 0.92, 1.0);
+            gonadGroup.scale.set(
+                1.0 - pulse * 0.14,
+                1.0 + pulse * 0.18,
+                1.0 - pulse * 0.14
+            );
+        }
+
+        function updateOralArms(time, dt) {
+            const camPos = camera.position;
+            const localAnchor = new THREE.Vector3();
+            const downDir = new THREE.Vector3(0, -1, 0).applyQuaternion(jellyState.quaternion);
+            const pulse = jellyState.pulseValue;
+
+            for (let a = 0; a < oralArms.length; a++) {
+                const arm = oralArms[a];
+                const nodes = arm.nodes;
+                const prevNodes = arm.prevNodes;
+                const numNodes = nodes.length;
+
+                // Root node anchored under the subumbrella center
+                const rootR = arm.radiusOffset * (1.0 - pulse * 0.18);
+                localAnchor.set(
+                    Math.cos(arm.angle + time * 0.15) * rootR,
+                    0.35 - pulse * 0.08,
+                    Math.sin(arm.angle + time * 0.15) * rootR
+                );
+                localAnchor.applyQuaternion(jellyState.quaternion).add(jellyState.position);
+                nodes[0].copy(localAnchor);
+                prevNodes[0].copy(localAnchor);
+
+                // Verlet integration with underwater drag, gentle sinking buoyancy, and vortex wave
+                const damping = 0.90;
+                for (let i = 1; i < numNodes; i++) {
+                    const frac = i / (numNodes - 1);
+                    const cur = nodes[i];
+                    const prev = prevNodes[i];
+
+                    const vx = (cur.x - prev.x) * damping;
+                    const vy = (cur.y - prev.y) * damping;
+                    const vz = (cur.z - prev.z) * damping;
+
+                    prev.copy(cur);
+
+                    // Swirling underwater current + wake wave traveling down from the bell
+                    const wavePhase = time * 2.1 - frac * 4.5 + a * 1.05;
+                    const turbX = Math.sin(wavePhase) * 0.65 + Math.cos(cur.y * 1.4 + time * 1.1) * 0.35;
+                    const turbZ = Math.cos(wavePhase * 0.9) * 0.65 + Math.sin(cur.y * 1.4 + time * 1.3) * 0.35;
+
+                    // Bell contraction jet pushes oral arms outward/downward briefly
+                    const radialX = Math.cos(arm.angle);
+                    const radialZ = Math.sin(arm.angle);
+                    const jetPush = pulse * (1.0 - frac * 0.6) * 0.8;
+
+                    const accelX = (downDir.x * 1.8 + ( turbX + radialX * jetPush ) * (0.4 + frac * 0.8)) * dt * dt;
+                    const accelY = (downDir.y * 1.8 - 0.65) * dt * dt;
+                    const accelZ = (downDir.z * 1.8 + ( turbZ + radialZ * jetPush ) * (0.4 + frac * 0.8)) * dt * dt;
+
+                    cur.x += vx + accelX;
+                    cur.y += vy + accelY;
+                    cur.z += vz + accelZ;
+                }
+
+                // Distance & bending stiffness constraints
+                for (let iter = 0; iter < 5; iter++) {
+                    nodes[0].copy(localAnchor);
+                    for (let i = 0; i < numNodes - 1; i++) {
+                        const n1 = nodes[i];
+                        const n2 = nodes[i + 1];
+                        const dx = n2.x - n1.x;
+                        const dy = n2.y - n1.y;
+                        const dz = n2.z - n1.z;
+                        const dist = Math.sqrt(dx * dx + dy * dy + dz * dz) || 0.0001;
+                        const diff = (dist - arm.segLen) / dist;
+
+                        if (i === 0) {
+                            n2.x -= dx * diff;
+                            n2.y -= dy * diff;
+                            n2.z -= dz * diff;
+                        } else {
+                            n1.x += dx * diff * 0.45;
+                            n1.y += dy * diff * 0.45;
+                            n1.z += dz * diff * 0.45;
+                            n2.x -= dx * diff * 0.55;
+                            n2.y -= dy * diff * 0.55;
+                            n2.z -= dz * diff * 0.55;
+                        }
+                    }
+                }
+
+                // Update the ribbon mesh vertices and normals along the spine
+                const posAttr = arm.mesh.geometry.attributes.position;
+                const normAttr = arm.mesh.geometry.attributes.normal;
+                const posArr = posAttr.array;
+                const normArr = normAttr.array;
+                const cols = arm.segsAcross + 1;
+
+                const tangent = new THREE.Vector3();
+                const sideVec = new THREE.Vector3();
+                const normalVec = new THREE.Vector3();
+
+                for (let i = 0; i < numNodes; i++) {
+                    const frac = i / (numNodes - 1);
+                    const p = nodes[i];
+                    if (i < numNodes - 1) {
+                        tangent.subVectors(nodes[i + 1], p).normalize();
+                    } else {
+                        tangent.subVectors(p, nodes[i - 1]).normalize();
+                    }
+
+                    // Spiral twist along the oral arm for realistic 3D volume from every angle
+                    const twistAngle = arm.angle + frac * 4.2 + time * 0.35;
+                    sideVec.set(Math.cos(twistAngle), 0, Math.sin(twistAngle));
+                    sideVec.sub(tangent.clone().multiplyScalar(sideVec.dot(tangent))).normalize();
+                    normalVec.crossVectors(tangent, sideVec).normalize();
+
+                    // Taper width gracefully at root and tip
+                    const widthProfile = Math.sin(Math.pow(frac, 0.65) * Math.PI) * arm.baseWidth + 0.03;
+
+                    for (let j = 0; j < cols; j++) {
+                        const u = (j / arm.segsAcross - 0.5) * 2.0; // -1 to 1
+                        // Cupped cross-section
+                        const cup = (1.0 - u * u) * 0.05;
+                        const vIdx = (i * cols + j) * 3;
+
+                        posArr[vIdx] = p.x + sideVec.x * u * widthProfile + normalVec.x * cup;
+                        posArr[vIdx + 1] = p.y + sideVec.y * u * widthProfile + normalVec.y * cup;
+                        posArr[vIdx + 2] = p.z + sideVec.z * u * widthProfile + normalVec.z * cup;
+
+                        normArr[vIdx] = normalVec.x;
+                        normArr[vIdx + 1] = normalVec.y;
+                        normArr[vIdx + 2] = normalVec.z;
+                    }
+                }
+
+                posAttr.needsUpdate = true;
+                normAttr.needsUpdate = true;
+            }
+        }
+
+        function updateMarginalTentacles(time, dt) {
+            const camPos = camera.position;
+            const pulse = jellyState.pulseValue;
+            const pulseWave = jellyState.pulseWavePhase;
+            const downDir = new THREE.Vector3(0, -1, 0).applyQuaternion(jellyState.quaternion);
+            const anchorPos = new THREE.Vector3();
+
+            // Exact bell rim formula matching BELL_VERTEX_SHADER at v = 0.96
+            const v = 0.96;
+            const profileRadius = Math.sin(v * 1.48) * (1.0 + 0.08 * Math.pow(v, 2.5));
+            const baseProfileY = Math.cos(v * 1.48) * 1.15 - 0.15;
+            const delayedPhase = pulseWave - v * 1.35;
+            const radialSqueeze = 1.0 - pulse * 0.28 * Math.pow(v, 1.45) + 0.06 * Math.sin(delayedPhase) * Math.pow(v, 2.0);
+            const verticalStretch = 1.0 + pulse * 0.16 * (1.0 - v * 0.5);
+            const skirtCurl = 0.07 * (0.6 + 0.4 * pulse);
+
+            for (let t = 0; t < tentacles.length; t++) {
+                const tent = tentacles[t];
+                const theta = tent.theta;
+                const nodes = tent.nodes;
+                const prevNodes = tent.prevNodes;
+                const numNodes = tent.numNodes;
+
+                const ribs = Math.cos(theta * 16.0);
+                const lappetArch = (ribs * 0.5 + 0.5) * 0.075 * Math.pow(v, 3.2);
+                const r = (profileRadius + ribs * 0.028 - skirtCurl) * radialSqueeze * 0.96;
+                const y = (baseProfileY - lappetArch) * verticalStretch - pulse * 0.18 * Math.pow(v, 1.7);
+
+                anchorPos.set(Math.cos(theta) * r, y, Math.sin(theta) * r);
+                anchorPos.applyQuaternion(jellyState.quaternion).add(jellyState.position);
+
+                nodes[0].copy(anchorPos);
+                prevNodes[0].copy(anchorPos);
+
+                const radialOut = new THREE.Vector3(Math.cos(theta), -0.35, Math.sin(theta))
+                    .applyQuaternion(jellyState.quaternion)
+                    .normalize();
+
+                // Silky fluid drag
+                const damping = 0.915;
+                for (let i = 1; i < numNodes; i++) {
+                    const frac = i / (numNodes - 1);
+                    const cur = nodes[i];
+                    const prev = prevNodes[i];
+
+                    const vx = (cur.x - prev.x) * damping;
+                    const vy = (cur.y - prev.y) * damping;
+                    const vz = (cur.z - prev.z) * damping;
+
+                    prev.copy(cur);
+
+                    // Graceful traveling sine wave along the tentacle
+                    const wave = Math.sin(time * 2.3 - frac * 5.8 + tent.phaseOffset);
+                    const crossWave = Math.cos(time * 1.7 - frac * 4.2 + tent.phaseOffset * 1.3);
+
+                    // Outward flare near the top of the tentacle when the bell relaxes/contracts
+                    const flareStrength = (1.0 - frac * 0.7) * (0.45 + pulse * 0.75);
+
+                    const fx = downDir.x * 1.65 + radialOut.x * (flareStrength + wave * 0.42 * frac) - radialOut.z * crossWave * 0.25 * frac;
+                    const fy = downDir.y * 1.65 - 0.55 + Math.sin(time * 1.5 + frac * 4.0 + t) * 0.15;
+                    constfz = downDir.z * 1.65 + radialOut.z * (flareStrength + wave * 0.42 * frac) + radialOut.x * crossWave * 0.25 * frac;
+
+                    cur.x += vx + fx * dt * dt;
+                    cur.y += vy + fy * dt * dt;
+                    cur.z += vz + constfz * dt * dt;
+                }
+
+                // Constraint solver
+                for (let iter = 0; iter < 5; iter++) {
+                    nodes[0].copy(anchorPos);
+                    for (let i = 0; i < numNodes - 1; i++) {
+                        const n1 = nodes[i];
+                        const n2 = nodes[i + 1];
+                        const dx = n2.x - n1.x;
+                        const dy = n2.y - n1.y;
+                        const dz = n2.z - n1.z;
+                        const dist = Math.sqrt(dx * dx + dy * dy + dz * dz) || 0.0001;
+                        const diff = (dist - tent.segLen) / dist;
+
+                        if (i === 0) {
+                            n2.x -= dx * diff;
+                            n2.y -= dy * diff;
+                            n2.z -= dz * diff;
+                        } else {
+                            n1.x += dx * diff * 0.42;
+                            n1.y += dy * diff * 0.42;
+                            n1.z += dz * diff * 0.42;
+                            n2.x -= dx * diff * 0.58;
+                            n2.y -= dy * diff * 0.58;
+                            n2.z -= dz * diff * 0.58;
+                        }
+                    }
+                }
+
+                // Update camera-facing tapered ribbon vertices
+                const posAttr = tent.mesh.geometry.attributes.position;
+                const posArr = posAttr.array;
+                const tangent = new THREE.Vector3();
+                const viewVec = new THREE.Vector3();
+                const sideVec = new THREE.Vector3();
+
+                for (let i = 0; i < numNodes; i++) {
+                    const p = nodes[i];
+                    if (i < numNodes - 1) {
+                        tangent.subVectors(nodes[i + 1], p);
+                    } else {
+                        tangent.subVectors(p, nodes[i - 1]);
+                    }
+                    viewVec.subVectors(camPos, p);
+                    sideVec.crossVectors(tangent, viewVec).normalize();
+
+                    const frac = i / (numNodes - 1);
+                    // Subtle glowing nematocyst bead modulation along the tentacle width
+                    const bead = 1.0 + 0.35 * Math.pow(0.5 + 0.5 * Math.sin(frac * 55.0 - time * 2.0), 6.0);
+                    const halfW = tent.baseWidth * (1.0 - frac * 0.78) * bead;
+
+                    const idx = i * 6;
+                    posArr[idx] = p.x - sideVec.x * halfW;
+                    posArr[idx + 1] = p.y - sideVec.y * halfW;
+                    posArr[idx + 2] = p.z - sideVec.z * halfW;
+
+                    posArr[idx + 3] = p.x + sideVec.x * halfW;
+                    posArr[idx + 4] = p.y + sideVec.y * halfW;
+                    posArr[idx + 5] = p.z + sideVec.z * halfW;
+                }
+
+                posAttr.needsUpdate = true;
+            }
+        }
+
+        function updateEnvironmentParticles(time, dt) {
+            // Update Wake Rings
+            const downDir = new THREE.Vector3(0, -1, 0);
+            const ringRight = new THREE.Vector3();
+            const ringForward = new THREE.Vector3();
+
+            for (const ring of wakeRings) {
+                if (ring.age < ring.maxAge) {
+                    ring.age += dt;
+                    const progress = ring.age / ring.maxAge;
+                    const radius = 0.85 + Math.pow(progress, 0.65) * 1.45;
+                    const driftDown = progress * 1.85;
+
+                    ringRight.set(1, 0, 0).applyQuaternion(ring.quat);
+                    ringForward.set(0, 0, 1).applyQuaternion(ring.quat);
+                    downDir.set(0, -1, 0).applyQuaternion(ring.quat);
+
+                    const posAttr = ring.points.geometry.attributes.position;
+                    const arr = posAttr.array;
+                    const n = ring.pointsPerRing;
+
+                    for (let i = 0; i < n; i++) {
+                        const a = (i / n) * Math.PI * 2 + time * 0.4;
+                        const wobble = Math.sin(a * 6.0 + time * 3.0) * 0.08 * progress;
+                        const r = radius + wobble;
+                        const cx = Math.cos(a) * r;
+                        const cz = Math.sin(a) * r;
+
+                        arr[i * 3] = ring.center.x + ringRight.x * cx + ringForward.x * cz + downDir.x * driftDown;
+                        arr[i * 3 + 1] = ring.center.y + ringRight.y * cx + ringForward.y * cz + downDir.y * driftDown;
+                        arr[i * 3 + 2] = ring.center.z + ringRight.z * cx + ringForward.z * cz + downDir.z * driftDown;
+                    }
+                    posAttr.needsUpdate = true;
+                    ring.points.material.opacity = Math.sin(progress * Math.PI) * (1.0 - progress) * 0.36;
+                } else {
+                    ring.points.material.opacity = 0;
+                }
+            }
+
+            // Update Marine Snow
+            const snowAttr = marineSnowSystem.points.geometry.attributes.position;
+            const snowArr = snowAttr.array;
+            const vels = marineSnowSystem.velocities;
+            const count = marineSnowSystem.count;
+
+            for (let i = 0; i < count; i++) {
+                const idx = i * 3;
+                const v = vels[i];
+                snowArr[idx] += (v.vx + Math.sin(time * 0.5 + v.phase) * 0.04) * dt;
+                snowArr[idx + 1] += v.vy * dt;
+                snowArr[idx + 2] += (v.vz + Math.cos(time * 0.4 + v.phase) * 0.04) * dt;
+
+                // Wrap smoothly within the camera frustum volume
+                if (snowArr[idx + 1] > 12) snowArr[idx + 1] = -12;
+                if (snowArr[idx] > 13) snowArr[idx] = -13;
+                if (snowArr[idx] < -13) snowArr[idx] = 13;
+                if (snowArr[idx + 2] > 11) snowArr[idx + 2] = -11;
+                if (snowArr[idx + 2] < -11) snowArr[idx + 2] = 11;
+            }
+            snowAttr.needsUpdate = true;
+
+            // Gentle sway of bokeh plankton
+            planktonSystem.rotation.y = Math.sin(time * 0.06) * 0.08;
+            planktonSystem.position.y = Math.sin(time * 0.15) * 0.4;
+        }
+
+        function updateCinematicCamera(time, dt) {
+            // Smoothly interpolate optional user camera angle offsets
+            camState.currentYawOffset += (camState.targetYawOffset - camState.currentYawOffset) * Math.min(1.0, dt * 4.0);
+            camState.currentPitchOffset += (camState.targetPitchOffset - camState.currentPitchOffset) * Math.min(1.0, dt * 4.0);
+
+            if (!camState.isDragging) {
+                // Slowly relax back toward the autonomous angle when not dragging
+                camState.targetYawOffset *= Math.pow(0.96, dt * 60);
+                camState.targetPitchOffset *= Math.pow(0.96, dt * 60);
+            }
+
+            // Autonomous poetic underwater camera orbit + breathing distance
+            const baseAzimuth = Math.sin(time * 0.11) * 0.55 + camState.currentYawOffset;
+            const baseElevation = Math.sin(time * 0.14 - 0.8) * 0.22 - 0.08 + camState.currentPitchOffset;
+            const distance = 6.6 + Math.sin(time * 0.19) * 0.65;
+
+            const camX = jellyState.position.x * 0.55 + Math.sin(baseAzimuth) * Math.cos(baseElevation) * distance;
+            const camY = jellyState.position.y * 0.5 - 0.85 + Math.sin(baseElevation) * distance;
+            const camZ = jellyState.position.z * 0.55 + Math.cos(baseAzimuth) * Math.cos(baseElevation) * distance;
+
+            camera.position.set(camX, camY, camZ);
+
+            // Look slightly below the bell so both the luminous dome and trailing tentacles frame the golden ratio
+            const lookTarget = new THREE.Vector3(
+                jellyState.position.x * 0.85,
+                jellyState.position.y * 0.85 - 0.95,
+                jellyState.position.z * 0.85
+            );
+            camera.lookAt(lookTarget);
+
+            // Subtle underwater zero-gravity camera roll
+            camera.rotation.z += Math.sin(time * 0.17) * 0.032;
+        }
+
+        function setupInteractionEvents() {
+            window.addEventListener('mousedown', (e) => {
+                camState.isDragging = true;
+                camState.prevX = e.clientX;
+                camState.prevY = e.clientY;
+            });
+
+            window.addEventListener('mousemove', (e) => {
+                if (!camState.isDragging) return;
+                const dx = e.clientX - camState.prevX;
+                const dy = e.clientY - camState.prevY;
+                camState.prevX = e.clientX;
+                camState.prevY = e.clientY;
+
+                camState.targetYawOffset -= dx * 0.005;
+                camState.targetPitchOffset = Math.max(-0.65, Math.min(0.65, camState.targetPitchOffset + dy * 0.004));
+            });
+
+            window.addEventListener('mouseup', () => {
+                camState.isDragging = false;
+            });
+
+            window.addEventListener('touchstart', (e) => {
+                if (e.touches.length === 1) {
+                    camState.isDragging = true;
+                    camState.prevX = e.touches[0].clientX;
+                    camState.prevY = e.touches[0].clientY;
+                }
+            }, { passive: true });
+
+            window.addEventListener('touchmove', (e) => {
+                if (!camState.isDragging || e.touches.length !== 1) return;
+                const dx = e.touches[0].clientX - camState.prevX;
+                const dy = e.touches[0].clientY - camState.prevY;
+                camState.prevX = e.touches[0].clientX;
+                camState.prevY = e.touches[0].clientY;
+
+                camState.targetYawOffset -= dx * 0.005;
+                camState.targetPitchOffset = Math.max(-0.65, Math.min(0.65, camState.targetPitchOffset + dy * 0.004));
+            }, { passive: true });
+
+            window.addEventListener('touchend', () => {
+                camState.isDragging = false;
+            });
+
+            window.addEventListener('resize', () => {
+                if (!camera || !renderer) return;
+                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+            });
+        }
+
+        let lastFrameTime = performance.now();
+        let elapsedTotal = 0;
+
+        function initScene() {
+            scene = new THREE.Scene();
+            scene.fog = new THREE.FogExp2(0x020c1b, 0.042);
+
+            camera = new THREE.PerspectiveCamera(44, window.innerWidth / window.innerHeight, 0.1, 80);
+            camera.position.set(0, -0.8, 6.8);
+
+            renderer = new THREE.WebGLRenderer({
+                antialias: true,
+                alpha: true,
+                powerPreference: 'high-performance'
+            });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            document.body.appendChild(renderer.domElement);
+
+            buildJellyfishBell();
+            buildOralArms();
+            buildMarginalTentacles();
+            buildUnderwaterAtmosphere();
+            buildWakeRings();
+            setupInteractionEvents();
+
+            // Pre-warm physics for 40 steps so tentacles hang naturally on the very first frame
+            for (let step = 0; step < 40; step++) {
+                const warmTime = step * 0.025;
+                updateJellyfishBiomechanics(warmTime, 0.025);
+                updateOralArms(warmTime, 0.025);
+                updateMarginalTentacles(warmTime, 0.025);
+            }
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            const now = performance.now();
+            // Clamp dt to prevent physics instability if browser tab was inactive
+            const dt = Math.min(0.033, Math.max(0.001, (now - lastFrameTime) * 0.001));
+            lastFrameTime = now;
+            elapsedTotal += dt;
+
+            updateJellyfishBiomechanics(elapsedTotal, dt);
+            updateOralArms(elapsedTotal, dt);
+            updateMarginalTentacles(elapsedTotal, dt);
+            updateEnvironmentParticles(elapsedTotal, dt);
+            updateCinematicCamera(elapsedTotal, dt);
+
+            renderer.render(scene, camera);
+        }
+
+        window.onload = function () {
+            initScene();
+            animate();
+        };
+    </script>
+<!--zc-home:start--><style>.zc-home-btn{position:fixed;top:16px;left:16px;z-index:2147483647;display:inline-flex;align-items:center;gap:6px;padding:8px 14px;font:500 13px/1.1 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Noto Sans SC",sans-serif;color:#111;background:rgba(255,255,255,.86);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);border:1px solid rgba(0,0,0,.08);border-radius:999px;text-decoration:none;box-shadow:0 2px 12px rgba(0,0,0,.2);transition:background .2s ease,transform .2s ease,box-shadow .2s ease}.zc-home-btn:hover{background:#fff;transform:translateY(-1px);box-shadow:0 4px 18px rgba(0,0,0,.26)}</style><a class="zc-home-btn" href="../">← 返回首页</a><!--zc-home:end-->
+</body>
+</html>

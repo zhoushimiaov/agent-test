@@ -1,0 +1,1396 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>暮光之城与苍穹巨鲸</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        html, body {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #050914;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+        /* Subtle cinematic vignette & film grain overlay for theatrical depth */
+        .cinematic-overlay {
+            position: fixed;
+            inset: 0;
+            pointer-events: none;
+            z-index: 10;
+            background: radial-gradient(
+                circle at 50% 50%,
+                rgba(0, 0, 0, 0) 58%,
+                rgba(2, 6, 18, 0.42) 85%,
+                rgba(1, 3, 10, 0.78) 100%
+            );
+        }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+<body>
+    <div class="cinematic-overlay"></div>
+
+    <script>
+        window.onload = function () {
+            // ============================================================================
+            // 1. CORE SCENE, CAMERA & RENDERER SETUP
+            // ============================================================================
+            const scene = new THREE.Scene();
+            scene.fog = new THREE.FogExp2(0x0b1933, 0.00115);
+
+            const camera = new THREE.PerspectiveCamera(
+                46,
+                window.innerWidth / window.innerHeight,
+                1.0,
+                3500
+            );
+
+            const renderer = new THREE.WebGLRenderer({
+                antialias: true,
+                powerPreference: "high-performance"
+            });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            renderer.toneMapping = THREE.ACESFilmicToneMapping;
+            renderer.toneMappingExposure = 1.12;
+            document.body.appendChild(renderer.domElement);
+
+            // Subtle mouse parallax offset (zero UI needed, purely atmospheric responsiveness)
+            const mouseParallax = { x: 0, y: 0, targetX: 0, targetY: 0 };
+            window.addEventListener('mousemove', (e) => {
+                mouseParallax.targetX = (e.clientX / window.innerWidth - 0.5) * 2.0;
+                mouseParallax.targetY = (e.clientY / window.innerHeight - 0.5) * 2.0;
+            });
+
+            // ============================================================================
+            // 2. PROCEDURAL TEXTURE GENERATORS (NO EXTERNAL URLS)
+            // ============================================================================
+            function createBuildingFacadeTexture() {
+                const canvas = document.createElement('canvas');
+                canvas.width = 512;
+                canvas.height = 1024;
+                const ctx = canvas.getContext('2d');
+
+                // Base dark glass curtain wall
+                ctx.fillStyle = '#070d19';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+                const cols = 16;
+                const rows = 64;
+                const padX = 4;
+                const padY = 4;
+                const cellW = canvas.width / cols;
+                const cellH = canvas.height / rows;
+
+                for (let r = 0; r < rows; r++) {
+                    // Occasional mechanical dark floor
+                    if (r % 15 === 0) continue;
+                    const floorLitChance = 0.25 + 0.35 * Math.sin(r * 0.7 + 1.3);
+
+                    for (let c = 0; c < cols; c++) {
+                        const rand = Math.random();
+                        if (rand < floorLitChance * 0.55) {
+                            // Warm golden/amber interior lights, occasional cool cyan office light
+                            const colorPick = Math.random();
+                            if (colorPick < 0.68) {
+                                const b = 180 + Math.floor(Math.random() * 75);
+                                ctx.fillStyle = `rgb(255, ${b}, ${Math.floor(b * 0.52)})`;
+                            } else if (colorPick < 0.88) {
+                                ctx.fillStyle = `rgb(255, 160, 95)`;
+                            } else {
+                                ctx.fillStyle = `rgb(135, 210, 255)`;
+                            }
+                            ctx.fillRect(
+                                c * cellW + padX,
+                                r * cellH + padY,
+                                cellW - padX * 2,
+                                cellH - padY * 2
+                            );
+                        } else if (rand < floorLitChance * 0.85) {
+                            // Dimly lit window reflection
+                            ctx.fillStyle = 'rgba(35, 65, 110, 0.45)';
+                            ctx.fillRect(
+                                c * cellW + padX,
+                                r * cellH + padY,
+                                cellW - padX * 2,
+                                cellH - padY * 2
+                            );
+                        }
+                    }
+                }
+
+                const texture = new THREE.CanvasTexture(canvas);
+                texture.wrapS = THREE.RepeatWrapping;
+                texture.wrapT = THREE.RepeatWrapping;
+                texture.anisotropy = 4;
+                return texture;
+            }
+
+            function createSoftCloudTexture() {
+                const canvas = document.createElement('canvas');
+                canvas.width = 256;
+                canvas.height = 256;
+                const ctx = canvas.getContext('2d');
+
+                ctx.clearRect(0, 0, 256, 256);
+
+                // Multi-layered soft radial puffs for volumetric cloud appearance
+                const puffs = [
+                    { x: 128, y: 132, r: 96, a: 0.55 },
+                    { x: 92, y: 124, r: 72, a: 0.42 },
+                    { x: 166, y: 128, r: 70, a: 0.42 },
+                    { x: 124, y: 96, r: 68, a: 0.38 },
+                    { x: 112, y: 150, r: 64, a: 0.35 },
+                    { x: 148, y: 148, r: 62, a: 0.35 }
+                ];
+
+                puffs.forEach(p => {
+                    const grad = ctx.createRadialGradient(p.x, p.y, 4, p.x, p.y, p.r);
+                    grad.addColorStop(0.0, `rgba(255, 255, 255, ${p.a})`);
+                    grad.addColorStop(0.45, `rgba(235, 244, 255, ${p.a * 0.65})`);
+                    grad.addColorStop(0.78, `rgba(190, 215, 245, ${p.a * 0.2})`);
+                    grad.addColorStop(1.0, 'rgba(160, 190, 235, 0.0)');
+                    ctx.fillStyle = grad;
+                    ctx.beginPath();
+                    ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+                    ctx.fill();
+                });
+
+                return new THREE.CanvasTexture(canvas);
+            }
+
+            function createGlowParticleTexture() {
+                const canvas = document.createElement('canvas');
+                canvas.width = 64;
+                canvas.height = 64;
+                const ctx = canvas.getContext('2d');
+                const grad = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+                grad.addColorStop(0.0, 'rgba(255, 255, 255, 1.0)');
+                grad.addColorStop(0.25, 'rgba(170, 238, 255, 0.85)');
+                grad.addColorStop(0.6, 'rgba(70, 180, 255, 0.25)');
+                grad.addColorStop(1.0, 'rgba(0, 80, 180, 0.0)');
+                ctx.fillStyle = grad;
+                ctx.fillRect(0, 0, 64, 64);
+                return new THREE.CanvasTexture(canvas);
+            }
+
+            const facadeTexture = createBuildingFacadeTexture();
+            const cloudTexture = createSoftCloudTexture();
+            const glowTexture = createGlowParticleTexture();
+
+            // ============================================================================
+            // 3. TWILIGHT SKY DOME & ATMOSPHERIC LIGHTING
+            // ============================================================================
+            const skyGeo = new THREE.SphereGeometry(2400, 48, 32);
+            const skyMat = new THREE.ShaderMaterial({
+                side: THREE.BackSide,
+                depthWrite: false,
+                uniforms: {
+                    uTime: { value: 0 },
+                    uSunDirection: { value: new THREE.Vector3(-0.55, 0.14, -0.82).normalize() }
+                },
+                vertexShader: `
+                    varying vec3 vWorldPos;
+                    void main() {
+                        vec4 wp = modelMatrix * vec4(position, 1.0);
+                        vWorldPos = wp.xyz;
+                        gl_Position = projectionMatrix * viewMatrix * wp;
+                    }
+                `,
+                fragmentShader: `
+                    varying vec3 vWorldPos;
+                    uniform float uTime;
+                    uniform vec3 uSunDirection;
+
+                    float hash(vec3 p) {
+                        p = fract(p * 0.3183099 + 0.1);
+                        p *= 17.0;
+                        return fract(p.x * p.y * p.z * (p.x + p.y + p.z));
+                    }
+
+                    void main() {
+                        vec3 dir = normalize(vWorldPos);
+                        float y = clamp(dir.y, -0.2, 1.0);
+
+                        // Blue hour gradient: cosmic navy zenith -> royal blue mid -> warm amber/rose horizon
+                        vec3 zenithCol = vec3(0.02, 0.045, 0.12);
+                        vec3 midSkyCol = vec3(0.06, 0.16, 0.34);
+                        vec3 horizonCol = vec3(0.18, 0.29, 0.48);
+                        vec3 sunsetGlowCol = vec3(0.95, 0.46, 0.31);
+                        vec3 goldCoreCol = vec3(1.0, 0.78, 0.48);
+
+                        vec3 sky = mix(horizonCol, midSkyCol, smoothstep(0.0, 0.28, max(0.0, y)));
+                        sky = mix(sky, zenithCol, smoothstep(0.22, 0.78, max(0.0, y)));
+
+                        // Directional sunset glow near horizon
+                        float sunAmt = max(0.0, dot(dir, uSunDirection));
+                        float horizonBand = exp(-abs(dir.y - 0.03) * 7.5);
+                        sky += sunsetGlowCol * pow(sunAmt, 3.2) * 0.72;
+                        sky += sunsetGlowCol * horizonBand * pow(sunAmt, 1.4) * 0.55;
+                        sky += goldCoreCol * pow(sunAmt, 24.0) * 0.85;
+
+                        // Subtle stars in high zenith
+                        if (dir.y > 0.18) {
+                            vec3 starGrid = floor(dir * 420.0);
+                            float s = hash(starGrid);
+                            if (s > 0.9965) {
+                                float twinkle = 0.55 + 0.45 * sin(uTime * 2.5 + s * 100.0);
+                                float starMask = smoothstep(0.18, 0.55, dir.y);
+                                sky += vec3(0.85, 0.92, 1.0) * twinkle * starMask * 0.75;
+                            }
+                        }
+
+                        // Darken below horizon to blend with city abyss
+                        sky = mix(vec3(0.03, 0.06, 0.13), sky, smoothstep(-0.15, 0.02, dir.y));
+
+                        gl_FragColor = vec4(sky, 1.0);
+                    }
+                `
+            });
+            const skyDome = new THREE.Mesh(skyGeo, skyMat);
+            scene.add(skyDome);
+
+            // Scene Lights
+            const hemiLight = new THREE.HemisphereLight(0x4b7bec, 0x16213e, 0.85);
+            scene.add(hemiLight);
+
+            const sunLight = new THREE.DirectionalLight(0xff9f68, 1.75);
+            sunLight.position.set(-450, 160, -680);
+            scene.add(sunLight);
+
+            const moonRimLight = new THREE.DirectionalLight(0x68c4ff, 1.1);
+            moonRimLight.position.set(350, 500, 420);
+            scene.add(moonRimLight);
+
+            // Dynamic point light attached to the whale for illuminating nearby clouds & towers
+            const whaleAuraLight = new THREE.PointLight(0x38d9ff, 3.2, 260, 1.6);
+            scene.add(whaleAuraLight);
+
+            // ============================================================================
+            // 4. TYNDALL GOD RAYS (VOLUMETRIC SUNBEAMS FROM HORIZON)
+            // ============================================================================
+            const godRayGroup = new THREE.Group();
+            const rayGeo = new THREE.CylinderGeometry(8, 95, 780, 24, 1, true);
+            const rayMat = new THREE.ShaderMaterial({
+                transparent: true,
+                depthWrite: false,
+                blending: THREE.AdditiveBlending,
+                side: THREE.DoubleSide,
+                uniforms: {
+                    uTime: { value: 0 },
+                    uColor: { value: new THREE.Color(0xffa970) }
+                },
+                vertexShader: `
+                    varying vec2 vUv;
+                    varying vec3 vNormal;
+                    varying vec3 vViewDir;
+                    void main() {
+                        vUv = uv;
+                        vec4 wp = modelMatrix * vec4(position, 1.0);
+                        vNormal = normalize(mat3(modelMatrix) * normal);
+                        vViewDir = normalize(cameraPosition - wp.xyz);
+                        gl_Position = projectionMatrix * viewMatrix * wp;
+                    }
+                `,
+                fragmentShader: `
+                    varying vec2 vUv;
+                    varying vec3 vNormal;
+                    varying vec3 vViewDir;
+                    uniform float uTime;
+                    uniform vec3 uColor;
+                    void main() {
+                        // Soft edge falloff using view-normal angle
+                        float edge = pow(abs(dot(vNormal, vViewDir)), 1.8);
+                        // Vertical fade at both ends of beam
+                        float vFade = smoothstep(0.0, 0.28, vUv.y) * smoothstep(1.0, 0.55, vUv.y);
+                        float shimmer = 0.8 + 0.2 * sin(vUv.x * 18.0 + uTime * 0.45);
+                        float alpha = edge * vFade * shimmer * 0.055;
+                        gl_FragColor = vec4(uColor, alpha);
+                    }
+                `
+            });
+
+            for (let i = 0; i < 7; i++) {
+                const beam = new THREE.Mesh(rayGeo, rayMat);
+                beam.position.set(
+                    -280 + i * 95 + (Math.random() - 0.5) * 40,
+                    140,
+                    -420 + (Math.random() - 0.5) * 160
+                );
+                beam.rotation.z = -0.48 + (Math.random() - 0.5) * 0.08;
+                beam.rotation.x = 0.28 + (Math.random() - 0.5) * 0.06;
+                godRayGroup.add(beam);
+            }
+            scene.add(godRayGroup);
+
+            // ============================================================================
+            // 5. METROPOLIS SKYLINE & FLOWING STREET TRAFFIC
+            // ============================================================================
+            const cityGroup = new THREE.Group();
+            scene.add(cityGroup);
+
+            // Ground plane with warm urban light pollution glow
+            const groundGeo = new THREE.PlaneGeometry(3200, 3200);
+            const groundMat = new THREE.ShaderMaterial({
+                uniforms: {
+                    uCityColor: { value: new THREE.Color(0x16284c) },
+                    uCoreGlow: { value: new THREE.Color(0xd97d48) }
+                },
+                vertexShader: `
+                    varying vec3 vWorldPos;
+                    void main() {
+                        vec4 wp = modelMatrix * vec4(position, 1.0);
+                        vWorldPos = wp.xyz;
+                        gl_Position = projectionMatrix * viewMatrix * wp;
+                    }
+                `,
+                fragmentShader: `
+                    varying vec3 vWorldPos;
+                    uniform vec3 uCityColor;
+                    uniform vec3 uCoreGlow;
+                    void main() {
+                        float dist = length(vWorldPos.xz);
+                        // Grid street pattern on ground
+                        vec2 grid = abs(fract(vWorldPos.xz * 0.018) - 0.5);
+                        float roadLine = smoothstep(0.035, 0.01, min(grid.x, grid.y));
+                        float radialFade = exp(-dist * 0.0014);
+                        vec3 col = mix(vec3(0.02, 0.04, 0.09), uCityColor, radialFade);
+                        col += uCoreGlow * roadLine * radialFade * 0.35;
+                        col += uCoreGlow * exp(-dist * 0.0025) * 0.18;
+                        gl_FragColor = vec4(col, 1.0);
+                    }
+                `
+            });
+            const ground = new THREE.Mesh(groundGeo, groundMat);
+            ground.rotation.x = -Math.PI / 2;
+            ground.position.y = -110;
+            cityGroup.add(ground);
+
+            // Instanced Skyscrapers
+            const buildingCount = 1350;
+            const boxGeo = new THREE.BoxGeometry(1, 1, 1);
+            // Shift pivot to bottom of building
+            boxGeo.translate(0, 0.5, 0);
+
+            const buildingMat = new THREE.MeshStandardMaterial({
+                color: 0x16243b,
+                roughness: 0.25,
+                metalness: 0.82,
+                map: facadeTexture,
+                emissive: 0xffb870,
+                emissiveMap: facadeTexture,
+                emissiveIntensity: 0.92
+            });
+
+            const buildingMesh = new THREE.InstancedMesh(boxGeo, buildingMat, buildingCount);
+            const dummy = new THREE.Object3D();
+            const bColor = new THREE.Color();
+
+            // Keep track of tall landmark towers to add glowing crowns & aviation beacons
+            const landmarkPositions = [];
+
+            let idx = 0;
+            for (let i = 0; i < buildingCount; i++) {
+                // Distribute denser in center, spreading outward
+                const angle = Math.random() * Math.PI * 2;
+                const radius = Math.pow(Math.random(), 0.72) * 860;
+                // Snap slightly toward city block grid
+                const rawX = Math.cos(angle) * radius;
+                const rawZ = Math.sin(angle) * radius;
+                const x = Math.round(rawX / 28) * 28 + (Math.random() - 0.5) * 10;
+                const z = Math.round(rawZ / 28) * 28 + (Math.random() - 0.5) * 10;
+
+                const distFromCenter = Math.hypot(x, z);
+                const centerFactor = Math.max(0.15, 1.0 - distFromCenter / 820);
+
+                let width = 12 + Math.random() * 18;
+                let depth = 12 + Math.random() * 18;
+                let height = (25 + Math.pow(Math.random(), 2.3) * 220) * centerFactor;
+
+                // Create iconic super-tall skyscrapers in the metropolitan core
+                // Avoid blocking the exact center of the whale path too harshly, creating canyons
+                const isSuperTall = (distFromCenter < 420 && Math.random() < 0.085);
+                if (isSuperTall) {
+                    height = 180 + Math.random() * 115;
+                    width = 18 + Math.random() * 12;
+                    depth = 18 + Math.random() * 12;
+                    landmarkPositions.push({ x, y: -110 + height, z, width, depth, height });
+                }
+
+                dummy.position.set(x, -110, z);
+                dummy.scale.set(width, height, depth);
+                dummy.rotation.y = (Math.random() < 0.15) ? Math.PI * 0.25 : 0;
+                dummy.updateMatrix();
+                buildingMesh.setMatrixAt(idx, dummy.matrix);
+
+                // Subtle tint variation across buildings (warm gold, cool cyan, sapphire)
+                const tintRoll = Math.random();
+                if (tintRoll < 0.65) {
+                    bColor.setHSL(0.08 + Math.random() * 0.04, 0.75, 0.68);
+                } else if (tintRoll < 0.9) {
+                    bColor.setHSL(0.55 + Math.random() * 0.06, 0.7, 0.65);
+                } else {
+                    bColor.setHSL(0.95, 0.55, 0.65);
+                }
+                buildingMesh.setColorAt(idx, bColor);
+                idx++;
+            }
+            buildingMesh.instanceMatrix.needsUpdate = true;
+            if (buildingMesh.instanceColor) buildingMesh.instanceColor.needsUpdate = true;
+            cityGroup.add(buildingMesh);
+
+            // Add glowing crowns, spires, and red aviation warning beacons to landmark towers
+            const spireGeo = new THREE.CylinderGeometry(0.2, 2.2, 38, 8);
+            spireGeo.translate(0, 19, 0);
+            const spireMat = new THREE.MeshBasicMaterial({ color: 0x8be9fd });
+            const spireInstanced = new THREE.InstancedMesh(spireGeo, spireMat, landmarkPositions.length);
+
+            const crownGeo = new THREE.BoxGeometry(1, 1, 1);
+            crownGeo.translate(0, 0.5, 0);
+            const crownMat = new THREE.MeshBasicMaterial({
+                color: 0xffd180,
+                transparent: true,
+                opacity: 0.75
+            });
+            const crownInstanced = new THREE.InstancedMesh(crownGeo, crownMat, landmarkPositions.length);
+
+            const beaconPositions = new Float32Array(landmarkPositions.length * 3);
+
+            landmarkPositions.forEach((lm, i) => {
+                // Illuminated Penthouse Crown
+                dummy.position.set(lm.x, lm.y, lm.z);
+                dummy.scale.set(lm.width * 0.72, 10 + Math.random() * 14, lm.depth * 0.72);
+                dummy.rotation.set(0, 0, 0);
+                dummy.updateMatrix();
+                crownInstanced.setMatrixAt(i, dummy.matrix);
+
+                // Spire
+                const spireBaseY = lm.y + dummy.scale.y;
+                dummy.position.set(lm.x, spireBaseY, lm.z);
+                dummy.scale.set(1, 0.8 + Math.random() * 0.7, 1);
+                dummy.updateMatrix();
+                spireInstanced.setMatrixAt(i, dummy.matrix);
+
+                // Red warning light at tip of spire
+                beaconPositions[i * 3] = lm.x;
+                beaconPositions[i * 3 + 1] = spireBaseY + 38 * dummy.scale.y;
+                beaconPositions[i * 3 + 2] = lm.z;
+            });
+            cityGroup.add(crownInstanced);
+            cityGroup.add(spireInstanced);
+
+            const beaconGeo = new THREE.BufferGeometry();
+            beaconGeo.setAttribute('position', new THREE.BufferAttribute(beaconPositions, 3));
+            const beaconMat = new THREE.PointsMaterial({
+                color: 0xff2a55,
+                size: 9,
+                map: glowTexture,
+                transparent: true,
+                depthWrite: false,
+                blending: THREE.AdditiveBlending
+            });
+            const beacons = new THREE.Points(beaconGeo, beaconMat);
+            cityGroup.add(beacons);
+
+            // Flowing City Traffic Lights along Avenues
+            const trafficCount = 1600;
+            const trafficGeo = new THREE.BufferGeometry();
+            const trafficPos = new Float32Array(trafficCount * 3);
+            const trafficCol = new Float32Array(trafficCount * 3);
+            const trafficVel = new Float32Array(trafficCount * 2); // vx, vz
+
+            for (let i = 0; i < trafficCount; i++) {
+                const isXAxis = Math.random() < 0.5;
+                const laneCoord = (Math.floor((Math.random() - 0.5) * 28) * 56);
+                const alongCoord = (Math.random() - 0.5) * 1400;
+                const dir = Math.random() < 0.5 ? 1 : -1;
+                const speed = (18 + Math.random() * 26) * dir;
+
+                if (isXAxis) {
+                    trafficPos[i * 3] = alongCoord;
+                    trafficPos[i * 3 + 1] = -108.5;
+                    trafficPos[i * 3 + 2] = laneCoord + dir * 2.5;
+                    trafficVel[i * 2] = speed;
+                    trafficVel[i * 2 + 1] = 0;
+                } else {
+                    trafficPos[i * 3] = laneCoord + dir * 2.5;
+                    trafficPos[i * 3 + 1] = -108.5;
+                    trafficPos[i * 3 + 2] = alongCoord;
+                    trafficVel[i * 2] = 0;
+                    trafficVel[i * 2 + 1] = speed;
+                }
+
+                // Warm headlight gold vs crimson taillight
+                if (dir > 0) {
+                    trafficCol[i * 3] = 1.0;
+                    trafficCol[i * 3 + 1] = 0.85;
+                    trafficCol[i * 3 + 2] = 0.55;
+                } else {
+                    trafficCol[i * 3] = 1.0;
+                    trafficCol[i * 3 + 1] = 0.22;
+                    trafficCol[i * 3 + 2] = 0.28;
+                }
+            }
+            trafficGeo.setAttribute('position', new THREE.BufferAttribute(trafficPos, 3));
+            trafficGeo.setAttribute('color', new THREE.BufferAttribute(trafficCol, 3));
+            const trafficMat = new THREE.PointsMaterial({
+                size: 6.5,
+                vertexColors: true,
+                map: glowTexture,
+                transparent: true,
+                opacity: 0.85,
+                depthWrite: false,
+                blending: THREE.AdditiveBlending
+            });
+            const trafficPoints = new THREE.Points(trafficGeo, trafficMat);
+            cityGroup.add(trafficPoints);
+
+            // ============================================================================
+            // 6. VOLUMETRIC-STYLE CLOUD SEA (MULTI-ALTITUDE BILLOWING CLOUDS)
+            // ============================================================================
+            const cloudCount = 340;
+            const cloudPlaneGeo = new THREE.PlaneGeometry(1, 1);
+            const cloudInstancedMat = new THREE.ShaderMaterial({
+                transparent: true,
+                depthWrite: false,
+                uniforms: {
+                    uMap: { value: cloudTexture },
+                    uWhalePos: { value: new THREE.Vector3() },
+                    uTopColor: { value: new THREE.Color(0x3a629c) },
+                    uBottomColor: { value: new THREE.Color(0xd97354) },
+                    uDeepColor: { value: new THREE.Color(0x0d1b36) },
+                    uWhaleGlowColor: { value: new THREE.Color(0x48dbfb) }
+                },
+                vertexShader: `
+                    attribute vec3 aCloudMeta; // x: phase, y: layerTint, z: opacityScale
+                    varying vec2 vUv;
+                    varying vec3 vWorldPos;
+                    varying vec3 vCloudMeta;
+
+                    void main() {
+                        vUv = uv;
+                        vCloudMeta = aCloudMeta;
+
+                        // Billboard horizontally and subtly toward camera while keeping majestic scale
+                        vec4 worldCenter = instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0);
+                        float scaleX = length(instanceMatrix[0].xyz);
+                        float scaleY = length(instanceMatrix[1].xyz);
+
+                        vec3 toCam = normalize(cameraPosition - worldCenter.xyz);
+                        vec3 right = normalize(cross(vec3(0.0, 1.0, 0.0), toCam));
+                        vec3 up = cross(toCam, right);
+
+                        float angle = aCloudMeta.x;
+                        float c = cos(angle);
+                        float s = sin(angle);
+                        vec2 rotPos = vec2(
+                            position.x * c - position.y * s,
+                            position.x * s + position.y * c
+                        );
+
+                        vec3 finalWorldPos = worldCenter.xyz + right * (rotPos.x * scaleX) + up * (rotPos.y * scaleY);
+                        vWorldPos = finalWorldPos;
+                        gl_Position = projectionMatrix * viewMatrix * vec4(finalWorldPos, 1.0);
+                    }
+                `,
+                fragmentShader: `
+                    uniform sampler2D uMap;
+                    uniform vec3 uWhalePos;
+                    uniform vec3 uTopColor;
+                    uniform vec3 uBottomColor;
+                    uniform vec3 uDeepColor;
+                    uniform vec3 uWhaleGlowColor;
+
+                    varying vec2 vUv;
+                    varying vec3 vWorldPos;
+                    varying vec3 vCloudMeta;
+
+                    void main() {
+                        vec4 tex = texture2D(uMap, vUv);
+                        if (tex.a < 0.01) discard;
+
+                        // Vertical shading inside each cloud puff + sunset rim from below/horizon
+                        float verticalGrad = smoothstep(0.15, 0.85, vUv.y);
+                        vec3 baseCol = mix(uDeepColor, uTopColor, verticalGrad);
+
+                        // Warm sunset underglow & city light bounce
+                        float warmRim = smoothstep(0.65, 0.1, vUv.y) * vCloudMeta.y;
+                        baseCol = mix(baseCol, uBottomColor, warmRim * 0.62);
+
+                        // Dynamic bioluminescent illumination when the giant whale swims near this cloud!
+                        float distToWhale = length(vWorldPos - uWhalePos);
+                        float whaleGlow = exp(-distToWhale * 0.0115);
+                        baseCol += uWhaleGlowColor * whaleGlow * 0.95;
+
+                        // Distance fade so distant clouds blend seamlessly into horizon fog
+                        float camDist = length(vWorldPos - cameraPosition);
+                        float distFade = smoothstep(1400.0, 450.0, camDist) * smoothstep(25.0, 95.0, camDist);
+
+                        float alpha = tex.a * vCloudMeta.z * distFade * (0.28 + whaleGlow * 0.18);
+                        gl_FragColor = vec4(baseCol, alpha);
+                    }
+                `
+            });
+
+            const cloudInstanced = new THREE.InstancedMesh(cloudPlaneGeo, cloudInstancedMat, cloudCount);
+            const cloudMeta = new Float32Array(cloudCount * 3);
+            const cloudBaseData = [];
+
+            for (let i = 0; i < cloudCount; i++) {
+                // Three distinct cloud bands:
+                // 1) Low skyscraper mist (-55 to 25)
+                // 2) Mid-altitude cloud sea where the whale weaves (40 to 135)
+                // 3) High-altitude twilight wisps (180 to 260)
+                let y, scaleX, scaleY, layerTint, opacityScale;
+                const band = Math.random();
+                if (band < 0.35) {
+                    y = -50 + Math.random() * 75;
+                    scaleX = 110 + Math.random() * 140;
+                    scaleY = scaleX * (0.55 + Math.random() * 0.25);
+                    layerTint = 0.85;
+                    opacityScale = 0.65;
+                } else if (band < 0.85) {
+                    y = 45 + Math.random() * 95;
+                    scaleX = 130 + Math.random() * 180;
+                    scaleY = scaleX * (0.52 + Math.random() * 0.25);
+                    layerTint = 0.65;
+                    opacityScale = 0.85;
+                } else {
+                    y = 185 + Math.random() * 75;
+                    scaleX = 180 + Math.random() * 220;
+                    scaleY = scaleX * 0.4;
+                    layerTint = 0.45;
+                    opacityScale = 0.45;
+                }
+
+                const x = (Math.random() - 0.5) * 1500;
+                const z = (Math.random() - 0.5) * 1500;
+
+                dummy.position.set(x, y, z);
+                dummy.scale.set(scaleX, scaleY, 1);
+                dummy.rotation.set(0, 0, 0);
+                dummy.updateMatrix();
+                cloudInstanced.setMatrixAt(i, dummy.matrix);
+
+                cloudMeta[i * 3] = (Math.random() - 0.5) * 0.6; // subtle roll angle
+                cloudMeta[i * 3 + 1] = layerTint;
+                cloudMeta[i * 3 + 2] = opacityScale;
+
+                cloudBaseData.push({
+                    x, y, z, scaleX, scaleY,
+                    speedX: 2.2 + Math.random() * 3.5
+                });
+            }
+            cloudPlaneGeo.setAttribute('aCloudMeta', new THREE.InstancedBufferAttribute(cloudMeta, 3));
+            scene.add(cloudInstanced);
+
+            // ============================================================================
+            // 7. PROCEDURAL ANATOMICAL GIANT WHALE (HUMPBACK / BLUE WHALE HYBRID)
+            // ============================================================================
+            function buildGiantWhaleGeometry() {
+                const whaleLength = 88.0;
+                const lengthSegments = 96;
+                const radialSegments = 44;
+
+                const positions = [];
+                const normals = [];
+                const uvs = [];
+                const skinData = []; // x: spineNormalized(0=nose,1=tail), y: partType(0=body,1=pectoral,2=fluke,3=dorsal), z: side(-1 or 1)
+                const indices = [];
+
+                // Helper to evaluate anatomical whale cross-section along spine s in [0, 1]
+                function getBodyProfile(s) {
+                    let rx = 0.01;
+                    let ryTop = 0.01;
+                    let ryBot = 0.01;
+                    let yCenter = 0.0;
+
+                    if (s < 0.24) {
+                        // Broad U-shaped rostrum & vaulted cranium + deep throat pleats
+                        const t = s / 0.24;
+                        rx = Math.pow(Math.sin(t * Math.PI * 0.5), 0.62) * 10.2;
+                        ryTop = Math.pow(Math.sin(t * Math.PI * 0.5), 0.72) * 6.4;
+                        // Throat pouch expands deeply under the jaw
+                        ryBot = Math.pow(Math.sin(t * Math.PI * 0.5), 0.55) * 8.6;
+                        // Slight arch of rostrum
+                        yCenter = Math.sin(t * Math.PI) * 0.65;
+                    } else if (s < 0.68) {
+                        // Torso tapering smoothly toward tail stock
+                        const t = (s - 0.24) / 0.44;
+                        const cosT = Math.cos(t * Math.PI * 0.5);
+                        rx = 10.2 * Math.pow(cosT, 0.85) + 1.35 * (1.0 - cosT);
+                        ryTop = 6.4 * Math.pow(cosT, 0.75) + 1.85 * (1.0 - cosT);
+                        ryBot = 8.6 * Math.pow(cosT, 1.15) + 1.65 * (1.0 - cosT);
+                        yCenter = 0.0;
+                    } else {
+                        // Narrow, laterally compressed muscular peduncle (tail stock)
+                        const t = (s - 0.68) / 0.32;
+                        rx = 1.35 * (1.0 - t * 0.78);
+                        ryTop = 1.85 * (1.0 - t * 0.76);
+                        ryBot = 1.65 * (1.0 - t * 0.76);
+                        yCenter = 0.0;
+                    }
+                    return { rx, ryTop, ryBot, yCenter };
+                }
+
+                // 1) Generate Main Fusiform Body Mesh
+                for (let i = 0; i <= lengthSegments; i++) {
+                    const s = i / lengthSegments;
+                    // z goes from +whaleLength*0.42 (head) to -whaleLength*0.58 (tail tip)
+                    const z = (0.42 - s) * whaleLength;
+                    const prof = getBodyProfile(s);
+
+                    for (let j = 0; j <= radialSegments; j++) {
+                        const v = j / radialSegments;
+                        const theta = v * Math.PI * 2.0; // 0 = top dorsal ridge, PI = bottom ventral keel
+                        const sinT = Math.sin(theta);
+                        const cosT = Math.cos(theta);
+
+                        let x = sinT * prof.rx;
+                        let y = prof.yCenter + (cosT >= 0 ? cosT * prof.ryTop : cosT * prof.ryBot);
+
+                        // Flatten upper rostrum slightly for authentic baleen whale head look
+                        if (s < 0.19 && cosT > 0.1) {
+                            const rostrumFactor = Math.sin((s / 0.19) * Math.PI);
+                            y -= Math.pow(cosT, 2.0) * 1.65 * rostrumFactor;
+                            x *= 1.0 + 0.18 * rostrumFactor * Math.abs(sinT);
+                        }
+
+                        // Subtle dorsal ridge along back
+                        if (s > 0.55 && s < 0.88 && cosT > 0.85) {
+                            y += Math.pow((cosT - 0.85) / 0.15, 2.0) * 0.65;
+                        }
+
+                        positions.push(x, y, z);
+                        normals.push(sinT, cosT, 0);
+                        uvs.push(s, v);
+                        skinData.push(s, 0.0, Math.abs(sinT));
+                    }
+                }
+
+                const ringStride = radialSegments + 1;
+                for (let i = 0; i < lengthSegments; i++) {
+                    for (let j = 0; j < radialSegments; j++) {
+                        const a = i * ringStride + j;
+                        const b = (i + 1) * ringStride + j;
+                        const c = (i + 1) * ringStride + (j + 1);
+                        const d = i * ringStride + (j + 1);
+                        indices.push(a, b, d);
+                        indices.push(b, c, d);
+                    }
+                }
+
+                // Helper to append a sculpted 3D hydrofoil wing (for Pectoral Fins, Tail Flukes, Dorsal Fin)
+                function addHydrofoilWing(config) {
+                    const baseVertexOffset = positions.length / 3;
+                    const spanSegs = config.spanSegs;
+                    const chordSegs = config.chordSegs;
+
+                    for (let i = 0; i <= spanSegs; i++) {
+                        const u = i / spanSegs; // 0 = root, 1 = wingtip
+                        const slice = config.getSlice(u);
+
+                        for (let j = 0; j <= chordSegs; j++) {
+                            const v = j / chordSegs; // around airfoil loop
+                            const angle = v * Math.PI * 2.0;
+                            // Airfoil coordinate: c in [0 (leading edge), 1 (trailing edge)]
+                            const c = 0.5 * (1.0 - Math.cos(angle));
+                            // NACA-style streamlined thickness distribution
+                            const thicknessProfile = 0.55 * (
+                                0.2969 * Math.sqrt(Math.max(0.0001, c)) -
+                                0.1260 * c -
+                                0.3516 * c * c +
+                                0.2843 * c * c * c -
+                                0.1015 * c * c * c * c
+                            ) * 5.0;
+                            const halfThick = thicknessProfile * slice.thickness * Math.sin(angle >= 0 && angle <= Math.PI ? angle : -angle);
+                            const signedNormalOffset = Math.sin(angle) * slice.thickness * (1.0 - 0.68 * c);
+
+                            const localZ = slice.zLead - c * slice.chord;
+                            const px = slice.x + config.normalDir.x * signedNormalOffset;
+                            const py = slice.y + config.normalDir.y * signedNormalOffset;
+                            const pz = localZ;
+
+                            positions.push(px, py, pz);
+                            normals.push(config.normalDir.x, config.normalDir.y * Math.sign(Math.sin(angle) || 1), 0);
+                            uvs.push(u, c);
+                            skinData.push(slice.spineS, config.partType, u);
+                        }
+                    }
+
+                    const stride = chordSegs + 1;
+                    for (let i = 0; i < spanSegs; i++) {
+                        for (let j = 0; j < chordSegs; j++) {
+                            const a = baseVertexOffset + i * stride + j;
+                            const b = baseVertexOffset + (i + 1) * stride + j;
+                            const c = baseVertexOffset + (i + 1) * stride + (j + 1);
+                            const d = baseVertexOffset + i * stride + (j + 1);
+                            if (config.flipWinding) {
+                                indices.push(a, d, b);
+                                indices.push(b, d, c);
+                            } else {
+                                indices.push(a, b, d);
+                                indices.push(b, c, d);
+                            }
+                        }
+                    }
+                }
+
+                // 2) Long Sweeping Humpback Pectoral Fins (Left & Right) with Leading-Edge Tubercles
+                [-1, 1].forEach(side => {
+                    addHydrofoilWing({
+                        spanSegs: 36,
+                        chordSegs: 20,
+                        partType: 1.0,
+                        normalDir: { x: 0.18 * side, y: 0.98 },
+                        flipWinding: side < 0,
+                        getSlice: (u) => {
+                            const spanLength = 29.5;
+                            // Scalloped humpback tubercles along the leading edge
+                            const tubercleBump = Math.sin(u * Math.PI * 9.0) * 0.45 * Math.sin(u * Math.PI);
+                            const sweepBack = Math.pow(u, 1.35) * 14.5 - tubercleBump;
+                            const rootZ = (0.42 - 0.25) * whaleLength;
+                            const chord = (8.2 * (1.0 - 0.76 * Math.pow(u, 1.15)) + 1.1) + tubercleBump * 0.6;
+                            return {
+                                x: side * (7.8 + u * spanLength),
+                                y: -3.2 - u * 6.8 + Math.sin(u * Math.PI) * 1.4,
+                                zLead: rootZ - sweepBack,
+                                chord: chord,
+                                thickness: (1.15 * (1.0 - 0.8 * u) + 0.12),
+                                spineS: 0.26 + u * 0.16
+                            };
+                        }
+                    });
+                });
+
+                // 3) Majestic Butterfly Tail Flukes (Left & Right Lobes)
+                [-1, 1].forEach(side => {
+                    addHydrofoilWing({
+                        spanSegs: 30,
+                        chordSegs: 18,
+                        partType: 2.0,
+                        normalDir: { x: 0.05 * side, y: 1.0 },
+                        flipWinding: side < 0,
+                        getSlice: (u) => {
+                            const flukeSpan = 18.5;
+                            const sweep = Math.pow(u, 1.45) * 7.8;
+                            const rootZ = (0.42 - 0.93) * whaleLength;
+                            // Characteristic median notch at center (u near 0) and graceful taper at tip
+                            const notchDip = Math.exp(-u * 12.0) * 1.6;
+                            const chord = (6.8 * Math.sin(Math.acos(Math.min(0.99, u * 0.92))) + 0.7) - notchDip;
+                            return {
+                                x: side * (0.5 + u * flukeSpan),
+                                y: Math.pow(u, 1.6) * 1.45,
+                                zLead: rootZ - sweep,
+                                chord: chord,
+                                thickness: 0.62 * (1.0 - 0.78 * u) + 0.08,
+                                spineS: 0.93 + u * 0.07
+                            };
+                        }
+                    });
+                });
+
+                // 4) Falcate Dorsal Fin (set 2/3 back along spine)
+                addHydrofoilWing({
+                    spanSegs: 16,
+                    chordSegs: 14,
+                    partType: 3.0,
+                    normalDir: { x: 1.0, y: 0.0 },
+                    flipWinding: false,
+                    getSlice: (u) => {
+                        const rootZ = (0.42 - 0.66) * whaleLength;
+                        const sweep = Math.pow(u, 1.7) * 5.2;
+                        return {
+                            x: 0.0,
+                            y: 3.0 + u * 4.4,
+                            zLead: rootZ - sweep,
+                            chord: 6.2 * (1.0 - 0.72 * u) + 0.8,
+                            thickness: 0.58 * (1.0 - 0.7 * u),
+                            spineS: 0.67 + u * 0.04
+                        };
+                    }
+                });
+
+                const geo = new THREE.BufferGeometry();
+                geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+                geo.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
+                geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+                geo.setAttribute('aSkinData', new THREE.Float32BufferAttribute(skinData, 3));
+                geo.setIndex(indices);
+                geo.computeVertexNormals();
+                return geo;
+            }
+
+            const whaleGeo = buildGiantWhaleGeometry();
+
+            const whaleMat = new THREE.ShaderMaterial({
+                uniforms: {
+                    uTime: { value: 0 },
+                    uTurnBank: { value: 0 },
+                    uSunDir: { value: new THREE.Vector3(-0.55, 0.14, -0.82).normalize() },
+                    uSunColor: { value: new THREE.Color(0xff9a62) },
+                    uTopLightColor: { value: new THREE.Color(0x64b5f6) },
+                    uBioColorCyan: { value: new THREE.Color(0x48dbfb) },
+                    uBioColorGold: { value: new THREE.Color(0xffd166) }
+                },
+                vertexShader: `
+                    attribute vec3 aSkinData; // x: spineS (0=head, 1=tail), y: partType, z: finSpanU
+                    uniform float uTime;
+                    uniform float uTurnBank;
+
+                    varying vec2 vUv;
+                    varying vec3 vSkinData;
+                    varying vec3 vWorldNormal;
+                    varying vec3 vWorldPos;
+                    varying vec3 vLocalPos;
+
+                    void main() {
+                        vUv = uv;
+                        vSkinData = aSkinData;
+                        vec3 pos = position;
+                        vec3 norm = normal;
+
+                        float s = aSkinData.x;
+                        float partType = aSkinData.y;
+                        float spanU = aSkinData.z;
+
+                        // Biomechanical traveling wave from head (s=0) to tail fluke (s=1)
+                        float swimFreq = 1.95;
+                        float wavePhase = uTime * swimFreq - s * 5.2;
+
+                        // Amplitude grows quadratically toward the peduncle and tail
+                        float spineAmp = (0.55 + 6.8 * pow(s, 2.15));
+                        // Slight head counter-nod for authentic cetacean propulsion
+                        float headNod = (1.0 - smoothstep(0.0, 0.28, s)) * 0.95 * sin(uTime * swimFreq + 0.6);
+
+                        float dy = sin(wavePhase) * spineAmp + headNod;
+                        float dx = cos(wavePhase * 0.5) * (0.35 + 1.8 * pow(s, 1.7)) + uTurnBank * pow(s, 1.5) * 4.5;
+
+                        // Pitch angle of spine derivative for rotating tail flukes naturally
+                        float spineSlope = cos(wavePhase) * (0.04 + 0.22 * pow(s, 1.6));
+
+                        // Pectoral fin graceful wing-like feathering & secondary delay
+                        if (partType > 0.5 && partType < 1.5) {
+                            float finWave = sin(uTime * swimFreq - 0.85 - spanU * 1.45);
+                            dy += finWave * pow(spanU, 1.45) * 4.2;
+                            pos.z += cos(uTime * swimFreq - spanU * 1.2) * pow(spanU, 1.3) * 1.1;
+                        }
+
+                        // Tail fluke active hydrofoil pitch & tip flex
+                        if (partType > 1.5 && partType < 2.5) {
+                            float flukeFlex = cos(wavePhase - 0.45) * pow(spanU, 1.5) * 2.4;
+                            dy += flukeFlex;
+                        }
+
+                        pos.y += dy;
+                        pos.x += dx;
+
+                        // Subtle body roll along spine
+                        float rollAngle = sin(uTime * swimFreq * 0.5 - s * 2.2) * 0.11 + uTurnBank * 0.35;
+                        float cr = cos(rollAngle);
+                        float sr = sin(rollAngle);
+                        vec2 rolledXY = mat2(cr, -sr, sr, cr) * pos.xy;
+                        pos.xy = rolledXY;
+                        norm.xy = mat2(cr, -sr, sr, cr) * norm.xy;
+
+                        // Adjust normal slightly for spine slope
+                        norm.y -= spineSlope * 0.35;
+                        norm = normalize(norm);
+
+                        vLocalPos = position;
+                        vec4 wp = modelMatrix * vec4(pos, 1.0);
+                        vWorldPos = wp.xyz;
+                        vWorldNormal = normalize(mat3(modelMatrix) * norm);
+
+                        gl_Position = projectionMatrix * viewMatrix * wp;
+                    }
+                `,
+                fragmentShader: `
+                    uniform float uTime;
+                    uniform vec3 uSunDir;
+                    uniform vec3 uSunColor;
+                    uniform vec3 uTopLightColor;
+                    uniform vec3 uBioColorCyan;
+                    uniform vec3 uBioColorGold;
+
+                    varying vec2 vUv;
+                    varying vec3 vSkinData;
+                    varying vec3 vWorldNormal;
+                    varying vec3 vWorldPos;
+                    varying vec3 vLocalPos;
+
+                    // Procedural organic noise for mottled whale skin & bioluminescent constellations
+                    float hash21(vec2 p) {
+                        p = fract(p * vec2(234.34, 435.345));
+                        p += dot(p, p + 34.23);
+                        return fract(p.x * p.y);
+                    }
+
+                    float noise2D(vec2 p) {
+                        vec2 i = floor(p);
+                        vec2 f = fract(p);
+                        f = f * f * (3.0 - 2.0 * f);
+                        float a = hash21(i);
+                        float b = hash21(i + vec2(1.0, 0.0));
+                        float c = hash21(i + vec2(0.0, 1.0));
+                        float d = hash21(i + vec2(1.0, 1.0));
+                        return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+                    }
+
+                    void main() {
+                        vec3 N = normalize(vWorldNormal);
+                        vec3 V = normalize(cameraPosition - vWorldPos);
+
+                        float s = vSkinData.x;
+                        float partType = vSkinData.y;
+                        float spanU = vSkinData.z;
+
+                        // 1. Base Cetacean Skin Pigmentation (Deep slate-indigo dorsal -> Pale silver-blue ventral)
+                        float ventralMask = smoothstep(1.2, -3.8, vLocalPos.y) * (1.0 - smoothstep(0.68, 0.92, s));
+                        float mottle = noise2D(vLocalPos.xz * 0.35 + vec2(0.0, vLocalPos.y * 0.4));
+                        float fineMottle = noise2D(vLocalPos.xz * 1.4);
+
+                        vec3 dorsalSkin = mix(vec3(0.05, 0.11, 0.22), vec3(0.11, 0.22, 0.38), mottle * 0.65 + fineMottle * 0.35);
+                        vec3 ventralSkin = mix(vec3(0.45, 0.58, 0.74), vec3(0.72, 0.84, 0.95), fineMottle);
+
+                        // Ventral throat pleats (grooves under jaw and chest)
+                        float groovePattern = 1.0;
+                        if (s < 0.46 && vLocalPos.y < -0.4 && partType < 0.5) {
+                            float grooveWave = sin(vLocalPos.x * 3.6);
+                            float grooveFade = smoothstep(0.46, 0.15, s) * smoothstep(-0.4, -2.5, vLocalPos.y);
+                            groovePattern = mix(1.0, smoothstep(-0.6, 0.5, grooveWave), grooveFade * 0.82);
+                        }
+
+                        vec3 baseAlbedo = mix(dorsalSkin, ventralSkin * groovePattern, ventralMask * 0.78);
+
+                        // 2. Multi-source Cinematic Lighting (Sunset horizon bounce + Moonlight zenith + Fresnel rim)
+                        float sunDiff = max(0.0, dot(N, uSunDir));
+                        float skyDiff = 0.5 + 0.5 * N.y;
+                        float cityBounce = max(0.0, -N.y) * 0.45;
+
+                        float fresnel = pow(1.0 - max(0.0, dot(N, V)), 3.2);
+
+                        vec3 lighting = vec3(0.08, 0.15, 0.28)
+                                      + uTopLightColor * skyDiff * 0.65
+                                      + uSunColor * pow(sunDiff, 1.4) * 1.15
+                                      + vec3(0.95, 0.52, 0.32) * cityBounce;
+
+                        // Wet skin specular highlight
+                        vec3 H = normalize(uSunDir + V);
+                        float spec = pow(max(0.0, dot(N, H)), 42.0) * 0.65;
+
+                        vec3 color = baseAlbedo * lighting + uSunColor * spec;
+                        // Ethereal dual rim light (warm sunset below, cyan sky above)
+                        vec3 rimCol = mix(uSunColor, uBioColorCyan, smoothstep(-0.3, 0.5, N.y));
+                        color += rimCol * fresnel * 0.88;
+
+                        // 3. Celestial Bioluminescent Patterns (Flowing energy lines, fin edges & constellations)
+                        float pulseWave = 0.55 + 0.45 * sin(uTime * 2.2 - s * 9.0);
+
+                        // Glowing lateral lines & rune-like organic striations along body flanks
+                        float flankLine = exp(-abs(vLocalPos.y + 0.6 - sin(s * 10.0) * 1.2) * 1.35) * smoothstep(0.08, 0.25, s) * smoothstep(0.92, 0.6, s);
+                        float bioStreaks = smoothstep(0.68, 0.82, noise2D(vec2(vLocalPos.z * 0.16, vLocalPos.x * 0.55 + vLocalPos.y * 0.45)));
+                        float constellationDots = smoothstep(0.84, 0.92, noise2D(vLocalPos.xz * 0.95 + vLocalPos.y));
+
+                        // Glowing leading/trailing edges on pectoral fins and tail flukes
+                        float finGlow = 0.0;
+                        if (partType > 0.5) {
+                            float tipGlow = smoothstep(0.35, 0.98, spanU);
+                            float leadEdgeGlow = smoothstep(0.32, 0.0, vUv.y);
+                            finGlow = (tipGlow * 0.75 + leadEdgeGlow * 0.85) * (0.7 + 0.3 * sin(uTime * 2.8 - spanU * 4.0));
+                        }
+
+                        // Glowing throat groove bioluminescence
+                        float throatBio = (1.0 - groovePattern) * ventralMask * 0.65 * pulseWave;
+
+                        vec3 bioEmission = uBioColorCyan * (flankLine * bioStreaks * 1.4 + finGlow * 1.25 + throatBio) * pulseWave
+                                         + uBioColorGold * (constellationDots * 0.85 + finGlow * 0.35) * (0.7 + 0.3 * pulseWave);
+
+                        color += bioEmission;
+
+                        gl_FragColor = vec4(color, 1.0);
+                    }
+                `
+            });
+
+            const whaleMesh = new THREE.Mesh(whaleGeo, whaleMat);
+            const whaleGroup = new THREE.Group();
+            whaleGroup.add(whaleMesh);
+            scene.add(whaleGroup);
+
+            // ============================================================================
+            // 8. WHALE FLIGHT SPLINE, WAKE VORTEX RIBBONS & STARDUST PLANKTON
+            // ============================================================================
+            // Closed smooth 3D trajectory weaving around the tallest skyscrapers and through the cloud sea
+            const whaleWaypoints = [
+                new THREE.Vector3(0, 78, 220),
+                new THREE.Vector3(-185, 118, 95),
+                new THREE.Vector3(-250, 62, -135),
+                new THREE.Vector3(-75, 138, -285),
+                new THREE.Vector3(165, 92, -195),
+                new THREE.Vector3(260, 48, 25),
+                new THREE.Vector3(145, 124, 215)
+            ];
+            const whaleCurve = new THREE.CatmullRomCurve3(whaleWaypoints, true, 'centripetal', 0.5);
+
+            // Bioluminescent stardust / sky-plankton particles floating in the air and trailing the whale
+            const planktonCount = 950;
+            const planktonGeo = new THREE.BufferGeometry();
+            const planktonPos = new Float32Array(planktonCount * 3);
+            const planktonCol = new Float32Array(planktonCount * 3);
+            const planktonPhase = new Float32Array(planktonCount);
+
+            for (let i = 0; i < planktonCount; i++) {
+                // First 350 particles are dedicated wake particles spawned from the whale's fins
+                const ptOnCurve = whaleCurve.getPointAt(Math.random());
+                const spread = i < 350 ? 42 : 340;
+                planktonPos[i * 3] = ptOnCurve.x + (Math.random() - 0.5) * spread;
+                planktonPos[i * 3 + 1] = ptOnCurve.y + (Math.random() - 0.5) * (spread * 0.55);
+                planktonPos[i * 3 + 2] = ptOnCurve.z + (Math.random() - 0.5) * spread;
+
+                const isGold = Math.random() < 0.28;
+                if (isGold) {
+                    planktonCol[i * 3] = 1.0;
+                    planktonCol[i * 3 + 1] = 0.84;
+                    planktonCol[i * 3 + 2] = 0.45;
+                } else {
+                    planktonCol[i * 3] = 0.32;
+                    planktonCol[i * 3 + 1] = 0.88;
+                    planktonCol[i * 3 + 2] = 1.0;
+                }
+                planktonPhase[i] = Math.random() * Math.PI * 2;
+            }
+            planktonGeo.setAttribute('position', new THREE.BufferAttribute(planktonPos, 3));
+            planktonGeo.setAttribute('color', new THREE.BufferAttribute(planktonCol, 3));
+
+            const planktonMat = new THREE.PointsMaterial({
+                size: 5.2,
+                vertexColors: true,
+                map: glowTexture,
+                transparent: true,
+                opacity: 0.82,
+                depthWrite: false,
+                blending: THREE.AdditiveBlending
+            });
+            const planktonSystem = new THREE.Points(planktonGeo, planktonMat);
+            scene.add(planktonSystem);
+
+            // Twin Ethereal Wingtip Vortex Ribbons trailing behind the whale's pectoral fins
+            const trailLength = 85;
+            function createWingtipTrail(colorHex) {
+                const geo = new THREE.BufferGeometry();
+                const posArr = new Float32Array(trailLength * 3);
+                geo.setAttribute('position', new THREE.BufferAttribute(posArr, 3));
+                const mat = new THREE.LineBasicMaterial({
+                    color: colorHex,
+                    transparent: true,
+                    opacity: 0.42,
+                    blending: THREE.AdditiveBlending
+                });
+                const line = new THREE.Line(geo, mat);
+                line.frustumCulled = false;
+                scene.add(line);
+                return { line, positions: posArr, initialized: false };
+            }
+
+            const leftWingTrail = createWingtipTrail(0x48dbfb);
+            const rightWingTrail = createWingtipTrail(0x48dbfb);
+            const tailFlukeTrail = createWingtipTrail(0xffd166);
+
+            function updateTrailRibbon(trail, worldTipPos) {
+                const arr = trail.positions;
+                if (!trail.initialized) {
+                    for (let i = 0; i < trailLength; i++) {
+                        arr[i * 3] = worldTipPos.x;
+                        arr[i * 3 + 1] = worldTipPos.y;
+                        arr[i * 3 + 2] = worldTipPos.z;
+                    }
+                    trail.initialized = true;
+                } else {
+                    for (let i = trailLength - 1; i > 0; i--) {
+                        arr[i * 3] = arr[(i - 1) * 3];
+                        arr[i * 3 + 1] = arr[(i - 1) * 3 + 1] - 0.03; // gentle sink
+                        arr[i * 3 + 2] = arr[(i - 1) * 3 + 2];
+                    }
+                    arr[0] = worldTipPos.x;
+                    arr[1] = worldTipPos.y;
+                    arr[2] = worldTipPos.z;
+                }
+                trail.line.geometry.attributes.position.needsUpdate = true;
+            }
+
+            // ============================================================================
+            // 9. CINEMATIC CAMERA DIRECTOR & MAIN ANIMATION LOOP
+            // ============================================================================
+            const clock = new THREE.Clock();
+            let wakeSpawnCursor = 0;
+
+            const currentCameraPos = new THREE.Vector3(60, 55, 290);
+            const currentLookAt = new THREE.Vector3(0, 75, 180);
+            let smoothedTurnBank = 0;
+
+            function animate() {
+                requestAnimationFrame(animate);
+
+                const delta = Math.min(clock.getDelta(), 0.05);
+                const elapsed = clock.getElapsedTime();
+
+                // 1. Update Sky, God Rays, and Beacon Pulse
+                skyMat.uniforms.uTime.value = elapsed;
+                rayMat.uniforms.uTime.value = elapsed;
+                beaconMat.opacity = 0.55 + 0.45 * Math.sin(elapsed * 3.2);
+
+                // 2. Update Whale Position & Orientation along 3D Spline
+                // Complete one full majestic loop across the city every ~78 seconds
+                const loopSpeed = 0.0128;
+                const uWhale = (elapsed * loopSpeed) % 1.0;
+                const uAhead = (uWhale + 0.008) % 1.0;
+                const uFarAhead = (uWhale + 0.025) % 1.0;
+
+                const posNow = whaleCurve.getPointAt(uWhale);
+                const posAhead = whaleCurve.getPointAt(uAhead);
+                const posFarAhead = whaleCurve.getPointAt(uFarAhead);
+
+                const tangentNow = posAhead.clone().sub(posNow).normalize();
+                const tangentAhead = posFarAhead.clone().sub(posAhead).normalize();
+
+                // Compute lateral curvature for natural banking into turns
+                const crossTurn = new THREE.Vector3().crossVectors(tangentNow, tangentAhead);
+                const rawTurnBank = THREE.MathUtils.clamp(crossTurn.y * 26.0, -1.0, 1.0);
+                smoothedTurnBank = THREE.MathUtils.lerp(smoothedTurnBank, rawTurnBank, delta * 2.5);
+
+                whaleGroup.position.copy(posNow);
+
+                // Orient whaleGroup so its local +Z points along forward travel direction
+                const targetLook = posNow.clone().add(tangentNow);
+                whaleGroup.lookAt(targetLook);
+
+                // Feed uniforms to whale shader & cloud shader
+                whaleMat.uniforms.uTime.value = elapsed;
+                whaleMat.uniforms.uTurnBank.value = smoothedTurnBank;
+                cloudInstancedMat.uniforms.uWhalePos.value.copy(posNow);
+                whaleAuraLight.position.copy(posNow).add(new THREE.Vector3(0, -8, 0));
+
+                // 3. Update Wingtip Ribbons & Spawn Bioluminescent Wake Particles
+                const swimFreq = 1.95;
+                const finFlapY = Math.sin(elapsed * swimFreq - 2.3) * 4.2;
+                const leftTipLocal = new THREE.Vector3(-36.5, -9.8 + finFlapY, 1.5);
+                const rightTipLocal = new THREE.Vector3(36.5, -9.8 + finFlapY, 1.5);
+                const tailWaveY = Math.sin(elapsed * swimFreq - 5.2) * 7.35;
+                const tailTipLocal = new THREE.Vector3(0, tailWaveY, -48.5);
+
+                whaleGroup.localToWorld(leftTipLocal);
+                whaleGroup.localToWorld(rightTipLocal);
+                whaleGroup.localToWorld(tailTipLocal);
+
+                updateTrailRibbon(leftWingTrail, leftTipLocal);
+                updateTrailRibbon(rightWingTrail, rightTipLocal);
+                updateTrailRibbon(tailFlukeTrail, tailTipLocal);
+
+                // Continuously recycle wake plankton particles near the whale's fins and tail
+                const pArr = planktonGeo.attributes.position.array;
+                for (let s = 0; s < 3; s++) {
+                    const idx3 = wakeSpawnCursor * 3;
+                    const source = s === 0 ? leftTipLocal : (s === 1 ? rightTipLocal : tailTipLocal);
+                    pArr[idx3] = source.x + (Math.random() - 0.5) * 8.0;
+                    pArr[idx3 + 1] = source.y + (Math.random() - 0.5) * 6.0;
+                    pArr[idx3 + 2] = source.z + (Math.random() - 0.5) * 8.0;
+                    wakeSpawnCursor = (wakeSpawnCursor + 1) % 350;
+                }
+                for (let i = 0; i < planktonCount; i++) {
+                    pArr[i * 3 + 1] += Math.sin(elapsed * 1.4 + planktonPhase[i]) * 0.04;
+                }
+                planktonGeo.attributes.position.needsUpdate = true;
+
+                // 4. Update Drifting Volumetric Cloud Sea
+                for (let i = 0; i < cloudCount; i++) {
+                    const c = cloudBaseData[i];
+                    c.x += c.speedX * delta;
+                    if (c.x > 750) c.x = -750;
+                    dummy.position.set(c.x, c.y, c.z);
+                    dummy.scale.set(c.scaleX, c.scaleY, 1);
+                    dummy.updateMatrix();
+                    cloudInstanced.setMatrixAt(i, dummy.matrix);
+                }
+                cloudInstanced.instanceMatrix.needsUpdate = true;
+
+                // 5. Update Flowing Street Traffic
+                const tPos = trafficGeo.attributes.position.array;
+                for (let i = 0; i < trafficCount; i++) {
+                    tPos[i * 3] += trafficVel[i * 2] * delta;
+                    tPos[i * 3 + 2] += trafficVel[i * 2 + 1] * delta;
+                    if (tPos[i * 3] > 700) tPos[i * 3] = -700;
+                    if (tPos[i * 3] < -700) tPos[i * 3] = 700;
+                    if (tPos[i * 3 + 2] > 700) tPos[i * 3 + 2] = -700;
+                    if (tPos[i * 3 + 2] < -700) tPos[i * 3 + 2] = 700;
+                }
+                trafficGeo.attributes.position.needsUpdate = true;
+
+                // 6. Autonomous Cinematic Camera Choreography (Slow Orbit + Low-Angle Hero Framing + Breathing)
+                mouseParallax.x = THREE.MathUtils.lerp(mouseParallax.x, mouseParallax.targetX, delta * 2.0);
+                mouseParallax.y = THREE.MathUtils.lerp(mouseParallax.y, mouseParallax.targetY, delta * 2.0);
+
+                const worldUp = new THREE.Vector3(0, 1, 0);
+                const rightVec = new THREE.Vector3().crossVectors(tangentNow, worldUp).normalize();
+
+                // Slowly sweep camera around the whale from low-angle side tracking to front-quarter hero reveal
+                const camOrbitAngle = elapsed * 0.115;
+                const sideOffset = Math.cos(camOrbitAngle) * 78.0 + mouseParallax.x * 22.0;
+                const forwardOffset = Math.sin(camOrbitAngle) * 68.0 - 12.0;
+                // Keep camera slightly below the whale most of the time so the city towers & sky frame the whale majestically
+                const verticalOffset = -16.0 + Math.sin(elapsed * 0.21) * 20.0 - mouseParallax.y * 14.0;
+
+                const desiredCamPos = posNow.clone()
+                    .addScaledVector(rightVec, sideOffset)
+                    .addScaledVector(tangentNow, forwardOffset)
+                    .add(new THREE.Vector3(0, verticalOffset, 0));
+
+                // Ensure camera never dips below skyscraper rooftops
+                desiredCamPos.y = Math.max(desiredCamPos.y, 18.0);
+
+                currentCameraPos.lerp(desiredCamPos, delta * 1.85);
+                camera.position.copy(currentCameraPos);
+
+                // Smoothly look slightly ahead of the whale's center and slightly downward to include the glittering city skyline
+                const desiredLookAt = posNow.clone()
+                    .addScaledVector(tangentNow, 14.0)
+                    .add(new THREE.Vector3(
+                        Math.sin(elapsed * 0.45) * 2.5,
+                        -6.5 + Math.cos(elapsed * 0.37) * 2.2,
+                        0
+                    ));
+
+                currentLookAt.lerp(desiredLookAt, delta * 2.4);
+                camera.lookAt(currentLookAt);
+
+                // Subtle organic handheld camera roll breathing
+                camera.rotation.z += Math.sin(elapsed * 0.33) * 0.012;
+
+                renderer.render(scene, camera);
+            }
+
+            // Responsive resize handler
+            window.addEventListener('resize', () => {
+                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+            });
+
+            animate();
+        };
+    </script>
+<!--zc-home:start--><style>.zc-home-btn{position:fixed;top:16px;left:16px;z-index:2147483647;display:inline-flex;align-items:center;gap:6px;padding:8px 14px;font:500 13px/1.1 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Noto Sans SC",sans-serif;color:#111;background:rgba(255,255,255,.86);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);border:1px solid rgba(0,0,0,.08);border-radius:999px;text-decoration:none;box-shadow:0 2px 12px rgba(0,0,0,.2);transition:background .2s ease,transform .2s ease,box-shadow .2s ease}.zc-home-btn:hover{background:#fff;transform:translateY(-1px);box-shadow:0 4px 18px rgba(0,0,0,.26)}</style><a class="zc-home-btn" href="../">← 返回首页</a><!--zc-home:end-->
+</body>
+</html>

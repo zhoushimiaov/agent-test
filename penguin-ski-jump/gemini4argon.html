@@ -1,0 +1,1636 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Alpine Penguin Ski Jump</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    html, body {
+      width: 100vw;
+      height: 100vh;
+      overflow: hidden;
+      background-color: #d8e8f8;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    canvas {
+      display: block;
+      width: 100vw;
+      height: 100vh;
+    }
+  </style>
+  <!-- Load Three.js r128 from CDN -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+<body>
+  <script>
+    (function () {
+      'use strict';
+
+      // ============================================================================
+      // 1. SCENE, RENDERER & GOLDEN-HOUR ALPINE ATMOSPHERE
+      // ============================================================================
+      const LOOP_DURATION = 9.0; // Seamless 9.0-second animation cycle
+
+      const renderer = new THREE.WebGLRenderer({
+        antialias: true,
+        powerPreference: 'high-performance'
+      });
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+      renderer.shadowMap.enabled = true;
+      renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      renderer.toneMappingExposure = 1.08;
+      renderer.outputEncoding = THREE.sRGBEncoding;
+      document.body.appendChild(renderer.domElement);
+
+      const scene = new THREE.Scene();
+      scene.fog = new THREE.FogExp2(0xdce8f7, 0.00175);
+
+      const camera = new THREE.PerspectiveCamera(
+        52,
+        window.innerWidth / window.innerHeight,
+        0.5,
+        1600
+      );
+
+      // Custom gradient sky dome shader for crisp winter golden hour
+      const skyGeo = new THREE.SphereGeometry(1200, 32, 24);
+      const skyMat = new THREE.ShaderMaterial({
+        side: THREE.BackSide,
+        depthWrite: false,
+        uniforms: {
+          topColor: { value: new THREE.Color(0x1f4f91) },
+          midColor: { value: new THREE.Color(0x7cb2e8) },
+          horizonColor: { value: new THREE.Color(0xffe4c4) },
+          bottomColor: { value: new THREE.Color(0xd8e8f8) },
+          sunDir: { value: new THREE.Vector3(-0.55, 0.34, 0.76).normalize() }
+        },
+        vertexShader: `
+          varying vec3 vWorldPosition;
+          void main() {
+            vec4 worldPosition = modelMatrix * vec4(position, 1.0);
+            vWorldPosition = worldPosition.xyz;
+            gl_Position = projectionMatrix * viewMatrix * worldPosition;
+          }
+        `,
+        fragmentShader: `
+          uniform vec3 topColor;
+          uniform vec3 midColor;
+          uniform vec3 horizonColor;
+          uniform vec3 bottomColor;
+          uniform vec3 sunDir;
+          varying vec3 vWorldPosition;
+          void main() {
+            vec3 dir = normalize(vWorldPosition);
+            float h = dir.y;
+            vec3 col;
+            if (h > 0.0) {
+              float t1 = smoothstep(0.0, 0.28, h);
+              float t2 = smoothstep(0.22, 0.85, h);
+              col = mix(horizonColor, midColor, t1);
+              col = mix(col, topColor, t2);
+            } else {
+              col = mix(horizonColor, bottomColor, smoothstep(0.0, -0.25, h));
+            }
+            float sunAmt = max(dot(dir, sunDir), 0.0);
+            col += vec3(1.0, 0.78, 0.45) * pow(sunAmt, 14.0) * 0.42;
+            col += vec3(1.0, 0.95, 0.85) * smoothstep(0.996, 0.9995, sunAmt) * 1.3;
+            gl_FragColor = vec4(col, 1.0);
+          }
+        `
+      });
+      const skyDome = new THREE.Mesh(skyGeo, skyMat);
+      scene.add(skyDome);
+
+      // Hemisphere bounce light (sky blue above, cool snow reflection below)
+      const hemiLight = new THREE.HemisphereLight(0xcce4ff, 0x8aa8cc, 0.85);
+      hemiLight.position.set(0, 200, 0);
+      scene.add(hemiLight);
+
+      // Warm golden-hour directional sun casting crisp alpine shadows
+      const sunLight = new THREE.DirectionalLight(0xfff0d6, 1.35);
+      sunLight.position.set(-160, 195, 160);
+      sunLight.castShadow = true;
+      sunLight.shadow.mapSize.width = 2048;
+      sunLight.shadow.mapSize.height = 2048;
+      sunLight.shadow.camera.near = 20;
+      sunLight.shadow.camera.far = 650;
+      const d = 220;
+      sunLight.shadow.camera.left = -d;
+      sunLight.shadow.camera.right = d;
+      sunLight.shadow.camera.top = d;
+      sunLight.shadow.camera.bottom = -d;
+      sunLight.shadow.bias = -0.0005;
+      scene.add(sunLight);
+
+      // Subtle rim/fill light from the opposite snow ridge
+      const fillLight = new THREE.DirectionalLight(0x90beff, 0.4);
+      fillLight.position.set(140, 80, -100);
+      scene.add(fillLight);
+
+      // ============================================================================
+      // 2. MATHEMATICAL COURSE PROFILE & PHYSICS TRAJECTORY FUNCTIONS
+      // ============================================================================
+      // Coordinate system:
+      // +Z = Downhill / Flight direction
+      // +Y = Altitude
+      // +X = Lateral (0 is centerline of jump)
+
+      // Inrun Ramp height for z in [-140, 0]
+      // Starts at tower gate (z = -135, y = 118), drops down a steep ~32 deg ramp,
+      // and transitions smoothly into the takeoff table at (z = 0, y = 55)
+      function getRampHeight(z) {
+        if (z < -135) {
+          // Flat start house platform at top of tower
+          return 118.0 + (-135 - z) * 0.12;
+        }
+        const u = THREE.MathUtils.clamp((z + 135) / 135, 0, 1);
+        const y0 = 118.0;
+        const y1 = 55.0;
+        const m0 = -68.0; // Initial slope dy/du
+        const m1 = -5.5;  // Exit table slope dy/du (nearly flat takeoff lip)
+        const u2 = u * u;
+        const u3 = u2 * u;
+        const h00 = 2 * u3 - 3 * u2 + 1;
+        const h10 = u3 - 2 * u2 + u;
+        const h01 = -2 * u3 + 3 * u2;
+        const h11 = u3 - u2;
+        return h00 * y0 + h10 * m0 + h01 * y1 + h11 * m1;
+      }
+
+      function getRampSlope(z) {
+        const eps = 0.05;
+        return (getRampHeight(z + eps) - getRampHeight(z - eps)) / (2 * eps);
+      }
+
+      // Natural snow terrain height under the jump and down the landing slope
+      // z in [-220, 420]
+      function getGroundHeight(z) {
+        if (z < -25) {
+          // Steep mountain summit ridge supporting the tower
+          const t = THREE.MathUtils.clamp((z + 165) / 140, 0, 1);
+          return THREE.MathUtils.lerp(86.0, 38.0, t * t * (3 - 2 * t));
+        }
+        if (z <= 0) {
+          // Knoll shoulder right under the takeoff table
+          const t = (z + 25) / 25;
+          return THREE.MathUtils.lerp(38.0, 35.5, t);
+        }
+        if (z <= 235) {
+          // Steep landing slope (Knoll -> K-point at z=145 -> transition curve -> outrun)
+          const u = z / 235;
+          const y0 = 35.5;
+          const y1 = -10.5;
+          const m0 = -16.0;
+          const m1 = 0.0;
+          const u2 = u * u;
+          const u3 = u2 * u;
+          const h00 = 2 * u3 - 3 * u2 + 1;
+          const h10 = u3 - 2 * u2 + u;
+          const h01 = -2 * u3 + 3 * u2;
+          const h11 = u3 - u2;
+          return h00 * y0 + h10 * m0 + h01 * y1 + h11 * m1;
+        }
+        // Flat outrun valley floor with gentle upward bowl at the far end
+        const over = Math.max(0, z - 235);
+        return -10.5 + Math.pow(over / 140, 2) * 3.5;
+      }
+
+      function getGroundSlope(z) {
+        const eps = 0.1;
+        return (getGroundHeight(z + eps) - getGroundHeight(z - eps)) / (2 * eps);
+      }
+
+      // Flight arc trajectory for z in [0, 155]
+      // Launches from (z = 0, y = 55) with upward pop, reaches high apex around
+      // (z = 58, y = 69.2), and descends to land at K-point (z = 155, y = getGroundHeight(155))
+      const LANDING_Z = 155.0;
+      const LANDING_Y = getGroundHeight(LANDING_Z);
+
+      function getFlightHeight(z) {
+        const u = THREE.MathUtils.clamp(z / LANDING_Z, 0, 1);
+        const y0 = 55.0;
+        const y1 = LANDING_Y;
+        const m0 = 56.0;   // Upward takeoff pop dy/du (dy/dz = +0.36)
+        const m1 = -76.0;  // Steep descent at touchdown (dy/dz = -0.49)
+        const u2 = u * u;
+        const u3 = u2 * u;
+        const h00 = 2 * u3 - 3 * u2 + 1;
+        const h10 = u3 - 2 * u2 + u;
+        const h01 = -2 * u3 + 3 * u2;
+        const h11 = u3 - u2;
+        return h00 * y0 + h10 * m0 + h01 * y1 + h11 * m1;
+      }
+
+      function getFlightSlope(z) {
+        const eps = 0.08;
+        return (getFlightHeight(z + eps) - getFlightHeight(z - eps)) / (2 * eps);
+      }
+
+      // ============================================================================
+      // 3. ENVIRONMENT GEOMETRY: SKI JUMP RAMP, TOWER, TERRAIN, TREES & MOUNTAINS
+      // ============================================================================
+      const envGroup = new THREE.Group();
+      scene.add(envGroup);
+
+      // Materials
+      const snowMat = new THREE.MeshStandardMaterial({
+        color: 0xf4f9ff,
+        roughness: 0.65,
+        metalness: 0.04
+      });
+      const trackIceMat = new THREE.MeshStandardMaterial({
+        color: 0x99d1ff,
+        roughness: 0.25,
+        metalness: 0.1,
+        emissive: 0x16385c,
+        emissiveIntensity: 0.15
+      });
+      const concreteMat = new THREE.MeshStandardMaterial({
+        color: 0x677489,
+        roughness: 0.7,
+        metalness: 0.2
+      });
+      const darkSteelMat = new THREE.MeshStandardMaterial({
+        color: 0x2c3647,
+        roughness: 0.45,
+        metalness: 0.55
+      });
+      const woodRailMat = new THREE.MeshStandardMaterial({
+        color: 0x9a5b32,
+        roughness: 0.65,
+        metalness: 0.05
+      });
+      const bannerRedMat = new THREE.MeshStandardMaterial({
+        color: 0xe63946,
+        roughness: 0.5
+      });
+      const bannerBlueMat = new THREE.MeshStandardMaterial({
+        color: 0x1d4ed8,
+        roughness: 0.5
+      });
+
+      // 3A. Build the continuous extruded Inrun Ramp mesh (z from -140 to 0)
+      function buildSkiJumpStructure() {
+        const rampSteps = 90;
+        const zStart = -140;
+        const zEnd = 0;
+        const rampWidth = 5.6;
+        const deckThickness = 1.6;
+
+        const positions = [];
+        const normals = [];
+        const indices = [];
+
+        // Create top snow surface ribbon and side/bottom structural deck
+        for (let i = 0; i <= rampSteps; i++) {
+          const t = i / rampSteps;
+          const z = THREE.MathUtils.lerp(zStart, zEnd, t);
+          const y = getRampHeight(z);
+          const slope = getRampSlope(z);
+          const normalY = 1 / Math.sqrt(1 + slope * slope);
+          const normalZ = -slope * normalY;
+
+          // Left and right top vertices
+          positions.push(-rampWidth * 0.5, y, z);
+          normals.push(0, normalY, normalZ);
+          positions.push(rampWidth * 0.5, y, z);
+          normals.push(0, normalY, normalZ);
+        }
+
+        for (let i = 0; i < rampSteps; i++) {
+          const a = i * 2;
+          const b = a + 1;
+          const c = a + 2;
+          const d = a + 3;
+          indices.push(a, b, c);
+          indices.push(b, d, c);
+        }
+
+        const topGeo = new THREE.BufferGeometry();
+        topGeo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+        topGeo.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
+        topGeo.setIndex(indices);
+        const topMesh = new THREE.Mesh(topGeo, snowMat);
+        topMesh.receiveShadow = true;
+        envGroup.add(topMesh);
+
+        // Two icy ski guide tracks embedded along the ramp
+        [-0.38, 0.38].forEach((xOffset) => {
+          const trackPos = [];
+          const trackNorm = [];
+          const trackIdx = [];
+          const trackHalfW = 0.09;
+          for (let i = 0; i <= rampSteps; i++) {
+            const t = i / rampSteps;
+            const z = THREE.MathUtils.lerp(zStart + 2, zEnd, t);
+            const y = getRampHeight(z) + 0.025;
+            trackPos.push(xOffset - trackHalfW, y, z);
+            trackNorm.push(0, 1, 0);
+            trackPos.push(xOffset + trackHalfW, y, z);
+            trackNorm.push(0, 1, 0);
+          }
+          for (let i = 0; i < rampSteps; i++) {
+            const a = i * 2;
+            trackIdx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
+          }
+          const tGeo = new THREE.BufferGeometry();
+          tGeo.setAttribute('position', new THREE.Float32BufferAttribute(trackPos, 3));
+          tGeo.setAttribute('normal', new THREE.Float32BufferAttribute(trackNorm, 3));
+          tGeo.setIndex(trackIdx);
+          const tMesh = new THREE.Mesh(tGeo, trackIceMat);
+          envGroup.add(tMesh);
+        });
+
+        // Structural concrete/steel side girders & under-deck along the ramp
+        const girderShape = [];
+        for (let i = 0; i <= rampSteps; i++) {
+          const t = i / rampSteps;
+          const z = THREE.MathUtils.lerp(zStart, zEnd, t);
+          const y = getRampHeight(z);
+          girderShape.push({ z, y });
+        }
+
+        // Build solid side walls and underbelly of the ramp
+        const bodyPos = [];
+        const bodyIdx = [];
+        const halfW = rampWidth * 0.5 + 0.25;
+        for (let i = 0; i <= rampSteps; i++) {
+          const { z, y } = girderShape[i];
+          const yBot = y - deckThickness - (1 - i / rampSteps) * 1.1;
+          // 0: Top-Left, 1: Bottom-Left, 2: Bottom-Right, 3: Top-Right
+          bodyPos.push(-halfW, y + 0.35, z);
+          bodyPos.push(-halfW, yBot, z);
+          bodyPos.push(halfW, yBot, z);
+          bodyPos.push(halfW, y + 0.35, z);
+        }
+        for (let i = 0; i < rampSteps; i++) {
+          const base = i * 4;
+          const next = base + 4;
+          // Left outer wall
+          bodyIdx.push(base + 0, base + 1, next + 0, base + 1, next + 1, next + 0);
+          // Right outer wall
+          bodyIdx.push(base + 3, next + 3, base + 2, base + 2, next + 3, next + 2);
+          // Bottom face
+          bodyIdx.push(base + 1, base + 2, next + 1, base + 2, next + 2, next + 1);
+          // Top side curbs
+          bodyIdx.push(base + 0, next + 0, base + 3, base + 3, next + 0, next + 3);
+        }
+        // Front vertical face of the takeoff table at z = 0
+        const last = rampSteps * 4;
+        bodyIdx.push(last + 0, last + 1, last + 2, last + 0, last + 2, last + 3);
+
+        const bodyGeo = new THREE.BufferGeometry();
+        bodyGeo.setAttribute('position', new THREE.Float32BufferAttribute(bodyPos, 3));
+        bodyGeo.setIndex(bodyIdx);
+        bodyGeo.computeVertexNormals();
+        const bodyMesh = new THREE.Mesh(bodyGeo, concreteMat);
+        bodyMesh.castShadow = true;
+        bodyMesh.receiveShadow = true;
+        envGroup.add(bodyMesh);
+
+        // Wooden safety rails and steel posts along both sides of the ramp
+        const postGeo = new THREE.BoxGeometry(0.18, 1.25, 0.18);
+        for (let i = 0; i <= rampSteps; i += 3) {
+          const { z, y } = girderShape[i];
+          [-halfW + 0.08, halfW - 0.08].forEach((xPos) => {
+            const post = new THREE.Mesh(postGeo, darkSteelMat);
+            post.position.set(xPos, y + 0.75, z);
+            post.castShadow = true;
+            envGroup.add(post);
+          });
+        }
+
+        // Continuous wooden handrail tubes on left and right
+        [-halfW + 0.08, halfW - 0.08].forEach((xPos) => {
+          const pts = [];
+          for (let i = 0; i <= rampSteps; i += 2) {
+            const { z, y } = girderShape[i];
+            pts.push(new THREE.Vector3(xPos, y + 1.25, z));
+          }
+          const railCurve = new THREE.CatmullRomCurve3(pts);
+          const railGeo = new THREE.TubeGeometry(railCurve, 64, 0.09, 6, false);
+          const railMesh = new THREE.Mesh(railGeo, woodRailMat);
+          railMesh.castShadow = true;
+          envGroup.add(railMesh);
+        });
+
+        // Support pillars & cross-braces holding the tower and ramp above the mountain ridge
+        const pillarZPositions = [-136, -116, -96, -76, -56, -36, -18, -2];
+        pillarZPositions.forEach((pz) => {
+          const topY = getRampHeight(pz) - deckThickness;
+          const botY = getGroundHeight(pz) - 3.0;
+          const height = Math.max(2, topY - botY);
+          const centerY = botY + height * 0.5;
+
+          const colGeo = new THREE.BoxGeometry(0.95, height, 0.95);
+          [-2.2, 2.2].forEach((px) => {
+            const col = new THREE.Mesh(colGeo, concreteMat);
+            col.position.set(px, centerY, pz);
+            col.castShadow = true;
+            col.receiveShadow = true;
+            envGroup.add(col);
+          });
+
+          // Horizontal cross-beams every 10 meters vertically
+          for (let by = botY + 8; by < topY - 3; by += 10) {
+            const beamGeo = new THREE.BoxGeometry(4.8, 0.55, 0.55);
+            const beam = new THREE.Mesh(beamGeo, darkSteelMat);
+            beam.position.set(0, by, pz);
+            beam.castShadow = true;
+            envGroup.add(beam);
+          }
+        });
+
+        // Solid masonry takeoff abutment wall under the lip (z = -6 to 0)
+        const abutHeight = getRampHeight(0) - getGroundHeight(0) + 2;
+        const abutGeo = new THREE.BoxGeometry(6.4, abutHeight, 8.0);
+        const abutMesh = new THREE.Mesh(abutGeo, concreteMat);
+        abutMesh.position.set(0, getGroundHeight(0) + abutHeight * 0.5 - 1.5, -4.0);
+        abutMesh.castShadow = true;
+        abutMesh.receiveShadow = true;
+        envGroup.add(abutMesh);
+
+        // Top start house / alpine chalet gate at z = -138
+        const gateY = getRampHeight(-137);
+        const roofGeo = new THREE.ConeGeometry(5.2, 3.4, 4);
+        const roofMesh = new THREE.Mesh(roofGeo, woodRailMat);
+        roofMesh.position.set(0, gateY + 5.2, -138);
+        roofMesh.rotation.y = Math.PI * 0.25;
+        roofMesh.castShadow = true;
+        envGroup.add(roofMesh);
+
+        const archBackGeo = new THREE.BoxGeometry(6.4, 3.8, 3.2);
+        const archBack = new THREE.Mesh(archBackGeo, darkSteelMat);
+        archBack.position.set(0, gateY + 1.9, -139.2);
+        archBack.castShadow = true;
+        envGroup.add(archBack);
+      }
+
+      buildSkiJumpStructure();
+
+      // 3B. Build the continuous Alpine Terrain (Mountain Ridge, Knoll, K-Point Slope, Outrun Valley)
+      function buildAlpineTerrain() {
+        const zSegs = 140;
+        const xSegs = 64;
+        const zMin = -210;
+        const zMax = 380;
+        const xSpan = 340;
+
+        const geo = new THREE.PlaneGeometry(xSpan, zMax - zMin, xSegs, zSegs);
+        geo.rotateX(-Math.PI * 0.5);
+        const posAttr = geo.attributes.position;
+
+        for (let i = 0; i < posAttr.count; i++) {
+          const x = posAttr.getX(i);
+          const z = posAttr.getZ(i) + (zMin + zMax) * 0.5;
+          posAttr.setZ(i, z);
+
+          const baseH = getGroundHeight(z);
+          const absX = Math.abs(x);
+
+          // Keep a smooth, clean ski landing corridor in the center (|x| < 14)
+          // and raise natural snowy stadium banks and mountain flanks outside
+          const corridorFactor = THREE.MathUtils.smoothstep(absX, 11.0, 68.0);
+          const farMountainFactor = THREE.MathUtils.smoothstep(absX, 55.0, 170.0);
+
+          const noise1 = Math.sin(x * 0.045 + z * 0.03) * Math.cos(z * 0.025) * 8.5;
+          const noise2 = Math.cos(x * 0.11 - z * 0.08) * 2.4;
+          const bankRise = corridorFactor * (16.0 + noise1) + farMountainFactor * (58.0 + noise1 * 2.2 + noise2);
+
+          posAttr.setY(i, baseH + bankRise);
+        }
+
+        geo.computeVertexNormals();
+        const terrainMesh = new THREE.Mesh(geo, snowMat);
+        terrainMesh.receiveShadow = true;
+        envGroup.add(terrainMesh);
+
+        // Distance marker flags and K-point lines along the landing zone (z = 60 to 190)
+        for (let z = 65; z <= 195; z += 13) {
+          const y = getGroundHeight(z);
+          const isKPoint = Math.abs(z - 155) < 7;
+          const mat = isKPoint ? bannerRedMat : bannerBlueMat;
+
+          [-10.5, 10.5].forEach((xSide) => {
+            const flagGroup = new THREE.Group();
+            flagGroup.position.set(xSide, y, z);
+
+            const pole = new THREE.Mesh(
+              new THREE.CylinderGeometry(0.08, 0.08, 2.4, 6),
+              darkSteelMat
+            );
+            pole.position.y = 1.2;
+            flagGroup.add(pole);
+
+            const pennant = new THREE.Mesh(
+              new THREE.BoxGeometry(0.9, 0.65, 0.06),
+              mat
+            );
+            pennant.position.set(xSide < 0 ? -0.45 : 0.45, 1.95, 0);
+            flagGroup.add(pennant);
+
+            envGroup.add(flagGroup);
+          });
+
+          // Colored snow line across the K-point landing zone
+          if (isKPoint) {
+            const lineGeo = new THREE.PlaneGeometry(18, 0.9);
+            lineGeo.rotateX(-Math.PI * 0.5);
+            const slope = getGroundSlope(z);
+            const lineMesh = new THREE.Mesh(lineGeo, bannerRedMat);
+            lineMesh.position.set(0, y + 0.08, z);
+            lineMesh.rotation.x = -Math.atan(slope);
+            envGroup.add(lineMesh);
+          }
+        }
+      }
+
+      buildAlpineTerrain();
+
+      // 3C. Snow-Covered Pine Trees & Distant Stylized Mountain Peaks
+      function buildPineTreesAndPeaks() {
+        const trunkMat = new THREE.MeshStandardMaterial({
+          color: 0x4a3222,
+          roughness: 0.85
+        });
+        const pineNeedlesMat = new THREE.MeshStandardMaterial({
+          color: 0x1b4332,
+          roughness: 0.75
+        });
+        const snowCapMat = new THREE.MeshStandardMaterial({
+          color: 0xf0f7ff,
+          roughness: 0.6
+        });
+
+        function createPineTree(scale) {
+          const tree = new THREE.Group();
+          const trunk = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.22 * scale, 0.38 * scale, 2.2 * scale, 6),
+            trunkMat
+          );
+          trunk.position.y = 1.1 * scale;
+          trunk.castShadow = true;
+          tree.add(trunk);
+
+          const tiers = 3;
+          for (let t = 0; t < tiers; t++) {
+            const tierRadius = (2.2 - t * 0.5) * scale;
+            const tierHeight = (3.0 - t * 0.45) * scale;
+            const tierY = (2.5 + t * 1.75) * scale;
+
+            const cone = new THREE.Mesh(
+              new THREE.ConeGeometry(tierRadius, tierHeight, 7),
+              pineNeedlesMat
+            );
+            cone.position.y = tierY;
+            cone.castShadow = true;
+            cone.receiveShadow = true;
+            tree.add(cone);
+
+            // Snow layer resting on branches
+            const snowCone = new THREE.Mesh(
+              new THREE.ConeGeometry(tierRadius * 0.92, tierHeight * 0.55, 7),
+              snowCapMat
+            );
+            snowCone.position.y = tierY + tierHeight * 0.24;
+            tree.add(snowCone);
+          }
+          return tree;
+        }
+
+        // Deterministic pseudo-random helper so layout is always picturesque
+        let seed = 42;
+        function rand() {
+          seed = (seed * 1664525 + 1013904223) % 4294967296;
+          return seed / 4294967296;
+        }
+
+        // Line the sides of the jump, knoll, landing slope, and valley with snow-laden pines
+        for (let i = 0; i < 155; i++) {
+          const z = -150 + rand() * 470;
+          const side = rand() > 0.5 ? 1 : -1;
+          const minX = z < 10 ? 11 : 15;
+          const x = side * (minX + Math.pow(rand(), 1.35) * 95);
+
+          const baseH = getGroundHeight(z);
+          const absX = Math.abs(x);
+          const corridorFactor = THREE.MathUtils.smoothstep(absX, 11.0, 68.0);
+          const farMountainFactor = THREE.MathUtils.smoothstep(absX, 55.0, 170.0);
+          const noise1 = Math.sin(x * 0.045 + z * 0.03) * Math.cos(z * 0.025) * 8.5;
+          const noise2 = Math.cos(x * 0.11 - z * 0.08) * 2.4;
+          const y = baseH + corridorFactor * (16.0 + noise1) + farMountainFactor * (58.0 + noise1 * 2.2 + noise2) - 0.3;
+
+          const scale = 0.85 + rand() * 1.35;
+          const tree = createPineTree(scale);
+          tree.position.set(x, y, z);
+          tree.rotation.y = rand() * Math.PI * 2;
+          envGroup.add(tree);
+        }
+
+        // Majestic Distant Low-Poly Alpine Mountain Ring
+        const mountainRockMat = new THREE.MeshStandardMaterial({
+          color: 0x5c7394,
+          roughness: 0.78,
+          metalness: 0.08,
+          flatShading: true
+        });
+        const mountainSnowMat = new THREE.MeshStandardMaterial({
+          color: 0xf4f9ff,
+          roughness: 0.55,
+          flatShading: true
+        });
+
+        const peakConfigs = [
+          { x: -240, z: 390, r: 145, h: 250 },
+          { x: -95, z: 460, r: 160, h: 295 },
+          { x: 75, z: 470, r: 170, h: 310 },
+          { x: 235, z: 400, r: 150, h: 265 },
+          { x: -310, z: 180, r: 140, h: 230 },
+          { x: 315, z: 190, r: 145, h: 245 },
+          { x: -280, z: -70, r: 140, h: 240 },
+          { x: 280, z: -60, r: 145, h: 255 },
+          { x: 0, z: -310, r: 190, h: 290 }
+        ];
+
+        peakConfigs.forEach((cfg, idx) => {
+          const peakGroup = new THREE.Group();
+          const baseGeo = new THREE.ConeGeometry(cfg.r, cfg.h, 7);
+          const baseMesh = new THREE.Mesh(baseGeo, mountainRockMat);
+          baseMesh.position.y = cfg.h * 0.5 - 35;
+          baseMesh.rotation.y = idx * 1.1;
+          peakGroup.add(baseMesh);
+
+          const capGeo = new THREE.ConeGeometry(cfg.r * 0.56, cfg.h * 0.55, 7);
+          const capMesh = new THREE.Mesh(capGeo, mountainSnowMat);
+          capMesh.position.y = cfg.h * 0.73 - 34;
+          capMesh.rotation.y = idx * 1.1 + 0.12;
+          peakGroup.add(capMesh);
+
+          peakGroup.position.set(cfg.x, 0, cfg.z);
+          envGroup.add(peakGroup);
+        });
+      }
+
+      buildPineTreesAndPeaks();
+
+      // ============================================================================
+      // 4. CHARACTER DESIGN: ARTICULATED PENGUIN, GOGGLES, SCARF & RACING SKIS
+      // ============================================================================
+      function createPenguinCharacter() {
+        const root = new THREE.Group();
+
+        // Articulated sub-pivots for expressive animation
+        const squashGroup = new THREE.Group(); // Handles squash & stretch relative to ski level
+        root.add(squashGroup);
+
+        const bodyPivot = new THREE.Group(); // Handles body pitch, roll, yaw
+        bodyPivot.position.y = 0.72;
+        squashGroup.add(bodyPivot);
+
+        // Materials
+        const plumageMat = new THREE.MeshStandardMaterial({
+          color: 0x161e2b,
+          roughness: 0.26,
+          metalness: 0.12
+        });
+        const bellyMat = new THREE.MeshStandardMaterial({
+          color: 0xf8fbff,
+          roughness: 0.45,
+          metalness: 0.02
+        });
+        const orangeBeakMat = new THREE.MeshStandardMaterial({
+          color: 0xff7b1c,
+          roughness: 0.35,
+          metalness: 0.05
+        });
+        const eyeBlackMat = new THREE.MeshStandardMaterial({
+          color: 0x090d14,
+          roughness: 0.1
+        });
+        const eyeSparkleMat = new THREE.MeshBasicMaterial({
+          color: 0xffffff
+        });
+        const goggleFrameMat = new THREE.MeshStandardMaterial({
+          color: 0x222936,
+          roughness: 0.4,
+          metalness: 0.3
+        });
+        const goggleLensMat = new THREE.MeshStandardMaterial({
+          color: 0xff5a1f,
+          roughness: 0.12,
+          metalness: 0.75,
+          emissive: 0xff3b00,
+          emissiveIntensity: 0.25
+        });
+        const skiMainMat = new THREE.MeshStandardMaterial({
+          color: 0xe62e3d,
+          roughness: 0.22,
+          metalness: 0.35
+        });
+        const skiAccentMat = new THREE.MeshStandardMaterial({
+          color: 0x38bdf8,
+          roughness: 0.25,
+          metalness: 0.3
+        });
+
+        // 4A. Torso (Plump aerodynamic penguin body)
+        const torsoGeo = new THREE.SphereGeometry(1.05, 28, 24);
+        torsoGeo.scale(0.92, 1.32, 0.88);
+        const torsoMesh = new THREE.Mesh(torsoGeo, plumageMat);
+        torsoMesh.position.y = 0.68;
+        torsoMesh.castShadow = true;
+        torsoMesh.receiveShadow = true;
+        bodyPivot.add(torsoMesh);
+
+        // White belly patch on front (+Z face)
+        const bellyGeo = new THREE.SphereGeometry(0.94, 24, 20);
+        bellyGeo.scale(0.78, 1.18, 0.55);
+        const bellyMesh = new THREE.Mesh(bellyGeo, bellyMat);
+        bellyMesh.position.set(0, 0.62, 0.44);
+        bodyPivot.add(bellyMesh);
+
+        // Cute stubby penguin tail at the back (-Z)
+        const tailGeo = new THREE.ConeGeometry(0.28, 0.65, 8);
+        tailGeo.rotateX(-Math.PI * 0.62);
+        const tailMesh = new THREE.Mesh(tailGeo, plumageMat);
+        tailMesh.position.set(0, -0.25, -0.78);
+        bodyPivot.add(tailMesh);
+
+        // 4B. Articulated Head Group
+        const headGroup = new THREE.Group();
+        headGroup.position.set(0, 1.78, 0.06);
+        bodyPivot.add(headGroup);
+
+        const headSphereGeo = new THREE.SphereGeometry(0.76, 26, 22);
+        headSphereGeo.scale(0.96, 0.92, 0.95);
+        const headMesh = new THREE.Mesh(headSphereGeo, plumageMat);
+        headMesh.castShadow = true;
+        headGroup.add(headMesh);
+
+        // White facial cheek patch
+        const facePatchGeo = new THREE.SphereGeometry(0.64, 20, 18);
+        facePatchGeo.scale(0.86, 0.76, 0.62);
+        const facePatch = new THREE.Mesh(facePatchGeo, bellyMat);
+        facePatch.position.set(0, -0.06, 0.34);
+        headGroup.add(facePatch);
+
+        // Expressive Eyes with catchlight sparkles
+        [-0.27, 0.27].forEach((xEye) => {
+          const eye = new THREE.Mesh(new THREE.SphereGeometry(0.115, 14, 12), eyeBlackMat);
+          eye.position.set(xEye, 0.08, 0.65);
+          headGroup.add(eye);
+
+          const sparkle = new THREE.Mesh(new THREE.SphereGeometry(0.042, 8, 8), eyeSparkleMat);
+          sparkle.position.set(xEye + 0.035, 0.12, 0.74);
+          headGroup.add(sparkle);
+        });
+
+        // Sculpted Orange Beak (upper + articulated lower jaw for joyful expression)
+        const upperBeakGeo = new THREE.ConeGeometry(0.26, 0.62, 12);
+        upperBeakGeo.rotateX(Math.PI * 0.5);
+        upperBeakGeo.scale(1.15, 0.68, 1.0);
+        const upperBeak = new THREE.Mesh(upperBeakGeo, orangeBeakMat);
+        upperBeak.position.set(0, -0.06, 0.86);
+        upperBeak.castShadow = true;
+        headGroup.add(upperBeak);
+
+        const lowerBeakPivot = new THREE.Group();
+        lowerBeakPivot.position.set(0, -0.11, 0.62);
+        headGroup.add(lowerBeakPivot);
+
+        const lowerBeakGeo = new THREE.ConeGeometry(0.21, 0.48, 12);
+        lowerBeakGeo.rotateX(Math.PI * 0.5);
+        lowerBeakGeo.scale(1.05, 0.55, 1.0);
+        const lowerBeak = new THREE.Mesh(lowerBeakGeo, orangeBeakMat);
+        lowerBeak.position.set(0, 0, 0.22);
+        lowerBeakPivot.add(lowerBeak);
+
+        // Pro Alpine Ski Goggles resting comfortably on forehead/brow
+        const goggleGroup = new THREE.Group();
+        goggleGroup.position.set(0, 0.34, 0.02);
+        goggleGroup.rotation.x = -0.28;
+        headGroup.add(goggleGroup);
+
+        // Elastic head strap
+        const strapGeo = new THREE.CylinderGeometry(0.73, 0.73, 0.22, 24, 1, true);
+        const strapMesh = new THREE.Mesh(strapGeo, goggleFrameMat);
+        goggleGroup.add(strapMesh);
+
+        // Goggle frame & reflective curved lens
+        const frameGeo = new THREE.BoxGeometry(0.96, 0.38, 0.32);
+        const frameMesh = new THREE.Mesh(frameGeo, goggleFrameMat);
+        frameMesh.position.set(0, 0, 0.62);
+        goggleGroup.add(frameMesh);
+
+        const lensGeo = new THREE.BoxGeometry(0.86, 0.28, 0.35);
+        const lensMesh = new THREE.Mesh(lensGeo, goggleLensMat);
+        lensMesh.position.set(0, 0, 0.63);
+        goggleGroup.add(lensMesh);
+
+        // 4C. Knit Scarf (Deep Royal Blue & Black Stripes)
+        // Generate striped procedural canvas texture for the scarf
+        const scarfCanvas = document.createElement('canvas');
+        scarfCanvas.width = 256;
+        scarfCanvas.height = 64;
+        const sCtx = scarfCanvas.getContext('2d');
+        const stripeCount = 12;
+        const stripeW = scarfCanvas.width / stripeCount;
+        for (let i = 0; i < stripeCount; i++) {
+          sCtx.fillStyle = i % 2 === 0 ? '#1d4ed8' : '#111827';
+          sCtx.fillRect(i * stripeW, 0, stripeW, scarfCanvas.height);
+          // Subtle knit weave texture lines
+          sCtx.fillStyle = 'rgba(255,255,255,0.08)';
+          for (let y = 0; y < scarfCanvas.height; y += 8) {
+            sCtx.fillRect(i * stripeW, y, stripeW, 3);
+          }
+        }
+        const scarfTex = new THREE.CanvasTexture(scarfCanvas);
+        scarfTex.wrapS = THREE.RepeatWrapping;
+        scarfTex.wrapT = THREE.RepeatWrapping;
+
+        const scarfMat = new THREE.MeshStandardMaterial({
+          map: scarfTex,
+          roughness: 0.75,
+          metalness: 0.05,
+          side: THREE.DoubleSide
+        });
+
+        // Cozy neck ring wrapped around collar
+        const neckRingGeo = new THREE.TorusGeometry(0.68, 0.19, 12, 24);
+        neckRingGeo.rotateX(Math.PI * 0.5);
+        neckRingGeo.scale(1.0, 0.85, 1.0);
+        const neckRing = new THREE.Mesh(neckRingGeo, scarfMat);
+        neckRing.position.set(0, 1.38, 0.05);
+        neckRing.castShadow = true;
+        bodyPivot.add(neckRing);
+
+        // Dynamic multi-segment trailing scarf mesh that ripples in the slipstream
+        const scarfSegs = 22;
+        const scarfGeo = new THREE.PlaneGeometry(3.4, 0.46, scarfSegs, 2);
+        const scarfTailMesh = new THREE.Mesh(scarfGeo, scarfMat);
+        scarfTailMesh.position.set(0, 1.38, -0.52);
+        scarfTailMesh.castShadow = true;
+        bodyPivot.add(scarfTailMesh);
+
+        // 4D. Articulated Flippers / Wings (Left & Right)
+        function createFlipper(isLeft) {
+          const pivot = new THREE.Group();
+          const side = isLeft ? 1 : -1;
+          pivot.position.set(side * 0.88, 1.12, 0.05);
+
+          const wingGeo = new THREE.SphereGeometry(0.55, 16, 14);
+          wingGeo.scale(0.24, 1.35, 0.52);
+          const wingMesh = new THREE.Mesh(wingGeo, plumageMat);
+          wingMesh.position.set(side * 0.08, -0.55, 0);
+          wingMesh.castShadow = true;
+          pivot.add(wingMesh);
+
+          // Wingtip marker for wind ribbon trails
+          const tipNode = new THREE.Object3D();
+          tipNode.position.set(side * 0.12, -1.22, 0);
+          pivot.add(tipNode);
+
+          return { pivot, tipNode };
+        }
+
+        const leftWing = createFlipper(true);
+        const rightWing = createFlipper(false);
+        bodyPivot.add(leftWing.pivot);
+        bodyPivot.add(rightWing.pivot);
+
+        // 4E. Articulated Feet & Sleek Racing Skis (Left & Right)
+        // Placed under squashGroup so skis stay cleanly planted on the snow
+        const skisRoot = new THREE.Group();
+        root.add(skisRoot);
+
+        function createFootAndSki(isLeft) {
+          const side = isLeft ? 1 : -1;
+          const skiGroup = new THREE.Group();
+          skiGroup.position.set(side * 0.38, 0.04, 0);
+
+          // Cute orange webbed foot attached to binding
+          const footGeo = new THREE.BoxGeometry(0.36, 0.18, 0.58);
+          const footMesh = new THREE.Mesh(footGeo, orangeBeakMat);
+          footMesh.position.set(0, 0.14, 0.05);
+          footMesh.castShadow = true;
+          skiGroup.add(footMesh);
+
+          // Mechanical racing binding
+          const bindingGeo = new THREE.BoxGeometry(0.32, 0.1, 0.72);
+          const bindingMesh = new THREE.Mesh(bindingGeo, goggleFrameMat);
+          bindingMesh.position.set(0, 0.05, 0.02);
+          skiGroup.add(bindingMesh);
+
+          // Sleek racing ski board (length ~4.2m in penguin scale)
+          const skiBoardGeo = new THREE.BoxGeometry(0.30, 0.06, 3.6);
+          const skiBoard = new THREE.Mesh(skiBoardGeo, skiMainMat);
+          skiBoard.position.set(0, 0.0, 0.15);
+          skiBoard.castShadow = true;
+          skiBoard.receiveShadow = true;
+          skiGroup.add(skiBoard);
+
+          // Racing stripe along top of ski
+          const stripeGeo = new THREE.BoxGeometry(0.14, 0.065, 3.4);
+          const stripeMesh = new THREE.Mesh(stripeGeo, skiAccentMat);
+          stripeMesh.position.set(0, 0.005, 0.15);
+          skiGroup.add(stripeMesh);
+
+          // Curved upturned ski tip (+Z)
+          const tipGeo = new THREE.BoxGeometry(0.28, 0.055, 0.55);
+          const tipMesh = new THREE.Mesh(tipGeo, skiMainMat);
+          tipMesh.position.set(0, 0.11, 2.15);
+          tipMesh.rotation.x = -0.42;
+          skiGroup.add(tipMesh);
+
+          // Tail emitter node for snow spray & wind ribbons
+          const tailNode = new THREE.Object3D();
+          tailNode.position.set(0, 0.05, -1.65);
+          skiGroup.add(tailNode);
+
+          return { skiGroup, tailNode };
+        }
+
+        const leftSki = createFootAndSki(true);
+        const rightSki = createFootAndSki(false);
+        skisRoot.add(leftSki.skiGroup);
+        skisRoot.add(rightSki.skiGroup);
+
+        return {
+          root,
+          squashGroup,
+          bodyPivot,
+          headGroup,
+          lowerBeakPivot,
+          scarfTailMesh,
+          leftWing,
+          rightWing,
+          leftSki,
+          rightSki
+        };
+      }
+
+      const penguin = createPenguinCharacter();
+      scene.add(penguin.root);
+
+      // ============================================================================
+      // 5. PARTICLE SYSTEMS: SNOW SPRAY, LANDING PLUME, AMBIENT SNOW & WIND RIBBONS
+      // ============================================================================
+      // Generate soft circular snow puff texture on an offscreen canvas
+      function createSnowPuffTexture() {
+        const canvas = document.createElement('canvas');
+        canvas.width = 64;
+        canvas.height = 64;
+        const ctx = canvas.getContext('2d');
+        const grad = ctx.createRadialGradient(32, 32, 2, 32, 32, 30);
+        grad.addColorStop(0.0, 'rgba(255, 255, 255, 1.0)');
+        grad.addColorStop(0.45, 'rgba(240, 248, 255, 0.8)');
+        grad.addColorStop(1.0, 'rgba(220, 238, 255, 0.0)');
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, 64, 64);
+        return new THREE.CanvasTexture(canvas);
+      }
+
+      const snowPuffTex = createSnowPuffTexture();
+
+      // 5A. Dynamic Ski Snow Spray & Powder Plume Emitter (1600 particles)
+      const MAX_SPRAY = 1600;
+      const sprayGeo = new THREE.BufferGeometry();
+      const sprayPositions = new Float32Array(MAX_SPRAY * 3);
+      const sprayVelocities = new Float32Array(MAX_SPRAY * 3);
+      const sprayAges = new Float32Array(MAX_SPRAY);
+      const sprayLifetimes = new Float32Array(MAX_SPRAY);
+
+      for (let i = 0; i < MAX_SPRAY; i++) {
+        sprayPositions[i * 3 + 1] = -9999;
+        sprayAges[i] = 999;
+        sprayLifetimes[i] = 1.0;
+      }
+
+      sprayGeo.setAttribute('position', new THREE.BufferAttribute(sprayPositions, 3));
+      const sprayMat = new THREE.PointsMaterial({
+        size: 1.55,
+        map: snowPuffTex,
+        transparent: true,
+        opacity: 0.82,
+        depthWrite: false,
+        blending: THREE.NormalBlending,
+        color: 0xffffff
+      });
+      const sprayPoints = new THREE.Points(sprayGeo, sprayMat);
+       sprayPoints.frustumCulled = false;
+      scene.add(sprayPoints);
+
+      let sprayCursor = 0;
+      function emitSnowParticle(origin, vel, life) {
+        const idx = sprayCursor;
+        sprayCursor = (sprayCursor + 1) % MAX_SPRAY;
+        sprayPositions[idx * 3 + 0] = origin.x + (Math.random() - 0.5) * 0.35;
+        sprayPositions[idx * 3 + 1] = origin.y + (Math.random() - 0.5) * 0.25;
+        sprayPositions[idx * 3 + 2] = origin.z + (Math.random() - 0.5) * 0.35;
+
+        sprayVelocities[idx * 3 + 0] = vel.x;
+        sprayVelocities[idx * 3 + 1] = vel.y;
+        sprayVelocities[idx * 3 + 2] = vel.z;
+
+        sprayAges[idx] = 0;
+        sprayLifetimes[idx] = life;
+      }
+
+      function updateSprayParticles(dt) {
+        for (let i = 0; i < MAX_SPRAY; i++) {
+          if (sprayAges[i] < sprayLifetimes[i]) {
+            sprayAges[i] += dt;
+            const i3 = i * 3;
+            sprayVelocities[i3 + 1] -= 14.0 * dt; // Gravity on snow spray
+            sprayVelocities[i3 + 0] *= 0.98;
+            sprayVelocities[i3 + 2] *= 0.98;
+
+            sprayPositions[i3 + 0] += sprayVelocities[i3 + 0] * dt;
+            sprayPositions[i3 + 1] += sprayVelocities[i3 + 1] * dt;
+            sprayPositions[i3 + 2] += sprayVelocities[i3 + 2] * dt;
+          } else {
+            sprayPositions[i * 3 + 1] = -9999;
+          }
+        }
+        sprayGeo.attributes.position.needsUpdate = true;
+      }
+
+      function clearAllSprayParticles() {
+        for (let i = 0; i < MAX_SPRAY; i++) {
+          sprayAges[i] = 999;
+          sprayPositions[i * 3 + 1] = -9999;
+        }
+        sprayGeo.attributes.position.needsUpdate = true;
+      }
+
+      // 5B. Aerodynamic Slipstream Wind Trail Ribbons (Wingtips & Ski Tails)
+      const TRAIL_LENGTH = 28;
+      function createWindRibbon(width, baseOpacity) {
+        const geo = new THREE.PlaneGeometry(1, 1, 1, TRAIL_LENGTH - 1);
+        const mat = new THREE.MeshBasicMaterial({
+          color: 0xffffff,
+          transparent: true,
+          opacity: 0.0,
+          side: THREE.DoubleSide,
+          depthWrite: false
+        });
+        const mesh = new THREE.Mesh(geo, mat);
+        mesh.frustumCulled = false;
+        scene.add(mesh);
+
+        const history = [];
+        for (let i = 0; i < TRAIL_LENGTH; i++) {
+          history.push(new THREE.Vector3(0, -9999, 0));
+        }
+
+        return {
+          mesh,
+          geo,
+          mat,
+          history,
+          width,
+          baseOpacity,
+          reset(pos) {
+            for (let i = 0; i < TRAIL_LENGTH; i++) {
+              history[i].copy(pos);
+            }
+          },
+          update(currentPos, visibleAmount) {
+            for (let i = TRAIL_LENGTH - 1; i > 0; i--) {
+              history[i].copy(history[i - 1]);
+            }
+            history[0].copy(currentPos);
+
+            const posAttr = geo.attributes.position;
+            for (let i = 0; i < TRAIL_LENGTH; i++) {
+              const fade = 1 - i / (TRAIL_LENGTH - 1);
+              const w = width * fade;
+              const p = history[i];
+              posAttr.setXYZ(i * 2 + 0, p.x - w, p.y, p.z);
+              posAttr.setXYZ(i * 2 + 1, p.x + w, p.y, p.z);
+            }
+            posAttr.needsUpdate = true;
+            mat.opacity = baseOpacity * visibleAmount;
+          }
+        };
+      }
+
+      const leftWingRibbon = createWindRibbon(0.09, 0.48);
+      const rightWingRibbon = createWindRibbon(0.09, 0.48);
+      const leftSkiRibbon = createWindRibbon(0.11, 0.35);
+      const rightSkiRibbon = createWindRibbon(0.11, 0.35);
+
+      // 5C. Ambient Falling Snowflakes in the Alpine Air
+      const AMBIENT_SNOW_COUNT = 1400;
+      const ambSnowGeo = new THREE.BufferGeometry();
+      const ambSnowPos = new Float32Array(AMBIENT_SNOW_COUNT * 3);
+      for (let i = 0; i < AMBIENT_SNOW_COUNT; i++) {
+        ambSnowPos[i * 3 + 0] = (Math.random() - 0.5) * 260;
+        ambSnowPos[i * 3 + 1] = Math.random() * 170 - 20;
+        ambSnowPos[i * 3 + 2] = (Math.random() - 0.35) * 440;
+      }
+      ambSnowGeo.setAttribute('position', new THREE.BufferAttribute(ambSnowPos, 3));
+      const ambSnowMat = new THREE.PointsMaterial({
+        size: 0.95,
+        map: snowPuffTex,
+        transparent: true,
+        opacity: 0.72,
+        depthWrite: false,
+        color: 0xffffff
+      });
+      const ambSnowPoints = new THREE.Points(ambSnowGeo, ambSnowMat);
+      scene.add(ambSnowPoints);
+
+      // 5D. Camera-Attached Seamless Loop Snow Gust Effect
+      // Sweeps across the lens between t = 8.2s -> 9.0s and t = 0.0s -> 0.5s
+      // so the loop reset back to the top of the tower is 100% seamless!
+      const cameraSnowGroup = new THREE.Group();
+      scene.add(cameraSnowGroup);
+
+      const GUST_COUNT = 140;
+      const gustPuffs = [];
+      const gustMat = new THREE.MeshBasicMaterial({
+        map: snowPuffTex,
+        transparent: true,
+        opacity: 0.0,
+        depthWrite: false,
+        color: 0xf5faff
+      });
+      const gustPlaneGeo = new THREE.PlaneGeometry(1.6, 1.6);
+      for (let i = 0; i < GUST_COUNT; i++) {
+        const puff = new THREE.Mesh(gustPlaneGeo, gustMat);
+        puff.position.set(
+          (Math.random() - 0.5) * 7.5,
+          (Math.random() - 0.5) * 5.0,
+          -1.2 - Math.random() * 5.5
+        );
+        puff.rotation.z = Math.random() * Math.PI * 2;
+        cameraSnowGroup.add(puff);
+        gustPuffs.push({
+          mesh: puff,
+          baseX: puff.position.x,
+          speedX: 6.0 + Math.random() * 8.0,
+          speedY: 2.0 + Math.random() * 4.0
+        });
+      }
+
+      // Soft snow-mist veil plane right inside the snow gust for seamless loop transition
+      const veilMat = new THREE.MeshBasicMaterial({
+        color: 0xeaf4ff,
+        transparent: true,
+        opacity: 0.0,
+        depthWrite: false,
+        depthTest: false
+      });
+      const veilMesh = new THREE.Mesh(new THREE.PlaneGeometry(12, 8), veilMat);
+      veilMesh.position.z = -1.1;
+      veilMesh.renderOrder = 999;
+      cameraSnowGroup.add(veilMesh);
+
+      // ============================================================================
+      // 6. 4-PHASE ANIMATION CHOREOGRAPHY & DYNAMIC CAMERA WORK (9.0s LOOP)
+      // ============================================================================
+      // Phase 1 (0.0s - 2.5s): Inrun Acceleration (z: -135 -> 0)
+      // Phase 2 (2.5s - 3.2s): Takeoff Pop & V-Style Extension (z: 0 -> 34)
+      // Phase 3 (3.2s - 6.2s): Soaring Flight & Apex Micro-Flaps (z: 34 -> 155)
+      // Phase 4 (6.2s - 9.0s): Touchdown Impact, Carve & Seamless Snow Gust Loop (z: 155 -> 275)
+
+      const tempVecA = new THREE.Vector3();
+      const tempVecB = new THREE.Vector3();
+      const smoothCamPos = new THREE.Vector3();
+      const smoothCamLook = new THREE.Vector3();
+      let isFirstFrame = true;
+      let prevLoopTime = 0;
+
+      // Helper to compute exact Z position along the course at any time t in [0, 9.0]
+      function getPenguinZ(t) {
+        if (t <= 2.5) {
+          // Phase 1: Accelerating down the inrun ramp from z = -135 to z = 0
+          // Smooth quadratic + linear acceleration so exit speed at t = 2.5s is ~66 m/s
+          const u = t / 2.5;
+          const ease = 0.22 * u + 0.78 * u * u;
+          return THREE.MathUtils.lerp(-135.0, 0.0, ease);
+        } else if (t <= 6.2) {
+          // Phases 2 & 3: Takeoff Pop (2.5s - 3.2s) & Soaring Flight (3.2s - 6.2s)
+          // Constant high horizontal speed from z = 0 to z = 155 over 3.7 seconds
+          const u = (t - 2.5) / 3.7;
+          return THREE.MathUtils.lerp(0.0, LANDING_Z, u);
+        } else {
+          // Phase 4: Touchdown & Outrun Carve (6.2s - 9.0s)
+          // Smooth deceleration into the outrun valley from z = 155 to z = 278
+          const u = (t - 6.2) / 2.8;
+          const decel = 1 - Math.pow(1 - u, 1.85);
+          return THREE.MathUtils.lerp(LANDING_Z, 278.0, decel);
+        }
+      }
+
+      // Update dynamic scarf vertices to ripple in the wind
+      function updateScarfWave(time, speedFactor, verticalVel) {
+        const posAttr = penguin.scarfTailMesh.geometry.attributes.position;
+        for (let i = 0; i < posAttr.count; i++) {
+          const origX = posAttr.getX(i); // [-1.7, 1.7]
+          const origY = posAttr.getY(i); // [-0.23, 0.23]
+          // Convert plane coordinates so scarf streams backward (-Z) from neck
+          const distAlong = (origX + 1.7) / 3.4; // 0 at neck, 1 at tip
+          const wave1 = Math.sin(distAlong * 7.5 - time * (14.0 + speedFactor * 12.0)) * 0.26 * distAlong;
+          const wave2 = Math.cos(distAlong * 13.0 - time * 22.0) * 0.09 * distAlong * speedFactor;
+          const lift = THREE.MathUtils.clamp(-verticalVel * 0.015, -0.45, 0.55) * distAlong;
+
+          // Map plane's X to backward -Z, Y to vertical +Y, Z to lateral wave X
+          posAttr.setXYZ(
+            i,
+            wave1 + wave2,
+            origY * (1 - distAlong * 0.25) + lift + Math.sin(distAlong * 5 - time * 16) * 0.14 * distAlong,
+            -distAlong * 2.55
+          );
+        }
+        posAttr.needsUpdate = true;
+        penguin.scarfTailMesh.geometry.computeVertexNormals();
+      }
+
+      // Main Choreography Update Function
+      function updateScene(t, dt, elapsedTotal) {
+        // Detect loop wrap-around to reset trails cleanly inside the snow gust
+        if (t < prevLoopTime) {
+          clearAllSprayParticles();
+        }
+        prevLoopTime = t;
+
+        const z = getPenguinZ(t);
+        let x = 0;
+        let y = 0;
+        let slopeAngle = 0;
+
+        // Articulation targets
+        let squashX = 1.0, squashY = 1.0, squashZ = 1.0;
+        let bodyPitch = 0.0, bodyRoll = 0.0, bodyYaw = 0.0;
+        let headPitch = 0.0, headYaw = 0.0, beakOpen = 0.0;
+        let wingPitchL = 0.0, wingPitchR = 0.0;
+        let wingRollL = 0.0, wingRollR = 0.0;
+        let skiYawL = 0.0, skiYawR = 0.0;
+        let skiPitchOffset = 0.0;
+        let skiRollL = 0.0, skiRollR = 0.0;
+        let windRibbonAlpha = 0.0;
+        let speedFactor = 0.5;
+        let verticalVel = 0.0;
+
+        // ------------------------------------------------------------------------
+        // PHASE 1: INRUN ACCELERATION (0.0s - 2.5s)
+        // ------------------------------------------------------------------------
+        if (t <= 2.5) {
+          const u = t / 2.5;
+          y = getRampHeight(z);
+          const slope = getRampSlope(z);
+          slopeAngle = -Math.atan(slope); // Pitch downward along ramp
+          speedFactor = THREE.MathUtils.lerp(0.25, 1.0, u);
+          verticalVel = slope * 45.0 * speedFactor;
+
+          // Deep aerodynamic speed-tuck crouch
+          const tuckAmt = THREE.MathUtils.smoothstep(t, 0.15, 0.85) * (1 - THREE.MathUtils.smoothstep(t, 2.32, 2.5));
+          squashY = THREE.MathUtils.lerp(1.0, 0.78, tuckAmt);
+          squashX = THREE.MathUtils.lerp(1.0, 1.12, tuckAmt);
+          squashZ = THREE.MathUtils.lerp(1.0, 1.10, tuckAmt);
+
+          // Lean forward into aerodynamic tuck, slight anticipation compression right before lip
+          const preJumpDip = THREE.MathUtils.smoothstep(t, 2.15, 2.45) * 0.12;
+          squashY -= preJumpDip;
+          bodyPitch = 0.52 * tuckAmt + preJumpDip * 0.8;
+          headPitch = -0.38 * tuckAmt; // Look forward down the ramp despite body lean
+
+          // Flippers swept tightly back along the torso
+          wingPitchL = -1.05 * tuckAmt;
+          wingPitchR = -1.05 * tuckAmt;
+          wingRollL = 0.25;
+          wingRollR = -0.25;
+
+          windRibbonAlpha = THREE.MathUtils.smoothstep(t, 0.8, 2.2) * 0.65;
+        }
+        // ------------------------------------------------------------------------
+        // PHASE 2 & 3: TAKEOFF POP (2.5s - 3.2s) & SOARING FLIGHT (3.2s - 6.2s)
+        // ------------------------------------------------------------------------
+        else if (t <= 6.2) {
+          const flightU = (t - 2.5) / 3.7;
+          y = getFlightHeight(z);
+          const fSlope = getFlightSlope(z);
+          const flightTrackAngle = -Math.atan(fSlope);
+          speedFactor = 1.0;
+          verticalVel = fSlope * 42.0;
+
+          // Explosive Takeoff Pop extension (2.5s - 3.2s)
+          const popStretch = Math.sin(THREE.MathUtils.clamp((t - 2.5) / 0.45, 0, 1) * Math.PI);
+          squashY = 1.0 + popStretch * 0.22;
+          squashX = 1.0 - popStretch * 0.09;
+          squashZ = 1.0 - popStretch * 0.09;
+
+          // V-Style posture envelope: smoothly opens after 2.5s and closes into parallel before touchdown at 6.2s
+          const vStyleOpen = THREE.MathUtils.smoothstep(t, 2.52, 2.95) * (1 - THREE.MathUtils.smoothstep(t, 5.65, 6.15));
+
+          // Aerodynamic forward lean over the skis during flight
+          slopeAngle = THREE.MathUtils.lerp(flightTrackAngle * 0.65, -Math.atan(getGroundSlope(LANDING_Z)), THREE.MathUtils.smoothstep(t, 5.6, 6.2));
+          bodyPitch = THREE.MathUtils.lerp(0.18, 0.68, vStyleOpen);
+          bodyRoll = Math.sin(t * 2.2) * 0.04 * vStyleOpen;
+          headPitch = -0.32 * vStyleOpen;
+
+          // Classic V-Style ski spread (tips wide apart, pitched slightly up to catch air cushion)
+          skiYawL = 0.36 * vStyleOpen;
+          skiYawR = -0.36 * vStyleOpen;
+          skiRollL = -0.18 * vStyleOpen;
+          skiRollR = 0.18 * vStyleOpen;
+          skiPitchOffset = -0.22 * vStyleOpen;
+
+          // Apex excited micro-flaps of the flippers (t = 3.5s - 5.5s)
+          const apexWindow = THREE.MathUtils.smoothstep(t, 3.3, 3.9) * (1 - THREE.MathUtils.smoothstep(t, 5.1, 5.7));
+          const microFlap = Math.sin(t * 28.0) * 0.38 * apexWindow;
+          beakOpen = 0.28 * apexWindow;
+
+          wingPitchL = -0.25 * vStyleOpen;
+          wingPitchR = -0.25 * vStyleOpen;
+          wingRollL = 1.15 * vStyleOpen + microFlap;
+          wingRollR = -1.15 * vStyleOpen - microFlap;
+
+          windRibbonAlpha = 1.0;
+        }
+        // ------------------------------------------------------------------------
+        // PHASE 4: TOUCHDOWN IMPACT, CARVE & VICTORY OUTRUN (6.2s - 9.0s)
+        // ------------------------------------------------------------------------
+        else {
+          const outU = (t - 6.2) / 2.8;
+          // Subtle S-turn carve in the outrun snow
+          const carveWave = Math.sin((t - 6.2) * 2.4) * THREE.MathUtils.smoothstep(t, 6.5, 7.6) * (1 - THREE.MathUtils.smoothstep(t, 8.2, 8.9));
+          x = carveWave * 2.2;
+          y = getGroundHeight(z);
+          const gSlope = getGroundSlope(z);
+          slopeAngle = -Math.atan(gSlope);
+          speedFactor = THREE.MathUtils.lerp(0.95, 0.35, outU);
+          verticalVel = gSlope * 30.0 * speedFactor;
+
+          // Convincing squash-and-stretch impact compression right at touchdown (6.2s - 6.75s)
+          const impactPhase = THREE.MathUtils.clamp((t - 6.2) / 0.55, 0, 1);
+          const impactCompression = Math.sin(impactPhase * Math.PI) * Math.exp(-impactPhase * 1.4);
+          squashY = 1.0 - impactCompression * 0.34;
+          squashX = 1.0 + impactCompression * 0.18;
+          squashZ = 1.0 + impactCompression * 0.16;
+
+          // Absorb landing forward, then stand tall and proud in victory
+          const victoryPose = THREE.MathUtils.smoothstep(t, 6.75, 7.35);
+          bodyPitch = impactCompression * 0.55 - victoryPose * 0.12;
+          bodyRoll = -carveWave * 0.18;
+          bodyYaw = carveWave * 0.15;
+
+          headPitch = -impactCompression * 0.25 - victoryPose * 0.22;
+          headYaw = Math.sin((t - 6.5) * 3.0) * 0.22 * victoryPose;
+          beakOpen = 0.35 * victoryPose;
+
+          // Flippers spread out for balance on impact, then raised high overhead in triumph!
+          wingRollL = THREE.MathUtils.lerp(1.25, 2.45, victoryPose) + Math.sin(t * 14) * 0.15 * victoryPose;
+          wingRollR = THREE.MathUtils.lerp(-1.25, -2.45, victoryPose) - Math.sin(t * 14) * 0.15 * victoryPose;
+          wingPitchL = THREE.MathUtils.lerp(0.1, 0.3, victoryPose);
+          wingPitchR = THREE.MathUtils.lerp(0.1, 0.3, victoryPose);
+
+          skiRollL = -carveWave * 0.15;
+          skiRollR = -carveWave * 0.15;
+
+          windRibbonAlpha = Math.max(0, 1 - (t - 6.2) * 1.8);
+        }
+
+        // Apply transforms to the articulated Penguin rig
+        penguin.root.position.set(x, y, z);
+        penguin.root.rotation.set(slopeAngle, 0, 0);
+
+        penguin.squashGroup.scale.set(squashX, squashY, squashZ);
+        penguin.bodyPivot.rotation.set(bodyPitch, bodyYaw, bodyRoll);
+        penguin.headGroup.rotation.set(headPitch, headYaw, 0);
+        penguin.lowerBeakPivot.rotation.x = beakOpen;
+
+        penguin.leftWing.pivot.rotation.set(wingPitchL, 0, wingRollL);
+        penguin.rightWing.pivot.rotation.set(wingPitchR, 0, wingRollR);
+
+        penguin.leftSki.skiGroup.rotation.set(skiPitchOffset, skiYawL, skiRollL);
+        penguin.rightSki.skiGroup.rotation.set(skiPitchOffset, skiYawR, skiRollR);
+
+        // Update trailing knit scarf physics
+        updateScarfWave(elapsedTotal, speedFactor, verticalVel);
+
+        // Ensure world matrices are fresh before querying attachment nodes
+        penguin.root.updateMatrixWorld(true);
+
+        // Emit Snow Spray Particles according to phase
+        const leftTailPos = penguin.leftSki.tailNode.getWorldPosition(tempVecA);
+        const rightTailPos = penguin.rightSki.tailNode.getWorldPosition(tempVecB);
+
+        if (t <= 2.5) {
+          // Continuous high-speed ski tail spray down the inrun ramp
+          const count = Math.floor(2 + speedFactor * 6);
+          for (let i = 0; i < count; i++) {
+            const origin = i % 2 === 0 ? leftTailPos : rightTailPos;
+            emitSnowParticle(
+              origin,
+              {
+                x: (Math.random() - 0.5) * 3.2,
+                y: 1.5 + Math.random() * 3.5,
+                z: -6.0 - Math.random() * 8.0
+              },
+              0.35 + Math.random() * 0.25
+            );
+          }
+          // Explosive snow burst right at the takeoff table lip (2.42s - 2.5s)
+          if (t >= 2.42) {
+            for (let i = 0; i < 18; i++) {
+              emitSnowParticle(
+                i % 2 === 0 ? leftTailPos : rightTailPos,
+                {
+                  x: (Math.random() - 0.5) * 9.0,
+                  y: 3.0 + Math.random() * 7.5,
+                  z: -4.0 + Math.random() * 6.0
+                },
+                0.55 + Math.random() * 0.35
+              );
+            }
+          }
+        } else if (t >= 6.2 && t <= 8.3) {
+          // Massive powder plume explosion upon touchdown at t = 6.2s, tapering into carving spray
+          const isImpact = t < 6.55;
+          const burstCount = isImpact ? 28 : 8;
+          for (let i = 0; i < burstCount; i++) {
+            const origin = i % 2 === 0 ? leftTailPos : rightTailPos;
+            const spread = isImpact ? 14.0 : 5.5;
+            const upVel = isImpact ? 6.5 + Math.random() * 10.5 : 2.2 + Math.random() * 4.5;
+            emitSnowParticle(
+              origin,
+              {
+                x: (Math.random() - 0.5) * spread,
+                y: upVel,
+                z: -5.0 - Math.random() * 9.0
+              },
+              0.55 + Math.random() * 0.45
+            );
+          }
+        }
+
+        updateSprayParticles(dt);
+
+        // Update Wind Trail Ribbons
+        if (t < 0.08) {
+          leftWingRibbon.reset(penguin.leftWing.tipNode.getWorldPosition(tempVecA));
+          rightWingRibbon.reset(penguin.rightWing.tipNode.getWorldPosition(tempVecB));
+          leftSkiRibbon.reset(leftTailPos);
+          rightSkiRibbon.reset(rightTailPos);
+        } else {
+          leftWingRibbon.update(penguin.leftWing.tipNode.getWorldPosition(tempVecA), windRibbonAlpha);
+          rightWingRibbon.update(penguin.rightWing.tipNode.getWorldPosition(tempVecB), windRibbonAlpha);
+          leftSkiRibbon.update(leftTailPos, windRibbonAlpha * 0.8);
+          rightSkiRibbon.update(rightTailPos, windRibbonAlpha * 0.8);
+        }
+
+        // Update Ambient Falling Snow
+        const ambPos = ambSnowGeo.attributes.position.array;
+        for (let i = 0; i < AMBIENT_SNOW_COUNT; i++) {
+          const i3 = i * 3;
+          ambPos[i3 + 1] -= 5.5 * dt;
+          ambPos[i3 + 0] += Math.sin(elapsedTotal * 1.5 + i) * 1.2 * dt;
+          if (ambPos[i3 + 1] < -25) {
+            ambPos[i3 + 1] = 150;
+          }
+        }
+        ambSnowGeo.attributes.position.needsUpdate = true;
+
+        // ------------------------------------------------------------------------
+        // 7. DYNAMIC CINEMATIC CAMERA CHOREOGRAPHY
+        // ------------------------------------------------------------------------
+        // Compute camera offset & lookAt target smoothly across the 4 phases:
+        // - Phase 1 (Inrun): Dramatic close side/chase tracking shot rushing down the ramp
+        // - Phase 2 (Takeoff): Drops low and wide beside the lip looking up at the launch
+        // - Phase 3 (Flight): Heroic low-angle tracking shot showing high altitude over trees & peaks
+        // - Phase 4 (Touchdown & Loop): Follows descent into powder impact, then sweeps through
+        //   a sunlit snow gust to seamlessly match the exact t = 0.0s starting camera pose!
+
+        const camOffset = new THREE.Vector3();
+        const lookOffset = new THREE.Vector3();
+
+        // Keyframe blend weights
+        const wTakeoff = THREE.MathUtils.smoothstep(t, 1.9, 2.85);
+        const wApex = THREE.MathUtils.smoothstep(t, 2.85, 4.4);
+        const wDescent = THREE.MathUtils.smoothstep(t, 4.9, 6.25);
+        const wOutrun = THREE.MathUtils.smoothstep(t, 6.25, 7.6);
+        const wLoopReset = THREE.MathUtils.smoothstep(t, 8.2, 9.0);
+
+        // Pose 1: Close dramatic chase/side-tracking shot on the ramp
+        const off1 = new THREE.Vector3(5.6, 2.8, -7.8);
+        const look1 = new THREE.Vector3(0.0, 1.1, 4.5);
+
+        // Pose 2: Low heroic angle at takeoff lip
+        const off2 = new THREE.Vector3(10.5, -2.2, -5.5);
+        const look2 = new THREE.Vector3(0.0, 2.2, 6.0);
+
+        // Pose 3: Wide sweeping side-front heroic flight shot high above the pines
+        const off3 = new THREE.Vector3(14.0, -3.6, 5.2);
+        const look3 = new THREE.Vector3(0.0, 1.2, 3.0);
+
+        // Pose 4: Steep landing impact tracking shot
+        const off4 = new THREE.Vector3(9.2, 3.4, -8.5);
+        const look4 = new THREE.Vector3(0.0, 1.0, 5.0);
+
+        // Pose 5: Joyful front-quarter outrun celebration shot
+        const off5 = new THREE.Vector3(5.5, 2.5, 9.2);
+        const look5 = new THREE.Vector3(0.0, 1.3, 0.0);
+
+        camOffset.copy(off1)
+          .lerp(off2, wTakeoff)
+          .lerp(off3, wApex)
+          .lerp(off4, wDescent)
+          .lerp(off5, wOutrun);
+
+        lookOffset.copy(look1)
+          .lerp(look2, wTakeoff)
+          .lerp(look3, wApex)
+          .lerp(look4, wDescent)
+          .lerp(look5, wOutrun);
+
+        const desiredCamPos = new THREE.Vector3(x, y, z).add(camOffset);
+        const desiredCamLook = new THREE.Vector3(x, y, z).add(lookOffset);
+
+        // Exact starting camera pose at t = 0.0s (top of the tower: z = -135, y = 118)
+        const startPenguinPos = new THREE.Vector3(0, getRampHeight(-135), -135);
+        const startCamPos = startPenguinPos.clone().add(off1);
+        const startCamLook = startPenguinPos.clone().add(look1);
+
+        // During the final 0.8s (8.2s -> 9.0s), glide through the snow gust back to startCamPos
+        desiredCamPos.lerp(startCamPos, wLoopReset);
+        desiredCamLook.lerp(startCamLook, wLoopReset);
+
+        if (isFirstFrame) {
+          smoothCamPos.copy(startCamPos);
+          smoothCamLook.copy(startCamLook);
+          isFirstFrame = false;
+        } else {
+          const lerpRate = wLoopReset > 0.01 ? Math.min(1, dt * 16.0) : Math.min(1, dt * 9.5);
+          smoothCamPos.lerp(desiredCamPos, lerpRate);
+          smoothCamLook.lerp(desiredCamLook, lerpRate);
+        }
+
+        camera.position.copy(smoothCamPos);
+        camera.lookAt(smoothCamLook);
+
+        // Update Camera-Attached Snow Gust for seamless transition at loop boundary
+        cameraSnowGroup.position.copy(camera.position);
+        cameraSnowGroup.quaternion.copy(camera.quaternion);
+
+        const gustFadeIn = THREE.MathUtils.smoothstep(t, 8.15, 8.75);
+        const gustFadeOut = 1.0 - THREE.MathUtils.smoothstep(t, 0.0, 0.55);
+        const gustIntensity = t > 4.5 ? gustFadeIn : gustFadeOut;
+
+        gustMat.opacity = gustIntensity * 0.92;
+        const veilPeak = t > 4.5
+          ? THREE.MathUtils.smoothstep(t, 8.55, 8.92)
+          : 1.0 - THREE.MathUtils.smoothstep(t, 0.0, 0.38);
+        veilMat.opacity = veilPeak * 0.96;
+
+        if (gustIntensity > 0.01) {
+          for (let i = 0; i < GUST_COUNT; i++) {
+            const p = gustPuffs[i];
+            p.mesh.position.x -= p.speedX * dt;
+            p.mesh.position.y -= p.speedY * dt;
+            p.mesh.rotation.z += 2.5 * dt;
+            if (p.mesh.position.x < -4.2) p.mesh.position.x = 4.2;
+            if (p.mesh.position.y < -2.8) p.mesh.position.y = 2.8;
+          }
+        }
+      }
+
+      // ============================================================================
+      // 8. WINDOW RESIZE & MAIN ANIMATION LOOP
+      // ============================================================================
+      window.addEventListener('resize', function () {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+      });
+
+      const clock = new THREE.Clock();
+
+      function animate() {
+        requestAnimationFrame(animate);
+        const dt = Math.min(clock.getDelta(), 0.05);
+        const elapsedTotal = clock.getElapsedTime();
+        const loopTime = elapsedTotal % LOOP_DURATION;
+
+        updateScene(loopTime, dt, elapsedTotal);
+        renderer.render(scene, camera);
+      }
+
+      window.onload = function () {
+        animate();
+      };
+    })();
+  </script>
+<!--zc-home:start--><style>.zc-home-btn{position:fixed;top:16px;left:16px;z-index:2147483647;display:inline-flex;align-items:center;gap:6px;padding:8px 14px;font:500 13px/1.1 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Noto Sans SC",sans-serif;color:#111;background:rgba(255,255,255,.86);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);border:1px solid rgba(0,0,0,.08);border-radius:999px;text-decoration:none;box-shadow:0 2px 12px rgba(0,0,0,.2);transition:background .2s ease,transform .2s ease,box-shadow .2s ease}.zc-home-btn:hover{background:#fff;transform:translateY(-1px);box-shadow:0 4px 18px rgba(0,0,0,.26)}</style><a class="zc-home-btn" href="../">← 返回首页</a><!--zc-home:end-->
+</body>
+</html>

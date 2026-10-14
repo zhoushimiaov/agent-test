@@ -97,6 +97,8 @@ const ITEMS = [
     desc: "A 3D scene of a simple, flat gray plane representing the city, with a few low, unlit blocks and a dark, featureless sky. A small, pale whale with a short, faint trail drifts above the plane. The whale is tiny relative to the empty city, giving no sense of surreal scale. There is no visible cloud layer, so there is no sense of the whale passing through clouds. The rendering is minimal and low-detail, with a tiny whale and no real cloud interplay." },
   { slug: "longcat-2.0", render: "2D (animated HTML canvas)",
     desc: "A somewhat dark 2D night city: a simple skyline of dark building silhouettes along the bottom, a dark blue-gray sky above with a few faint cloud patches and a tiny white crescent moon. An extremely long, thin, pale whale-like form drifts horizontally across the upper half of the sky, stretching from far left to far right. The form is very tall and thin, giving an odd, stretched proportion rather than a believable whale shape, and it is hard to read as a genuine whale with swimming motion. There are some clouds, but the form mostly reads as in front of them with little clear front/back interleaving, so the sense of swimming through clouds is weak or absent." },
+  { slug: "gemini4argon", render: "3D (Three.js / WebGL)",
+    desc: "A 3D WebGL night scene: a dark navy-blue sky over a city skyline. A large whale with a distinct body, tail flukes and pectoral fin glides across the upper frame above the buildings. The city below shows dark-blue towers dotted with warm yellow lit windows, and thin haze, clouds and stars surround the scene. Deep-blue palette with warm window points." },
 ];
 
 const questions = Object.fromEntries(

@@ -90,6 +90,8 @@ const ITEMS = [
     desc: "A festive night circus scene: a deep purple starry sky, a full moon, a striped circus tent at lower left, a ferris wheel at right and bunting flags. A blue-grey elephant with a red saddle-blanket walks a tightrope while holding a long balance pole; the wire spans between posts with a gentle dip. Well-composed and atmospheric; the elephant is clearly drawn and medium-sized." },
   { slug: "ling-3.1-flash", render: "2D (animated SVG)",
     desc: "A bright daytime scene with a clear blue sky, a soft sun, green rolling hills and a sandy platform below. A grey elephant stands on a tightrope strung between two posts, holding a long balance pole in its trunk, with a small flag nearby. Clean and readable, but the wire is fairly taut with only a slight sag and the elephant is modest in size within the wide frame." },
+  { slug: "gemini4argon", render: "2D (animated HTML canvas)",
+    desc: "A 2D canvas animation on a pale-blue sky background with soft white clouds and faint crowd silhouettes along the bottom. A single thin horizontal wire (tightrope) spans the frame. A grey-blue cartoon elephant with large ears stands balanced on the wire near centre, holding a long horizontal balance bar; the wire dips slightly under its weight. A pink/magenta circus prop is visible at the right. Simple, friendly flat vector styling." },
 ];
 
 const questions = Object.fromEntries(

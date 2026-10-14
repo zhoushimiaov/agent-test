@@ -1,0 +1,1388 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>一头狮子跃过火圈 — Cinematic Animation</title>
+<style>
+  * {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+  }
+  html, body {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background-color: #050201;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  canvas {
+    display: block;
+    width: 100vw;
+    height: 100vh;
+  }
+</style>
+</head>
+<body>
+<canvas id="stage"></canvas>
+
+<script>
+(() => {
+  const canvas = document.getElementById('stage');
+  const ctx = canvas.getContext('2d', { alpha: false });
+
+  // Logical reference coordinate system (1920x1080 widescreen cinema)
+  const VW = 1920;
+  const VH = 1080;
+  const GROUND_Y = 835;
+  const RING_X = 960;
+  const RING_Y = 485;
+  const RING_RX = 64;   // 3D perspective horizontal radius
+  const RING_RY = 215;  // Vertical radius
+
+  let width = window.innerWidth;
+  let height = window.innerHeight;
+  let dpr = Math.min(window.devicePixelRatio || 1, 2);
+
+  function resize() {
+    width = window.innerWidth;
+    height = window.innerHeight;
+    dpr = Math.min(window.devicePixelRatio || 1, 2);
+    canvas.width = width * dpr;
+    canvas.height = height * dpr;
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  // Math & Interpolation Helpers
+  const PI = Math.PI;
+  const TAU = PI * 2;
+  const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
+  const lerp = (a, b, t) => a + (b - a) * t;
+  const smoothstep = (a, b, v) => {
+    const x = clamp((v - a) / (b - a), 0, 1);
+    return x * x * (3 - 2 * x);
+  };
+  const rand = (min, max) => min + Math.random() * (max - min);
+
+  // Fast deterministic pseudo-noise for organic flame & wind turbulence
+  function noise1D(x) {
+    return Math.sin(x * 1.7) * 0.5 + Math.sin(x * 3.1 + 1.4) * 0.3 + Math.cos(x * 5.7 + 2.9) * 0.2;
+  }
+
+  // Solves a 2-segment limb from (x1,y1) to (x2,y2) with lengths L1, L2
+  // bendDir: +1 or -1 controls knee/elbow bend orientation
+  function solveIK(x1, y1, x2, y2, L1, L2, bendDir) {
+    let dx = x2 - x1;
+    let dy = y2 - y1;
+    let dist = Math.hypot(dx, dy);
+    const maxReach = (L1 + L2) * 0.992;
+    const minReach = Math.abs(L1 - L2) * 1.05;
+
+    if (dist > maxReach) {
+      const scale = maxReach / dist;
+      dx *= scale;
+      dy *= scale;
+      x2 = x1 + dx;
+      y2 = y1 + dy;
+      dist = maxReach;
+    } else if (dist < minReach) {
+      const scale = minReach / (dist || 0.001);
+      dx *= scale;
+      dy *= scale;
+      dist = minReach;
+    }
+
+    const baseAngle = Math.atan2(dy, dx);
+    const cosAngle = clamp((L1 * L1 + dist * dist - L2 * L2) / (2 * L1 * dist), -1, 1);
+    const offsetAngle = Math.acos(cosAngle);
+    const jointAngle = baseAngle + bendDir * offsetAngle;
+
+    return {
+      jx: x1 + Math.cos(jointAngle) * L1,
+      jy: y1 + Math.sin(jointAngle) * L1,
+      ex: x2,
+      ey: y2
+    };
+  }
+
+  const fireParticles = [];
+  const sparkParticles = [];
+  const dustParticles = [];
+  const smokeParticles = [];
+  const bokehNodes = [];
+
+  // Initialize atmospheric arena bokeh & floating dust motes
+  for (let i = 0; i < 65; i++) {
+    bokehNodes.push({
+      x: rand(0, VW),
+      y: rand(60, GROUND_Y + 40),
+      r: rand(1.5, 6.5),
+      alpha: rand(0.08, 0.35),
+      speedX: rand(-8, -22),
+      speedY: rand(-6, 6),
+      phase: rand(0, TAU),
+      hue: rand(22, 45)
+    });
+  }
+
+  // Pre-seed ring fire particles along the 3D hoop circumference
+  const FIRE_COUNT = 340;
+  function createFireParticle(initRandom = false) {
+    const angle = rand(0, TAU);
+    // Determine if this particle belongs to the back half or front half of the tilted hoop
+    // Angle: -PI/2 is top, PI/2 is bottom, 0 is front-right edge, PI is back-left edge
+    const cosA = Math.cos(angle);
+    const sinA = Math.sin(angle);
+    const bx = RING_X + cosA * RING_RX;
+    const by = RING_Y + sinA * RING_RY;
+
+    const maxLife = rand(0.32, 0.78);
+    return {
+      angle,
+      isFront: cosA >= -0.05, // Front rim vs back rim for true 3D pass-through sorting
+      x: bx + rand(-6, 6),
+      y: by + rand(-6, 6),
+      vx: rand(-18, 22) + cosA * 12,
+      vy: rand(-165, -75) - (1 - sinA) * 28,
+      size: rand(16, 36),
+      life: initRandom ? rand(0, maxLife) : 0,
+      maxLife,
+      seed: rand(0, 100)
+    };
+  }
+
+  for (let i = 0; i < FIRE_COUNT; i++) {
+    fireParticles.push(createFireParticle(true));
+  }
+
+  function spawnSpark(x, y, vx, vy, isFront = true, lifeScale = 1) {
+    if (sparkParticles.length > 420) return;
+    sparkParticles.push({
+      x,
+      y,
+      vx: vx + rand(-60, 60),
+      vy: vy + rand(-60, 60),
+      size: rand(1.5, 4.2),
+      life: 0,
+      maxLife: rand(0.45, 1.35) * lifeScale,
+      isFront,
+      colorType: Math.random() > 0.25 ? 'gold' : 'crimson'
+    });
+  }
+
+  function spawnDust(x, y, vx, vy, sizeMin = 18, sizeMax = 48) {
+    if (dustParticles.length > 140) return;
+    dustParticles.push({
+      x: x + rand(-15, 15),
+      y: y + rand(-4, 4),
+      vx: vx + rand(-35, 25),
+      vy: vy + rand(-38, -8),
+      size: rand(sizeMin, sizeMax),
+      life: 0,
+      maxLife: rand(0.55, 1.15),
+      alpha: rand(0.22, 0.48)
+    });
+  }
+
+  function spawnSmoke(x, y, vx, vy, isFront) {
+    if (smokeParticles.length > 90) return;
+    smokeParticles.push({
+      x: x + rand(-12, 12),
+      y: y + rand(-10, 10),
+      vx: vx + rand(-25, 35),
+      vy: vy + rand(-130, -70),
+      size: rand(24, 52),
+      life: 0,
+      maxLife: rand(0.7, 1.4),
+      isFront
+    });
+  }
+
+  // Normalized cycle u in [0, 1].
+  // Phases of the seamless loop:
+  // [0.00 -> 0.34]: Powerful galloping approach from left edge to takeoff spot (x: -260 -> 630)
+  // [0.34 -> 0.41]: Coiling gather & explosive launch compression (x: 630 -> 715)
+  // [0.41 -> 0.67]: Ballistic flight through the blazing hoop (x: 715 -> 1245, apex at u=0.535, x=960)
+  // [0.67 -> 0.76]: Forepaw impact & hindpaw follow-through absorption (x: 1245 -> 1410)
+  // [0.76 -> 1.00]: Powerful bounding exit off right edge (x: 1410 -> 2220)
+
+  let cycleU = 0.08; // Start immediately as the lion bounds into the left frame
+  let globalTime = 0;
+  let cameraShake = 0;
+  let ringSwirlBoost = 0;
+  let lastU = cycleU;
+
+  // Compute complete articulated lion state for a given cycle progress u
+  function computeLionPose(u, time) {
+    let cx = 0;
+    let cy = 0;
+    let pitch = 0;         // Body angle (radians, negative = nose up)
+    let spineArch = 0;     // Positive = arched back (C-shape), Negative = extended/hollow back
+    let bodySpan = 162;    // Distance between pelvis and chest
+    let roarOpen = 0;      // Jaw opening factor [0..1]
+
+    // Foot target positions (fx, fy) for Hind-Back, Hind-Front, Fore-Back, Fore-Front
+    let hbX, hbY, hfX, hfY, fbX, fbY, ffX, ffY;
+
+    // Helper for galloping foot parabola between two ground contacts
+    const gallopFoot = (originX, strideLen, phase) => {
+      // phase in [0, 1): 0..0.42 stance on ground, 0.42..1.0 swing in air
+      const p = ((phase % 1) + 1) % 1;
+      let offset = 0;
+      let lift = 0;
+      if (p < 0.42) {
+        const st = p / 0.42;
+        offset = lerp(strideLen * 0.46, -strideLen * 0.54, st);
+        lift = 0;
+      } else {
+        const sw = (p - 0.42) / 0.58;
+        offset = lerp(-strideLen * 0.54, strideLen * 0.46, smoothstep(0, 1, sw));
+        lift = -Math.sin(sw * PI) * 68;
+      }
+      return { x: originX + offset, y: GROUND_Y + lift, stance: p < 0.42, p };
+    };
+
+    if (u < 0.34) {
+      // PHASE 1: Galloping Approach (2 full rotary gallop strides)
+      const t = u / 0.34;
+      cx = lerp(-260, 625, t);
+      const strideCycle = t * 2.0; // 2 strides
+      const gPhase = strideCycle % 1;
+
+      // Center of mass vertical oscillation during gallop
+      cy = GROUND_Y - 122 - Math.sin(gPhase * TAU - 0.5) * 18;
+      pitch = Math.cos(gPhase * TAU) * 0.14;
+      spineArch = Math.sin(gPhase * TAU) * 26;
+      bodySpan = 158 + Math.cos(gPhase * TAU) * 16;
+      roarOpen = 0.12;
+
+      const strideLen = 215;
+      const hb = gallopFoot(cx - 72, strideLen, strideCycle + 0.08);
+      const hf = gallopFoot(cx - 56, strideLen, strideCycle + 0.0);
+      const fb = gallopFoot(cx + 68, strideLen, strideCycle + 0.58);
+      const ff = gallopFoot(cx + 84, strideLen, strideCycle + 0.50);
+
+      hbX = hb.x; hbY = hb.y;
+      hfX = hf.x; hfY = hf.y;
+      fbX = fb.x; fbY = fb.y;
+      ffX = ff.x; ffY = ff.y;
+
+    } else if (u < 0.41) {
+      // PHASE 2: Coiling Gather & Explosive Launch
+      const t = (u - 0.34) / 0.07;
+      cx = lerp(625, 720, smoothstep(0, 1, t));
+
+      // Deep crouch at t=0.4, then explosive upward acceleration
+      const crouch = Math.sin(t * PI);
+      const launchLift = smoothstep(0.45, 1.0, t) * 88;
+      cy = GROUND_Y - 115 + crouch * 32 - launchLift;
+
+      // Pitch tilts dramatically upward as forequarters rise for the ring
+      pitch = lerp(0.08, -0.54, smoothstep(0.1, 1.0, t));
+      spineArch = lerp(24, -22, smoothstep(0.25, 1.0, t));
+      bodySpan = lerp(138, 182, smoothstep(0.2, 1.0, t));
+      roarOpen = smoothstep(0.3, 1.0, t) * 0.75;
+
+      // Hind paws planted firmly at takeoff mark (~615..645) driving the jump
+      hbX = 612; hbY = GROUND_Y;
+      hfX = 638; hfY = GROUND_Y;
+
+      // Forepaws lift off early and fold/reach toward the ring
+      const foreLift = smoothstep(0.15, 1.0, t);
+      fbX = lerp(705, cx + 108, foreLift);
+      fbY = lerp(GROUND_Y, cy - 38, foreLift);
+      ffX = lerp(728, cx + 124, foreLift);
+      ffY = lerp(GROUND_Y, cy - 52, foreLift);
+
+    } else if (u < 0.67) {
+      // PHASE 3: Mid-Air Ballistic Flight Through the Ring of Fire
+      const t = (u - 0.41) / 0.26; // t=0 is liftoff, t=0.5 is exact ring center (u=0.54), t=1.0 is touchdown
+      cx = lerp(720, 1255, t);
+
+      // Parabolic arc peaking cleanly through RING_Y (485)
+      const arc = 4 * t * (1 - t); // 0 -> 1 -> 0
+      const baseHeight = lerp(GROUND_Y - 185, GROUND_Y - 155, t);
+      cy = baseHeight - arc * 208; // Peak cy around 477 (right inside RING_Y=485)
+
+      // Pitch smoothly rotates from -0.52 (ascending) through 0.0 (apex) to +0.48 (descending)
+      pitch = lerp(-0.52, 0.48, smoothstep(0.0, 1.0, t));
+
+      // Spine stretches into a heroic flying arc at apex, then coils slightly for landing
+      spineArch = -Math.sin(t * PI) * 28 + smoothstep(0.75, 1.0, t) * 18;
+      bodySpan = 165 + Math.sin(t * PI) * 26;
+
+      // Fierce mid-air roar as the lion pierces the flames
+      roarOpen = Math.sin(clamp((t + 0.15) * 1.1, 0, 1) * PI) * 0.92;
+
+      const cosP = Math.cos(pitch);
+      const sinP = Math.sin(pitch);
+      const chestX = cx + cosP * (bodySpan * 0.52);
+      const chestY = cy + sinP * (bodySpan * 0.52);
+      const hipX = cx - cosP * (bodySpan * 0.48);
+      const hipY = cy - sinP * (bodySpan * 0.48);
+
+      // Hind legs: extended fiercely backward during ascent/apex, drawing under slightly before landing
+      const hindExtend = Math.sin(clamp(t * 1.25, 0, 1) * PI);
+      hbX = hipX - 88 - hindExtend * 46 + t * 25;
+      hbY = hipY + 48 - hindExtend * 22 + smoothstep(0.65, 1.0, t) * 45;
+      hfX = hipX - 72 - hindExtend * 54 + t * 32;
+      hfY = hipY + 38 - hindExtend * 28 + smoothstep(0.65, 1.0, t) * 52;
+
+      // Forelegs: tucked powerfully at ascent, reaching out like spears toward the landing ground after apex
+      const foreReach = smoothstep(0.28, 0.98, t);
+      fbX = chestX + lerp(58, 92, foreReach);
+      fbY = chestY + lerp(55, 118, foreReach);
+      ffX = chestX + lerp(76, 108, foreReach);
+      ffY = chestY + lerp(42, 128, foreReach);
+
+      // Clamp forepaws as they touch ground right at t=1.0
+      if (t > 0.92) {
+        const td = (t - 0.92) / 0.08;
+        ffY = lerp(ffY, GROUND_Y, td);
+        fbY = lerp(fbY, GROUND_Y, td * 0.85);
+      }
+
+    } else if (u < 0.77) {
+      // PHASE 4: Heavy Impact Absorption & Hind-Leg Follow-Through
+      const t = (u - 0.67) / 0.10;
+      cx = lerp(1255, 1445, t);
+
+      // Heavy shoulder & spine compression on impact, then rebound
+      const compress = Math.sin(t * PI);
+      cy = GROUND_Y - 126 + compress * 38;
+      pitch = lerp(0.46, -0.12, smoothstep(0.0, 1.0, t));
+      spineArch = lerp(14, 34, Math.sin(t * PI));
+      bodySpan = lerp(176, 142, Math.sin(t * PI * 0.85));
+      roarOpen = (1 - t) * 0.35;
+
+      // Forepaws planted at landing zone (~1345..1375), then lifting into stride at end of phase
+      const foreRelease = smoothstep(0.62, 1.0, t);
+      fbX = lerp(1342, 1495, foreRelease);
+      fbY = GROUND_Y - Math.sin(foreRelease * PI) * 52;
+      ffX = lerp(1372, 1525, foreRelease);
+      ffY = GROUND_Y - Math.sin(foreRelease * PI) * 64;
+
+      // Hind paws swing down from air and plant firmly past the forepaw mark (~1390..1420)
+      const hindTouch = smoothstep(0.0, 0.55, t);
+      hbX = lerp(1165, 1385, hindTouch);
+      hbY = lerp(GROUND_Y - 75, GROUND_Y, hindTouch);
+      hfX = lerp(1195, 1418, hindTouch);
+      hfY = lerp(GROUND_Y - 58, GROUND_Y, hindTouch);
+
+    } else {
+      // PHASE 5: Galloping Exit Off Right Frame (Seamless wrap to Phase 1)
+      const t = (u - 0.77) / 0.23;
+      cx = lerp(1445, 2240, t);
+      const strideCycle = t * 1.45;
+      const gPhase = strideCycle % 1;
+
+      cy = GROUND_Y - 122 - Math.sin(gPhase * TAU - 0.5) * 18;
+      pitch = Math.cos(gPhase * TAU) * 0.14;
+      spineArch = Math.sin(gPhase * TAU) * 26;
+      bodySpan = 158 + Math.cos(gPhase * TAU) * 16;
+      roarOpen = 0.08;
+
+      const strideLen = 215;
+      const hb = gallopFoot(cx - 72, strideLen, strideCycle + 0.08);
+      const hf = gallopFoot(cx - 56, strideLen, strideCycle + 0.0);
+      const fb = gallopFoot(cx + 68, strideLen, strideCycle + 0.58);
+      const ff = gallopFoot(cx + 84, strideLen, strideCycle + 0.50);
+
+      hbX = hb.x; hbY = hb.y;
+      hfX = hf.x; hfY = hf.y;
+      fbX = fb.x; fbY = fb.y;
+      ffX = ff.x; ffY = ff.y;
+    }
+
+    // Derive core anatomical anchors from (cx, cy, pitch, bodySpan, spineArch)
+    const cosP = Math.cos(pitch);
+    const sinP = Math.sin(pitch);
+    const nx = -sinP;
+    const ny = cosP;
+
+    const halfSpan = bodySpan * 0.5;
+    const hipX = cx - cosP * halfSpan;
+    const hipY = cy - sinP * halfSpan;
+    const chestX = cx + cosP * halfSpan;
+    const chestY = cy + sinP * halfSpan;
+
+    // Mid-spine control point with lumbar flexion
+    const midSpineX = cx + nx * (-spineArch * 0.6);
+    const midSpineY = cy + ny * (-spineArch * 0.6);
+
+    // Neck & Head posture (head stabilizes slightly toward horizontal while aiming through the hoop)
+    const headPitch = pitch * 0.58 - (u > 0.35 && u < 0.65 ? 0.08 : 0);
+    const headX = chestX + Math.cos(headPitch - 0.22) * 52;
+    const headY = chestY + Math.sin(headPitch - 0.22) * 52 - 8;
+
+    // Solve 2-bone IK for all 4 legs
+    // Hind legs have an upper thigh (femur+tibia visual unit) and lower hock/metatarsus
+    // In feline anatomy, the visible knee/hock bends backward (-1) or forward (+1) depending on segment representation.
+    // We use a 3-point chain: Hip -> Stifle/Hock -> Paw
+    const hindBackIK = solveIK(hipX - 6, hipY + 4, hbX, hbY - 8, 68, 72, -1);
+    const hindFrontIK = solveIK(hipX + 4, hipY + 6, hfX, hfY - 8, 68, 72, -1);
+    // Forelegs: Shoulder -> Elbow/Wrist -> Paw
+    const foreBackIK = solveIK(chestX - 8, chestY + 10, fbX, fbY - 8, 64, 68, 1);
+    const foreFrontIK = solveIK(chestX + 6, chestY + 12, ffX, ffY - 8, 64, 68, 1);
+
+    return {
+      u,
+      cx, cy,
+      pitch, headPitch,
+      spineArch, bodySpan, roarOpen,
+      hipX, hipY,
+      midSpineX, midSpineY,
+      chestX, chestY,
+      headX, headY,
+      hindBackIK, hindFrontIK,
+      foreBackIK, foreFrontIK,
+      hbX, hbY, hfX, hfY, fbX, fbY, ffX, ffY,
+      time
+    };
+  }
+
+  function drawBackground(ctx, time, firePulse) {
+    // 1. Deep nocturnal arena sky/ceiling gradient
+    const bgGrad = ctx.createRadialGradient(RING_X, RING_Y - 60, 80, RING_X, VH * 0.5, 1250);
+    bgGrad.addColorStop(0, `rgba(${48 + firePulse * 18}, ${20 + firePulse * 8}, 8, 1)`);
+    bgGrad.addColorStop(0.45, '#140804');
+    bgGrad.addColorStop(1, '#040201');
+    ctx.fillStyle = bgGrad;
+    ctx.fillRect(-300, -200, VW + 600, VH + 400);
+
+    // 2. Distant Grand Coliseum / Vintage Circus Tent Arches in deep silhouette
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255, 150, 70, 0.035)';
+    ctx.lineWidth = 3;
+    for (let i = -2; i <= 8; i++) {
+      const colX = i * 260;
+      ctx.beginPath();
+      ctx.moveTo(colX, 80);
+      ctx.lineTo(colX, GROUND_Y);
+      ctx.stroke();
+
+      // Distant Roman/Circus archways
+      ctx.beginPath();
+      ctx.arc(colX + 130, 340, 115, PI, TAU);
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    // 3. Twin Volumetric Spotlights cutting from high ceiling toward the center stage
+    ctx.save();
+    ctx.globalCompositeOperation = 'screen';
+
+    const drawSpotlight = (srcX, srcY, targetX, spread) => {
+      const spotGrad = ctx.createLinearGradient(srcX, srcY, targetX, GROUND_Y);
+      spotGrad.addColorStop(0, 'rgba(255, 215, 165, 0.11)');
+      spotGrad.addColorStop(0.55, 'rgba(255, 160, 85, 0.045)');
+      spotGrad.addColorStop(1, 'rgba(255, 120, 40, 0.0)');
+      ctx.fillStyle = spotGrad;
+      ctx.beginPath();
+      ctx.moveTo(srcX - 25, srcY);
+      ctx.lineTo(srcX + 25, srcY);
+      ctx.lineTo(targetX + spread, GROUND_Y + 40);
+      ctx.lineTo(targetX - spread, GROUND_Y + 40);
+      ctx.closePath();
+      ctx.fill();
+    };
+
+    drawSpotlight(280, -120, RING_X - 60, 380);
+    drawSpotlight(1640, -120, RING_X + 60, 380);
+
+    // Ambient fiery bloom around the center ring
+    const bloomGrad = ctx.createRadialGradient(RING_X, RING_Y, 30, RING_X, RING_Y, 540 + firePulse * 60);
+    bloomGrad.addColorStop(0, `rgba(255, 135, 30, ${0.26 + firePulse * 0.08})`);
+    bloomGrad.addColorStop(0.35, `rgba(220, 65, 10, ${0.12 + firePulse * 0.04})`);
+    bloomGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+    ctx.fillStyle = bloomGrad;
+    ctx.beginPath();
+    ctx.arc(RING_X, RING_Y, 600, 0, TAU);
+    ctx.fill();
+    ctx.restore();
+
+    // 4. Floating out-of-focus background bokeh embers
+    ctx.save();
+    ctx.globalCompositeOperation = 'screen';
+    for (const b of bokehNodes) {
+      const flicker = 0.7 + 0.3 * Math.sin(time * 3 + b.phase);
+      ctx.fillStyle = `hsla(${b.hue}, 95%, 62%, ${b.alpha * flicker})`;
+      ctx.beginPath();
+      ctx.arc(b.x, b.y, b.r, 0, TAU);
+      ctx.fill();
+    }
+    ctx.restore();
+
+    // 5. Arena Ground Plane & Fiery Ground Reflection
+    const groundGrad = ctx.createLinearGradient(0, GROUND_Y - 10, 0, VH + 150);
+    groundGrad.addColorStop(0, '#1c0d06');
+    groundGrad.addColorStop(0.18, '#120703');
+    groundGrad.addColorStop(1, '#030100');
+    ctx.fillStyle = groundGrad;
+    ctx.fillRect(-300, GROUND_Y - 4, VW + 600, VH - GROUND_Y + 200);
+
+    // Hot orange reflection pool directly beneath the Ring of Fire
+    ctx.save();
+    ctx.globalCompositeOperation = 'screen';
+    const reflGrad = ctx.createRadialGradient(RING_X, GROUND_Y + 12, 10, RING_X, GROUND_Y + 18, 460);
+    reflGrad.addColorStop(0, `rgba(255, 130, 25, ${0.38 + firePulse * 0.12})`);
+    reflGrad.addColorStop(0.45, `rgba(185, 50, 8, ${0.14 + firePulse * 0.05})`);
+    reflGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+    ctx.fillStyle = reflGrad;
+    ctx.beginPath();
+    ctx.ellipse(RING_X, GROUND_Y + 12, 460, 48, 0, 0, TAU);
+    ctx.fill();
+    ctx.restore();
+
+    // Subtle arena dirt ring rim / texture lines
+    ctx.strokeStyle = 'rgba(255, 165, 85, 0.08)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(-200, GROUND_Y);
+    ctx.lineTo(VW + 200, GROUND_Y);
+    ctx.stroke();
+
+    // 6. Iron Pedestal Stand supporting the Ring of Fire
+    ctx.save();
+    // Cast shadow of pedestal base
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
+    ctx.beginPath();
+    ctx.ellipse(RING_X, GROUND_Y + 6, 85, 14, 0, 0, TAU);
+    ctx.fill();
+
+    // Vertical wrought-iron post from bottom of ring (RING_Y + RING_RY) to GROUND_Y
+    const postTop = RING_Y + RING_RY - 4;
+    const postGrad = ctx.createLinearGradient(RING_X - 12, postTop, RING_X + 12, GROUND_Y);
+    postGrad.addColorStop(0, '#5a3218');
+    postGrad.addColorStop(0.3, '#2b180d');
+    postGrad.addColorStop(1, '#120a05');
+    ctx.fillStyle = postGrad;
+    ctx.fillRect(RING_X - 7, postTop, 14, GROUND_Y - postTop + 4);
+
+    // Ornate iron support struts & base plate
+    ctx.strokeStyle = '#381e0e';
+    ctx.lineWidth = 5;
+    ctx.beginPath();
+    ctx.moveTo(RING_X - 42, GROUND_Y + 2);
+    ctx.quadraticCurveTo(RING_X - 10, GROUND_Y - 45, RING_X - 5, postTop + 35);
+    ctx.moveTo(RING_X + 42, GROUND_Y + 2);
+    ctx.quadraticCurveTo(RING_X + 10, GROUND_Y - 45, RING_X + 5, postTop + 35);
+    ctx.stroke();
+
+    // Heavy iron base collar
+    ctx.fillStyle = '#241309';
+    ctx.beginPath();
+    ctx.roundRect(RING_X - 54, GROUND_Y - 8, 108, 14, 5);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  function drawRingHalf(ctx, isFront, time, firePulse) {
+    ctx.save();
+
+    // 1. Draw the solid forged-iron hoop arc for this half
+    // Back half: PI/2 -> 3*PI/2 (left side in 3D space)
+    // Front half: -PI/2 -> PI/2 (right/viewer-facing side in 3D space)
+    const startAngle = isFront ? -PI * 0.52 : PI * 0.48;
+    const endAngle = isFront ? PI * 0.52 : PI * 1.52;
+
+    // Outer fiery halo glow along the hoop arc
+    ctx.save();
+    ctx.globalCompositeOperation = 'screen';
+    ctx.strokeStyle = `rgba(255, 95, 15, ${0.32 + firePulse * 0.12})`;
+    ctx.lineWidth = 34;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.ellipse(RING_X, RING_Y, RING_RX, RING_RY, 0, startAngle, endAngle);
+    ctx.stroke();
+    ctx.restore();
+
+    // Dark iron core hoop with hot incandescent rim
+    ctx.strokeStyle = '#1f0d05';
+    ctx.lineWidth = 12;
+    ctx.beginPath();
+    ctx.ellipse(RING_X, RING_Y, RING_RX, RING_RY, 0, startAngle, endAngle);
+    ctx.stroke();
+
+    ctx.strokeStyle = 'rgba(255, 180, 75, 0.65)';
+    ctx.lineWidth = 3.5;
+    ctx.beginPath();
+    ctx.ellipse(RING_X, RING_Y, RING_RX, RING_RY, 0, startAngle, endAngle);
+    ctx.stroke();
+
+    // 2. Render rising dark smoke plumes for this half
+    for (const s of smokeParticles) {
+      if (s.isFront !== isFront) continue;
+      const p = s.life / s.maxLife;
+      const alpha = Math.sin(p * PI) * 0.22;
+      const rad = s.size * (0.7 + p * 0.9);
+      const grad = ctx.createRadialGradient(s.x, s.y, 1, s.x, s.y, rad);
+      grad.addColorStop(0, `rgba(28, 16, 12, ${alpha})`);
+      grad.addColorStop(1, 'rgba(10, 5, 3, 0)');
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, rad, 0, TAU);
+      ctx.fill();
+    }
+
+    // 3. Render procedural ribbon of continuous fire tongues along the hoop
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+
+    const steps = 44;
+    for (let i = 0; i <= steps; i++) {
+      const f = i / steps;
+      const a = lerp(startAngle, endAngle, f);
+      const bx = RING_X + Math.cos(a) * RING_RX;
+      const by = RING_Y + Math.sin(a) * RING_RY;
+
+      const n1 = noise1D(a * 6 + time * 14);
+      const n2 = noise1D(a * 11 - time * 19);
+      const tongueLen = 22 + (n1 + 1) * 18 + ringSwirlBoost * 16;
+      const tx = bx + n2 * 14 + ringSwirlBoost * 24;
+      const ty = by - tongueLen;
+
+      const grad = ctx.createLinearGradient(bx, by, tx, ty);
+      grad.addColorStop(0, 'rgba(255, 245, 190, 0.45)');
+      grad.addColorStop(0.45, 'rgba(255, 130, 20, 0.32)');
+      grad.addColorStop(1, 'rgba(180, 20, 0, 0)');
+
+      ctx.strokeStyle = grad;
+      ctx.lineWidth = 14 + n1 * 5;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(bx, by);
+      ctx.quadraticCurveTo(bx + n1 * 8, (by + ty) * 0.5, tx, ty);
+      ctx.stroke();
+    }
+
+    // 4. Render individual volumetric fire particles for this half
+    for (const fp of fireParticles) {
+      if (fp.isFront !== isFront) continue;
+      const p = fp.life / fp.maxLife;
+      const invP = 1 - p;
+      const rad = fp.size * (0.35 + Math.sin(p * PI * 0.85) * 0.85);
+
+      // Color shifts from incandescent white-yellow -> vivid orange -> deep crimson
+      let r = 255;
+      let g = Math.floor(clamp(245 - p * 210, 20, 255));
+      let b = Math.floor(clamp(180 - p * 260, 0, 180));
+      let alpha = invP * 0.58;
+
+      const grad = ctx.createRadialGradient(fp.x, fp.y, 0, fp.x, fp.y, rad);
+      grad.addColorStop(0, `rgba(${r}, ${g}, ${b}, ${alpha})`);
+      grad.addColorStop(0.5, `rgba(255, ${Math.floor(g * 0.55)}, 5, ${alpha * 0.6})`);
+      grad.addColorStop(1, 'rgba(160, 15, 0, 0)');
+
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.arc(fp.x, fp.y, rad, 0, TAU);
+      ctx.fill();
+    }
+
+    // 5. Render high-velocity glowing sparks & embers for this half
+    for (const sp of sparkParticles) {
+      if (sp.isFront !== isFront) continue;
+      const p = sp.life / sp.maxLife;
+      const alpha = (1 - p) * 0.95;
+
+      ctx.strokeStyle = sp.colorType === 'gold'
+        ? `rgba(255, 230, 130, ${alpha})`
+        : `rgba(255, 110, 30, ${alpha})`;
+      ctx.lineWidth = sp.size * (1 - p * 0.5);
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(sp.x, sp.y);
+      ctx.lineTo(sp.x - sp.vx * 0.022, sp.y - sp.vy * 0.022);
+      ctx.stroke();
+    }
+
+    ctx.restore();
+    ctx.restore();
+  }
+
+  function drawLion(ctx, pose) {
+    const {
+      u, cx, cy, pitch, headPitch, roarOpen,
+      hipX, hipY, midSpineX, midSpineY, chestX, chestY, headX, headY,
+      hindBackIK, hindFrontIK, foreBackIK, foreFrontIK, time
+    } = pose;
+
+    // Proximity to the Ring of Fire drives dynamic fiery rim lighting on the lion's coat
+    const distToRing = Math.hypot(cx - RING_X, cy - RING_Y);
+    const fireLight = clamp(1 - distToRing / 520, 0, 1);
+
+    ctx.save();
+
+    // 1. Dynamic Ground Shadow beneath the lion
+    const shadowHeightFactor = clamp(1 - (GROUND_Y - cy - 110) / 340, 0.22, 1.0);
+    const shadowGrad = ctx.createRadialGradient(cx, GROUND_Y + 6, 10, cx, GROUND_Y + 6, 155 * shadowHeightFactor);
+    shadowGrad.addColorStop(0, `rgba(0, 0, 0, ${0.72 * shadowHeightFactor})`);
+    shadowGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+    ctx.fillStyle = shadowGrad;
+    ctx.beginPath();
+    ctx.ellipse(cx, GROUND_Y + 6, 155 * shadowHeightFactor, 22 * shadowHeightFactor, 0, 0, TAU);
+    ctx.fill();
+
+    // Helper to draw a sculpted anatomical limb (Upper segment, Lower segment, and Paw)
+    function drawLimb(sx, sy, ik, upperW, kneeW, ankleW, isHind, isBackLayer) {
+      const { jx, jy, ex, ey } = ik;
+
+      // Color palette: Back limbs are darker in shadow; front limbs have rich golden-ochre gradients
+      const baseColor = isBackLayer ? '#6e3a14' : '#c67828';
+      const darkShade = isBackLayer ? '#3d1d08' : '#7a4114';
+      const highlight = isBackLayer ? '#9e561e' : '#f5a842';
+
+      ctx.save();
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+
+      // If hind leg, draw muscular haunch/thigh sweep from hip to stifle/hock
+      const gradUpper = ctx.createLinearGradient(sx, sy, jx, jy);
+      gradUpper.addColorStop(0, baseColor);
+      gradUpper.addColorStop(0.5, highlight);
+      gradUpper.addColorStop(1, darkShade);
+
+      // Upper limb muscle belly
+      const ang1 = Math.atan2(jy - sy, jx - sx);
+      const nx1 = -Math.sin(ang1);
+      const ny1 = Math.cos(ang1);
+
+      ctx.fillStyle = gradUpper;
+      ctx.beginPath();
+      ctx.moveTo(sx + nx1 * upperW, sy + ny1 * upperW);
+      ctx.quadraticCurveTo(
+        (sx + jx) * 0.5 + nx1 * (upperW * 1.15),
+        (sy + jy) * 0.5 + ny1 * (upperW * 1.15),
+        jx + nx1 * kneeW,
+        jy + ny1 * kneeW
+      );
+      ctx.arc(jx, jy, kneeW, ang1 + PI * 0.5, ang1 - PI * 0.5, false);
+      ctx.quadraticCurveTo(
+        (sx + jx) * 0.5 - nx1 * (upperW * 0.85),
+        (sy + jy) * 0.5 - ny1 * (upperW * 0.85),
+        sx - nx1 * (upperW * 0.7),
+        sy - ny1 * (upperW * 0.7)
+      );
+      ctx.closePath();
+      ctx.fill();
+
+      // Lower limb (shin / forearm)
+      const ang2 = Math.atan2(ey - jy, ex - jx);
+      const nx2 = -Math.sin(ang2);
+      const ny2 = Math.cos(ang2);
+
+      const gradLower = ctx.createLinearGradient(jx, jy, ex, ey);
+      gradLower.addColorStop(0, baseColor);
+      gradLower.addColorStop(1, darkShade);
+      ctx.fillStyle = gradLower;
+
+      ctx.beginPath();
+      ctx.moveTo(jx + nx2 * kneeW, jy + ny2 * kneeW);
+      ctx.lineTo(ex + nx2 * ankleW, ey + ny2 * ankleW);
+      ctx.arc(ex, ey, ankleW, ang2 + PI * 0.5, ang2 - PI * 0.5, false);
+      ctx.lineTo(jx - nx2 * kneeW, jy - ny2 * kneeW);
+      ctx.closePath();
+      ctx.fill();
+
+      // Heavy feline paw with articulated toes
+      const pawAngle = clamp(pitch * 0.4, -0.35, 0.45);
+      ctx.save();
+      ctx.translate(ex, ey + 2);
+      ctx.rotate(pawAngle);
+      ctx.fillStyle = isBackLayer ? '#592e0f' : '#b86c22';
+      ctx.beginPath();
+      ctx.ellipse(8, 2, 16, 9, 0.08, 0, TAU);
+      ctx.fill();
+
+      // Paw knuckle separation & warm rim highlight
+      ctx.strokeStyle = isBackLayer ? '#2b1304' : '#5e300c';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(16, -2);
+      ctx.lineTo(22, 4);
+      ctx.moveTo(12, 1);
+      ctx.lineTo(18, 7);
+      ctx.stroke();
+      ctx.restore();
+
+      // Fiery rim highlight along limb edge facing the ring
+      if (!isBackLayer && fireLight > 0.05) {
+        ctx.strokeStyle = `rgba(255, 190, 75, ${0.55 * fireLight})`;
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.moveTo(sx + nx1 * upperW, sy + ny1 * upperW);
+        ctx.lineTo(jx + nx1 * kneeW, jy + ny1 * kneeW);
+        ctx.lineTo(ex + nx2 * ankleW, ey + ny2 * ankleW);
+        ctx.stroke();
+      }
+
+      ctx.restore();
+    }
+
+    // 2. Draw FAR (Back-layer) Hind & Fore Limbs first
+    drawLimb(hipX - 6, hipY + 4, hindBackIK, 28, 14, 9, true, true);
+    drawLimb(chestX - 8, chestY + 10, foreBackIK, 24, 13, 9, false, true);
+
+    // 3. Draw Dynamic Whip-like Lion Tail with dark Tuft
+    ctx.save();
+    const tailBaseX = hipX - Math.cos(pitch) * 18;
+    const tailBaseY = hipY - Math.sin(pitch) * 18 - 6;
+    const tailWave1 = Math.sin(time * 11 - u * TAU * 2) * 26;
+    const tailWave2 = Math.cos(time * 14 - u * TAU * 2) * 34;
+    const tailLift = (u > 0.38 && u < 0.68) ? -25 : 15;
+
+    const tCtrl1X = tailBaseX - 58;
+    const tCtrl1Y = tailBaseY + tailLift + tailWave1;
+    const tCtrl2X = tailBaseX - 110;
+    const tCtrl2Y = tailBaseY + tailLift * 0.6 + tailWave2;
+    const tailTipX = tailBaseX - 148;
+    const tailTipY = tailBaseY + tailLift * 0.8 + tailWave1 * 0.9;
+
+    // Tail shaft
+    ctx.strokeStyle = '#9e581c';
+    ctx.lineWidth = 10;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(tailBaseX, tailBaseY);
+    ctx.bezierCurveTo(tCtrl1X, tCtrl1Y, tCtrl2X, tCtrl2Y, tailTipX, tailTipY);
+    ctx.stroke();
+
+    ctx.strokeStyle = '#d98b32';
+    ctx.lineWidth = 5;
+    ctx.beginPath();
+    ctx.moveTo(tailBaseX, tailBaseY - 2);
+    ctx.bezierCurveTo(tCtrl1X, tCtrl1Y - 2, tCtrl2X, tCtrl2Y - 2, tailTipX, tailTipY - 2);
+    ctx.stroke();
+
+    // Dark lion tail tuft (teardrop brush)
+    const tuftAngle = Math.atan2(tailTipY - tCtrl2Y, tailTipX - tCtrl2X);
+    ctx.save();
+    ctx.translate(tailTipX, tailTipY);
+    ctx.rotate(tuftAngle);
+    ctx.fillStyle = '#241005';
+    ctx.beginPath();
+    ctx.moveTo(-8, 0);
+    ctx.quadraticCurveTo(10, -13, 30, -3);
+    ctx.quadraticCurveTo(38, 0, 30, 5);
+    ctx.quadraticCurveTo(10, 13, -8, 0);
+    ctx.fill();
+    ctx.restore();
+    ctx.restore();
+
+    // 4. Draw Muscular Torso (Pelvis -> Lumbar Spine -> Deep Ribcage)
+    ctx.save();
+    const spineAngle = Math.atan2(chestY - hipY, chestX - hipX);
+    const snx = -Math.sin(spineAngle);
+    const sny = Math.cos(spineAngle);
+
+    // Top dorsal contour points
+    const pTopX = hipX + snx * (-28);
+    const pTopY = hipY + sny * (-28);
+    const mTopX = midSpineX + snx * (-32);
+    const mTopY = midSpineY + sny * (-32);
+    const cTopX = chestX + snx * (-42); // High muscular withers/scapula
+    const cTopY = chestY + sny * (-42);
+
+    // Bottom ventral contour points (tucked waist -> deep chest)
+    const pBotX = hipX + snx * 24;
+    const pBotY = hipY + sny * 24;
+    const mBotX = midSpineX + snx * 22; // Athletic abdominal tuck
+    const mBotY = midSpineY + sny * 22;
+    const cBotX = chestX + snx * 44;   // Deep powerful sternum/ribcage
+    const cBotY = chestY + sny * 44;
+
+    const torsoGrad = ctx.createLinearGradient(
+      midSpineX + snx * (-45), midSpineY + sny * (-45),
+      midSpineX + snx * 48, midSpineY + sny * 48
+    );
+    torsoGrad.addColorStop(0, '#f5aa42');
+    torsoGrad.addColorStop(0.35, '#d4822a');
+    torsoGrad.addColorStop(0.78, '#8f4d16');
+    torsoGrad.addColorStop(1, '#4f2609');
+
+    ctx.fillStyle = torsoGrad;
+    ctx.beginPath();
+    // Rounded rump around hip
+    ctx.moveTo(pBotX, pBotY);
+    ctx.arc(hipX, hipY, 26, spineAngle + PI * 0.5, spineAngle - PI * 0.5, false);
+    // Dorsal line over spine to withers
+    ctx.quadraticCurveTo(mTopX, mTopY, cTopX, cTopY);
+    // Front chest curve
+    ctx.arc(chestX, chestY + 2, 43, spineAngle - PI * 0.5, spineAngle + PI * 0.5, false);
+    // Ventral line from sternum through tucked flank back to pelvis
+    ctx.quadraticCurveTo(mBotX, mBotY, pBotX, pBotY);
+    ctx.closePath();
+    ctx.fill();
+
+    // Subtle ribcage & flank muscular definition shadow
+    ctx.strokeStyle = 'rgba(70, 30, 5, 0.32)';
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.moveTo(chestX - Math.cos(spineAngle) * 28 + snx * (-10), chestY - Math.sin(spineAngle) * 28 + sny * (-10));
+    ctx.quadraticCurveTo(midSpineX + snx * 12, midSpineY + sny * 12, chestX - Math.cos(spineAngle) * 15 + snx * 32, chestY - Math.sin(spineAngle) * 15 + sny * 32);
+    ctx.stroke();
+
+    // Intense fiery rim-light along dorsal back & belly when passing near/through the ring
+    if (fireLight > 0.02) {
+      ctx.strokeStyle = `rgba(255, 200, 85, ${0.75 * fireLight})`;
+      ctx.lineWidth = 3.5;
+      ctx.beginPath();
+      ctx.moveTo(pTopX, pTopY);
+      ctx.quadraticCurveTo(mTopX, mTopY, cTopX, cTopY);
+      ctx.stroke();
+
+      ctx.strokeStyle = `rgba(255, 125, 25, ${0.55 * fireLight})`;
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(cBotX, cBotY);
+      ctx.quadraticCurveTo(mBotX, mBotY, pBotX, pBotY);
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    // 5. Draw NEAR (Front-layer) Hind & Fore Limbs with Scapula/Haunch highlights
+    drawLimb(hipX + 4, hipY + 6, hindFrontIK, 31, 15, 10, true, false);
+    drawLimb(chestX + 6, chestY + 12, foreFrontIK, 26, 14, 10, false, false);
+
+    // 6. Draw Majestic Flowing Mane (Multi-layered dynamic locks reacting to velocity & wind)
+    ctx.save();
+    const maneLayers = 22;
+    // Aerodynamic lag angle based on vertical motion & pitch
+    const windLag = clamp(-pitch * 0.45 + Math.sin(time * 16) * 0.08, -0.45, 0.45);
+
+    for (let i = 0; i < maneLayers; i++) {
+      const frac = i / (maneLayers - 1); // 0 = outer/back locks, 1 = inner/collar locks
+      // Distribute mane locks from chest/shoulder all around neck and crown
+      const spreadAngle = lerp(PI * 0.62, PI * 1.48, frac) + headPitch + windLag * (1 - frac * 0.5);
+      const anchorT = (i % 3) * 0.33;
+      const ax = lerp(chestX + 8, headX - 6, anchorT) + Math.cos(spreadAngle) * 14;
+      const ay = lerp(chestY - 6, headY, anchorT) + Math.sin(spreadAngle) * 18;
+
+      const lockLen = lerp(74, 42, Math.abs(frac - 0.5) * 1.4) + Math.sin(time * 18 + i * 1.7) * 7;
+      const wave = Math.cos(time * 15 + i * 2.1) * 10;
+
+      const tipX = ax + Math.cos(spreadAngle) * lockLen;
+      const tipY = ay + Math.sin(spreadAngle) * lockLen + wave;
+      const ctrlX = (ax + tipX) * 0.5 + Math.sin(spreadAngle) * 16;
+      const ctrlY = (ay + tipY) * 0.5 - Math.cos(spreadAngle) * 16;
+
+      // Rich layered mane palette: deep burnt umber -> mahogany -> golden bronze -> fiery rim tips
+      const isDarkLock = i % 2 === 0;
+      const maneGrad = ctx.createLinearGradient(ax, ay, tipX, tipY);
+      if (isDarkLock) {
+        maneGrad.addColorStop(0, '#1f0b02');
+        maneGrad.addColorStop(0.65, '#3d1806');
+        maneGrad.addColorStop(1, fireLight > 0.2 ? `rgba(215, 95, 20, ${0.9})` : '#5c260b');
+      } else {
+        maneGrad.addColorStop(0, '#361505');
+        maneGrad.addColorStop(0.6, '#6e320e');
+        maneGrad.addColorStop(1, fireLight > 0.15 ? '#ffaa33' : '#a85419');
+      }
+
+      ctx.fillStyle = maneGrad;
+      ctx.beginPath();
+      ctx.moveTo(ax - Math.sin(spreadAngle) * 14, ay + Math.cos(spreadAngle) * 14);
+      ctx.quadraticCurveTo(ctrlX, ctrlY, tipX, tipY);
+      ctx.quadraticCurveTo(
+        (ax + tipX) * 0.5 - Math.sin(spreadAngle) * 6,
+        (ay + tipY) * 0.5 + Math.cos(spreadAngle) * 6,
+        ax + Math.sin(spreadAngle) * 14,
+        ay - Math.cos(spreadAngle) * 14
+      );
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.restore();
+
+    // 7. Draw Sculpted Lion Head, Fierce Roaring Jaw, Fangs & Glowing Amber Eye
+    ctx.save();
+    ctx.translate(headX, headY);
+    ctx.rotate(headPitch);
+
+    // Back of skull / cheek ruff
+    const headGrad = ctx.createLinearGradient(0, -26, 0, 24);
+    headGrad.addColorStop(0, '#f5ab42');
+    headGrad.addColorStop(0.55, '#cf7d24');
+    headGrad.addColorStop(1, '#783e10');
+
+    // Rounded lion ear tucked into mane
+    ctx.fillStyle = '#8c4914';
+    ctx.beginPath();
+    ctx.ellipse(-10, -22, 10, 12, -0.35, 0, TAU);
+    ctx.fill();
+    ctx.fillStyle = '#291003';
+    ctx.beginPath();
+    ctx.ellipse(-9, -21, 5, 7, -0.35, 0, TAU);
+    ctx.fill();
+
+    // Articulated Lower Jaw (pivots open during jump roar)
+    ctx.save();
+    ctx.translate(8, 8);
+    ctx.rotate(roarOpen * 0.52);
+
+    // Inner mouth cavity when roaring
+    if (roarOpen > 0.08) {
+      ctx.fillStyle = '#4a0e0e';
+      ctx.beginPath();
+      ctx.moveTo(0, -6);
+      ctx.lineTo(30, -4);
+      ctx.lineTo(26, 6);
+      ctx.lineTo(0, 6);
+      ctx.closePath();
+      ctx.fill();
+
+      // Lower canine fang
+      ctx.fillStyle = '#fff5e4';
+      ctx.beginPath();
+      ctx.moveTo(23, 2);
+      ctx.lineTo(27, -7);
+      ctx.lineTo(30, 3);
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    // Lower jaw bone & white chin tuft
+    ctx.fillStyle = '#9e5519';
+    ctx.beginPath();
+    ctx.moveTo(-6, -2);
+    ctx.lineTo(32, 0);
+    ctx.quadraticCurveTo(34, 10, 22, 12);
+    ctx.lineTo(-4, 10);
+    ctx.closePath();
+    ctx.fill();
+
+    // Chin fur highlight
+    ctx.fillStyle = '#e0a868';
+    ctx.beginPath();
+    ctx.moveTo(14, 7);
+    ctx.quadraticCurveTo(26, 13, 32, 4);
+    ctx.lineTo(18, 4);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+
+    // Upper Skull, Brow Ridge, and Powerful MuzzleBridge
+    ctx.fillStyle = headGrad;
+    ctx.beginPath();
+    ctx.moveTo(-18, -16);
+    ctx.quadraticCurveTo(2, -26, 18, -18); // Forehead & heavy brow
+    ctx.lineTo(44, -6);                    // Straight noble nasal bridge
+    ctx.quadraticCurveTo(48, 4, 38, 10);   // Upper lip / whisker pad
+    ctx.quadraticCurveTo(18, 12, 4, 6);
+    ctx.lineTo(-18, 10);
+    ctx.closePath();
+    ctx.fill();
+
+    // Upper canine fang visible during roar
+    if (roarOpen > 0.12) {
+      ctx.fillStyle = '#fff8eb';
+      ctx.beginPath();
+      ctx.moveTo(33, 7);
+      ctx.lineTo(36, 17);
+      ctx.lineTo(40, 7);
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    // Dark feline nose leather
+    ctx.fillStyle = '#1f0b04';
+    ctx.beginPath();
+    ctx.moveTo(40, -6);
+    ctx.lineTo(47, -4);
+    ctx.lineTo(43, 3);
+    ctx.closePath();
+    ctx.fill();
+
+    // Fierce glowing amber eye beneath brow ridge
+    ctx.fillStyle = '#1a0902';
+    ctx.beginPath();
+    ctx.ellipse(16, -10, 5.5, 3.8, 0.18, 0, TAU);
+    ctx.fill();
+
+    ctx.fillStyle = '#ffbe2e';
+    ctx.beginPath();
+    ctx.ellipse(16.5, -10, 3.6, 2.4, 0.18, 0, TAU);
+    ctx.fill();
+
+    // Fiery rim-light along nasal bridge and brow
+    if (fireLight > 0.05) {
+      ctx.strokeStyle = `rgba(255, 215, 110, ${0.85 * fireLight})`;
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.moveTo(-6, -22);
+      ctx.quadraticCurveTo(12, -22, 44, -6);
+      ctx.stroke();
+    }
+
+    ctx.restore();
+    ctx.restore();
+  }
+
+  function drawDustAndAtmosphere(ctx, pose, firePulse) {
+    // Ground impact dust puffs illuminated by warm arena & fire light
+    ctx.save();
+    for (const d of dustParticles) {
+      const p = d.life / d.maxLife;
+      const a = (1 - p) * d.alpha;
+      const rad = d.size * (0.5 + p * 0.9);
+      const grad = ctx.createRadialGradient(d.x, d.y, 2, d.x, d.y, rad);
+      grad.addColorStop(0, `rgba(235, 165, 105, ${a})`);
+      grad.addColorStop(0.6, `rgba(140, 85, 48, ${a * 0.5})`);
+      grad.addColorStop(1, 'rgba(40, 20, 10, 0)');
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.arc(d.x, d.y, rad, 0, TAU);
+      ctx.fill();
+    }
+    ctx.restore();
+
+    // Subtle intense radial flare when the lion's chest pierces the exact center of the hoop
+    const distCenter = Math.hypot(pose.cx - RING_X, pose.cy - RING_Y);
+    if (distCenter < 180) {
+      const pierceFactor = Math.pow(1 - distCenter / 180, 2);
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      const flareGrad = ctx.createRadialGradient(RING_X, RING_Y, 10, RING_X, RING_Y, 420);
+      flareGrad.addColorStop(0, `rgba(255, 210, 110, ${0.26 * pierceFactor})`);
+      flareGrad.addColorStop(0.4, `rgba(255, 100, 15, ${0.14 * pierceFactor})`);
+      flareGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+      ctx.fillStyle = flareGrad;
+      ctx.beginPath();
+      ctx.arc(RING_X, RING_Y, 420, 0, TAU);
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+
+  function updateSimulation(dt) {
+    globalTime += dt;
+
+    // Cinematic Time Dilation (Bullet-Time at the exact apex inside the Ring of Fire)
+    // Normal cycle duration ~ 3.7 seconds; slows down smoothly to 0.36x speed while piercing the hoop (u in 0.47..0.58)
+    const apexBell = Math.exp(-Math.pow((cycleU - 0.525) / 0.055, 2));
+    const timeScale = 1.0 - 0.62 * apexBell;
+    const baseCycleSpeed = 0.275;
+
+    lastU = cycleU;
+    cycleU = (cycleU + dt * baseCycleSpeed * timeScale) % 1.0;
+
+    const pose = computeLionPose(cycleU, globalTime);
+
+    // Trigger dynamic events based on cycle milestones
+    // 1. Gallop footfalls & Launch dust
+    if ((lastU < 0.16 && cycleU >= 0.16) || (lastU < 0.31 && cycleU >= 0.31)) {
+      spawnDust(pose.ffX, GROUND_Y, -60, -20, 20, 42);
+      spawnDust(pose.hfX, GROUND_Y, -50, -15, 18, 38);
+    }
+
+    // 2. Explosive Takeoff at u = 0.39
+    if (lastU < 0.39 && cycleU >= 0.39) {
+      cameraShake = Math.max(cameraShake, 7.5);
+      for (let i = 0; i < 14; i++) {
+        spawnDust(625, GROUND_Y, rand(-140, -20), rand(-65, -10), 26, 62);
+      }
+    }
+
+    // 3. Lion piercing the Ring of Fire (u in 0.46 .. 0.60) -> aerodynamic flame drag & spark vortex
+    const inRingWindow = cycleU > 0.45 && cycleU < 0.61;
+    ringSwirlBoost = lerp(ringSwirlBoost, inRingWindow ? 1.0 : 0.0, dt * 8);
+
+    if (inRingWindow) {
+      // Spawn a dramatic shower of sparks pulled forward along the lion's trajectory
+      const sparkBurstCount = Math.floor(140 * dt);
+      for (let i = 0; i < sparkBurstCount; i++) {
+        const a = rand(0, TAU);
+        const sx = RING_X + Math.cos(a) * RING_RX;
+        const sy = RING_Y + Math.sin(a) * RING_RY;
+        const isFront = Math.cos(a) >= -0.05;
+        spawnSpark(
+          sx, sy,
+          rand(180, 460),
+          rand(-140, 110) + (sy - RING_Y) * 0.4,
+          isFront,
+          1.25
+        );
+      }
+    }
+
+    // 4. Heavy Forepaw Touchdown at u = 0.675 & Hindpaw Touchdown at u = 0.72
+    if (lastU < 0.675 && cycleU >= 0.675) {
+      cameraShake = Math.max(cameraShake, 11.5);
+      for (let i = 0; i < 18; i++) {
+        spawnDust(1360, GROUND_Y, rand(30, 175), rand(-75, -12), 28, 68);
+      }
+    }
+    if (lastU < 0.72 && cycleU >= 0.72) {
+      cameraShake = Math.max(cameraShake, 6.0);
+      for (let i = 0; i < 12; i++) {
+        spawnDust(1405, GROUND_Y, rand(20, 130), rand(-55, -10), 22, 52);
+      }
+    }
+
+    cameraShake = Math.max(0, cameraShake - dt * 28);
+
+    // Update Ring Fire Particles
+    for (let i = 0; i < fireParticles.length; i++) {
+      const fp = fireParticles[i];
+      fp.life += dt * (0.75 + 0.25 * timeScale);
+      if (fp.life >= fp.maxLife) {
+        fireParticles[i] = createFireParticle(false);
+        continue;
+      }
+      const swirlX = noise1D(fp.seed + globalTime * 6) * 45 + ringSwirlBoost * 155;
+      fp.x += (fp.vx + swirlX) * dt;
+      fp.y += fp.vy * dt;
+    }
+
+    // Spawn ambient sparks & smoke from the ring continuously
+    if (Math.random() < 0.85) {
+      const a = rand(0, TAU);
+      const isFront = Math.cos(a) >= -0.05;
+      const sx = RING_X + Math.cos(a) * RING_RX;
+      const sy = RING_Y + Math.sin(a) * RING_RY;
+      spawnSpark(sx, sy, rand(-45, 75), rand(-220, -60), isFront, 0.9);
+    }
+    if (Math.random() < 0.45) {
+      const a = rand(-PI * 0.85, -PI * 0.15); // Mostly upper half of ring
+      const isFront = Math.cos(a) >= -0.05;
+      const sx = RING_X + Math.cos(a) * RING_RX;
+      const sy = RING_Y + Math.sin(a) * RING_RY;
+      spawnSmoke(sx, sy - 15, rand(-20, 40) + ringSwirlBoost * 80, rand(-110, -60), isFront);
+    }
+
+    // Update Sparks
+    for (let i = sparkParticles.length - 1; i >= 0; i--) {
+      const sp = sparkParticles[i];
+      sp.life += dt;
+      if (sp.life >= sp.maxLife) {
+        sparkParticles.splice(i, 1);
+        continue;
+      }
+      sp.vy += 180 * dt; // Gravity on heavy embers, countered by thermal updraft
+      sp.vx *= (1 - 0.8 * dt);
+      sp.x += sp.vx * dt;
+      sp.y += sp.vy * dt;
+    }
+
+    // Update Smoke
+    for (let i = smokeParticles.length - 1; i >= 0; i--) {
+      const s = smokeParticles[i];
+      s.life += dt;
+      if (s.life >= s.maxLife) {
+        smokeParticles.splice(i, 1);
+        continue;
+      }
+      s.x += s.vx * dt;
+      s.y += s.vy * dt;
+    }
+
+    // Update Ground Dust
+    for (let i = dustParticles.length - 1; i >= 0; i--) {
+      const d = dustParticles[i];
+      d.life += dt;
+      if (d.life >= d.maxLife) {
+        dustParticles.splice(i, 1);
+        continue;
+      }
+      d.vx *= (1 - 2.2 * dt);
+      d.vy += 28 * dt;
+      d.x += d.vx * dt;
+      d.y += d.vy * dt;
+    }
+
+    // Update Background Bokeh
+    for (const b of bokehNodes) {
+      b.x += b.speedX * dt;
+      b.y += b.speedY * dt;
+      if (b.x < -50) b.x = VW + 50;
+      if (b.y < 40) b.y = GROUND_Y;
+      if (b.y > GROUND_Y + 30) b.y = 60;
+    }
+
+    return pose;
+  }
+
+  let lastFrameTime = performance.now();
+
+  function renderFrame(now) {
+    const rawDt = Math.min((now - lastFrameTime) / 1000, 0.05);
+    lastFrameTime = now;
+
+    const pose = updateSimulation(rawDt);
+    const firePulse = 0.5 + 0.5 * noise1D(globalTime * 4.5) + ringSwirlBoost * 0.45;
+
+    ctx.save();
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    // Clear outer letterbox/frame
+    ctx.fillStyle = '#040201';
+    ctx.fillRect(0, 0, width, height);
+
+    // Compute responsive uniform cover/contain hybrid transform so the 1920x1080 stage fills the window dramatically
+    const scaleX = width / VW;
+    const scaleY = height / VH;
+    const baseScale = Math.max(scaleX, scaleY * 0.92);
+
+    // Cinematic Virtual Camera Tracking:
+    // Gently pans horizontally with the lion while keeping the Ring of Fire anchored near center,
+    // and zooms in subtly during the mid-air apex through the flames.
+    const apexFocus = Math.exp(-Math.pow((cycleU - 0.525) / 0.11, 2));
+    const camZoom = 1.0 + apexFocus * 0.085;
+    const trackedLionX = clamp(pose.cx, 560, 1360);
+    const camTargetX = lerp(RING_X, trackedLionX, 0.22);
+    const camTargetY = lerp(VH * 0.5, RING_Y + 25, apexFocus * 0.35);
+
+    const shakeX = (Math.random() - 0.5) * cameraShake * 1.8;
+    const shakeY = (Math.random() - 0.5) * cameraShake * 1.8;
+
+    ctx.translate(width * 0.5 + shakeX, height * 0.5 + shakeY);
+    ctx.scale(baseScale * camZoom, baseScale * camZoom);
+    ctx.translate(-camTargetX, -camTargetY);
+
+    // LAYER 1: Nocturnal Arena Background, Spotlights, Ground & Pedestal Stand
+    drawBackground(ctx, globalTime, firePulse);
+
+    // LAYER 2: Back Half of the 3D Ring of Fire (behind the leaping lion)
+    drawRingHalf(ctx, false, globalTime, firePulse);
+
+    // LAYER 3: The Articulated Male Lion (passes cleanly between back and front halves of the hoop)
+    drawLion(ctx, pose);
+
+    // LAYER 4: Front Half of the 3D Ring of Fire (occludes the lion's body as it passes through)
+    drawRingHalf(ctx, true, globalTime, firePulse);
+
+    // LAYER 5: Illuminated Ground Dust & Piercing Light Flare
+    drawDustAndAtmosphere(ctx, pose, firePulse);
+
+    ctx.restore();
+
+    // Screen-space Cinematic Vignette
+    ctx.save();
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const vigGrad = ctx.createRadialGradient(
+      width * 0.5, height * 0.5, Math.min(width, height) * 0.32,
+      width * 0.5, height * 0.5, Math.hypot(width, height) * 0.58
+    );
+    vigGrad.addColorStop(0, 'rgba(0, 0, 0, 0)');
+    vigGrad.addColorStop(0.75, 'rgba(4, 1, 0, 0.35)');
+    vigGrad.addColorStop(1, 'rgba(2, 0, 0, 0.82)');
+    ctx.fillStyle = vigGrad;
+    ctx.fillRect(0, 0, width, height);
+    ctx.restore();
+
+    requestAnimationFrame(renderFrame);
+  }
+
+  window.onload = () => {
+    lastFrameTime = performance.now();
+    requestAnimationFrame(renderFrame);
+  };
+})();
+</script>
+<!--zc-home:start--><style>.zc-home-btn{position:fixed;top:16px;left:16px;z-index:2147483647;display:inline-flex;align-items:center;gap:6px;padding:8px 14px;font:500 13px/1.1 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Noto Sans SC",sans-serif;color:#111;background:rgba(255,255,255,.86);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);border:1px solid rgba(0,0,0,.08);border-radius:999px;text-decoration:none;box-shadow:0 2px 12px rgba(0,0,0,.2);transition:background .2s ease,transform .2s ease,box-shadow .2s ease}.zc-home-btn:hover{background:#fff;transform:translateY(-1px);box-shadow:0 4px 18px rgba(0,0,0,.26)}</style><a class="zc-home-btn" href="../">← 返回首页</a><!--zc-home:end-->
+</body>
+</html>
