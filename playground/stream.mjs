@@ -80,6 +80,9 @@ export async function readChatStream(response, onText) {
     parser.feed(decoder.decode());
     parser.flush();
   } finally {
+    // A valid [DONE] may arrive before the network connection closes.
+    // Cancel the reader so providers cannot continue streaming needlessly.
+    if (finished) await reader.cancel().catch(() => {});
     parser.stop();
     reader.releaseLock();
   }
