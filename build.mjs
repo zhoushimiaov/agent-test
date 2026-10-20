@@ -527,7 +527,7 @@ ${JEV_ENDPOINT ? `
       <div class="pg-pane-h"><span>Jev 评分 Scoring</span>
         <span class="tag">TypeSafe · System One</span>
       </div>
-      <p class="pg-sec">跑出结果后,可用 <strong>TypeSafe Jev</strong> 按本站同一套评审规则给它打分(满分 100)。可用本站的免费额度(<strong>每人 3 次</strong>),也可以填你自己的 Jev Key(不计次)。评分在服务端进行:把渲染截图的中立描述 + 源代码一起交给 Jev。</p>
+      <p class="pg-sec">跑出结果后，可用 <strong>TypeSafe Jev</strong> 按相同维度打分（满分 100）。可用本站每日免费额度或自己的 Jev Key。<strong>默认仅分析 HTML 源代码</strong>，不等同于实际画面评分；如果服务端启用了截图，结果会明确标注“单帧截图描述 + 代码”，不能全面判断动画。自有 Jev Key 仅支持代码评分。</p>
       <div class="pg-row">
         <label class="chk"><input type="radio" name="pg-jevmode" id="pg-jev-ours" value="ours" checked> 用本站额度(每人 3 次)</label>
         <label class="chk"><input type="radio" name="pg-jevmode" id="pg-jev-own" value="own"> 用我自己的 Jev Key</label>
@@ -552,7 +552,7 @@ ${JEV_ENDPOINT ? `
 
   <script id="zoo-prompts" type="application/json">${promptsJson}</script>
   <script>window.ZOO_JEV_ENDPOINT=${JSON.stringify(JEV_ENDPOINT)};</script>
-  <script src="playground.js"></script>
+  <script type="module" src="playground.js"></script>
 </body>
 </html>
 `;
