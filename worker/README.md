@@ -7,9 +7,9 @@ Cloudflare Worker 使用服务器端 Jev Secret 评分，用户也可提供自�
 ## 一、功能与安全边界
 
 - **代码评分**：`USE_SCREENSHOT=0`，默认模式。Jev 只能看到生成的 HTML 源码片段，**不等于**对最终视觉质量的真实评分。
-- **截图辅助评分**：`USE_SCREENSHOT=1`，需要 Cloudflare Browser Rendering + 视觉模型密钥。会在隔离浏览器中加载 HTML；只放行 `https://cdnjs.cloudflare.com`、`https://cdn.jsdelivr.net`、`https://unpkg.com`、Google Fonts 资源，其他 HTTP(S) 请求拦截。页面错误时降级到代码评分，并通过 `hadScreenshot` 标明实际模式。上线前必须完成恶意 HTML 与浏览器资源测试。
+- **截图辅助评分**：`USE_SCREENSHOT=1`，需要 Cloudflare Browser Rendering + 视觉模型密钥。会在隔离浏览器中加载 HTML；通过请求拦截和 `connect-src 'none'` CSP 阻断任意连接，并只放行 `https://cdnjs.cloudflare.com`、`https://cdn.jsdelivr.net`、`https://unpkg.com`、Google Fonts 资源，其他 HTTP(S) 请求拦截。页面错误时降级到代码评分，并通过 `hadScreenshot` 标明实际模式。上线前必须完成恶意 HTML 与浏览器资源测试。
 - **共享 Jev Key**：仅存于 Worker Secret，不能写入仓库或浏览器。无配额绑定或配额服务异常时**拒绝共享 Key 调用**，不会无限放行。
-- **用户自己的 Jev Key**：由浏览器直接提交到此 Worker 再发往 TypeSafe，不消耗共享配额；这个 Key 仍会经过 Worker。模型调用 API Key 则只发往用户指定的模型提供方，**不要混淆两种密钥**。
+- **用户自己的 Jev Key**：由浏览器直接提交到此 Worker 再发往 TypeSafe，不消耗共享配额；这个 Key 仍会经过 Worker。为了避免用户绕过本站配额消耗我们的视觉模型费用，**BYOK 模式仅做代码评分，不使用本站截图／视觉服务**。模型调用 API Key 则只发往用户指定的模型提供方，**不要混淆两种密钥**。
 - **CORS** 只限制浏览器跨域读取，不是身份鉴权。无 Origin 的请求及伪造客户端仍可到达 Worker；实际成本保护依赖配额和总预算，也应配置 Cloudflare Rate Limiting／WAF。
 
 ## 二、部署前准备
