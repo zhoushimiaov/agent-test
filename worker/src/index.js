@@ -47,9 +47,9 @@ export default {
     if (!body || typeof body !== "object" || Array.isArray(body)) {
       return json({ error: "body must be an object" }, 400, cors);
     }
-    const code = String(body.code || "").trim();
-    const slug = String(body.slug || "").trim();
-    const prompt = String(body.prompt || "").trim();
+    const code = typeof body.code === "string" ? body.code.trim() : "";
+    const slug = typeof body.slug === "string" ? body.slug.trim().slice(0, 80) : "";
+    const prompt = typeof body.prompt === "string" ? body.prompt.trim().slice(0, 4000) : "";
     const ownKey = typeof body.jevKey === "string" ? body.jevKey.trim() : "";
     if (!code) return json({ error: "缺少要评分的 HTML(code)。" }, 400, cors);
     if (code.length > 400000) return json({ error: "HTML 太大,无法评分。" }, 413, cors);
@@ -83,7 +83,9 @@ export default {
 
     // Optional: render + caption so Jev sees the actual picture (方案 b).
     let depiction = "", rendering = "web page (HTML/CSS/JS)", hadScreenshot = false;
-    if (String(env.USE_SCREENSHOT || "") === "1" && env.BROWSER && env.VISION_API_KEY) {
+    // The vision API uses our billing account. BYOK Jev requests must not
+    // bypass the shared quota and still consume our paid vision resources.
+    if (useOurKey && String(env.USE_SCREENSHOT || "") === "1" && env.BROWSER && env.VISION_API_KEY) {
       try {
         const shot = await screenshot(env, code);
         depiction = await caption(env, shot, prompt || slug);
