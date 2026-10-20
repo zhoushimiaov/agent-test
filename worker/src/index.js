@@ -4,21 +4,23 @@
 // "our shared Jev key, 3 free scores per visitor" safely (an embedded key
 // leaks instantly; a localStorage counter is trivially reset), and TypeSafe's
 // API is region/CORS-blocked from the browser anyway. This Worker holds the
-// Jev key as a secret, enforces a per-visitor quota in KV, and proxies the
+// Jev key as a secret, enforces atomic per-visitor and global quotas via Durable Objects, and proxies the
 // call — and optionally renders the user's HTML to a screenshot (Cloudflare
 // Browser Rendering) and captions it with a vision model so Jev (text-only)
 // has a faithful depiction of the result (方案 b) alongside the source (方案 c).
 //
 // Bindings / vars (see wrangler.toml):
 //   secret TYPESAFE_API_KEY   our Jev key (ROTATE the exposed one first)
-//   KV     QUOTA               per-visitor free-use counter
+//   DO     QUOTA_LIMITER       per-visitor and global free-use counter
 //   var    FREE_LIMIT          free scores per visitor per day (default 3)
+//   var    GLOBAL_DAILY_LIMIT  sitewide free calls per UTC day (default 100)
 //   var    ALLOWED_ORIGINS     comma-separated allowed browser origins
 //   var    USE_SCREENSHOT      "1" to render+caption (needs BROWSER + vision)
 //   browser BROWSER            Cloudflare Browser Rendering (Workers Paid)
 //   secret VISION_API_KEY / var VISION_BASE_URL / var VISION_MODEL  caption model
 import puppeteer from "@cloudflare/puppeteer";
 import { getRubric } from "./rubrics.js";
+import { normalizeJevResponse } from "./score.js";
 
 const JEV_URL = "https://api.typesafe.ai/v1/systemone";
 const DEFAULT_ORIGINS = "https://agentest.shimiao.work,http://localhost:8080,http://127.0.0.1:8080";
@@ -98,7 +100,8 @@ export default {
     try {
       const scored = await scoreWithJev({ key, slug, prompt, code, depiction, rendering });
       if (reservation) await finalizeQuota(env, reservation).catch(() => {});
-      return json({ ...scored, usedOurKey: useOurKey, remaining, hadScreenshot }, 200, cors);
+      return json({ ...scored, usedOurKey: useOurKey, remaining, hadScreenshot,
+        sourceTruncated: code.length > 60000 }, 200, cors);
     } catch (e) {
       if (reservation) await refundQuota(env, reservation).catch(() => {});
       return json({ error: "Jev 评分失败:" + String(e.message || e) }, 502, cors);
@@ -281,23 +284,7 @@ async function scoreWithJev({ key, slug, prompt, code, depiction, rendering }) {
   };
   const r = await jevCall(key, { model: "jev-latest", state, questions });
 
-  const dims = {};
-  let total = 0;
-  for (const [k, d] of Object.entries(rubric.dims)) {
-    const a = r.answers?.[k];
-    if (!a) throw new Error("Jev 返回缺少维度 " + k);
-    const maxLevel = d.criteria.length - 1;
-    const frac = a.score / maxLevel;
-    dims[k] = { score: +Number(a.score).toFixed(2), confidence: +Number(a.confidence ?? 0).toFixed(2), frac: +frac.toFixed(3) };
-    total += d.weight * frac;
-  }
-  return {
-    total: Math.round(total),
-    dims,
-    dimLabels: rubric.dimLabels,
-    weights: Object.fromEntries(Object.entries(rubric.dims).map(([k, d]) => [k, d.weight])),
-    jev: r.model || "jev",
-  };
+  return normalizeJevResponse(r, rubric);
 }
 async function jevCall(key, payload) {
   for (let attempt = 0; attempt < 4; attempt++) {
