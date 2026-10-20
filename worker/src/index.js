@@ -218,9 +218,9 @@ async function screenshot(env, code) {
       "font-src data: https://fonts.gstatic.com; " +
       "connect-src 'none'; form-action 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'";
     const meta = '<meta http-equiv="Content-Security-Policy" content="' + policy + '">';
-    const guarded = /<head[\\s>]/i.test(code)
+    const guarded = /<head[\s>]/i.test(code)
       ? code.replace(/<head[^>]*>/i, (match) => match + meta)
-      : /<html[\\s>]/i.test(code)
+      : /<html[\s>]/i.test(code)
         ? code.replace(/<html[^>]*>/i, (match) => match + "<head>" + meta + "</head>")
         : meta + code;
     await page.setContent(guarded, { waitUntil: "domcontentloaded", timeout: 12000 });
