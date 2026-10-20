@@ -18,7 +18,7 @@
   <section class="hero sub">
     <div class="crumb"><a href="../">首页</a> &nbsp;/&nbsp; 测试你的大模型</div>
     <h1>测试你的<em>大模型</em></h1>
-    <p class="lede">填入任意 OpenAI 兼容接口(Base URL + Key + 模型名),选一道题或自己写,浏览器直接让你的模型跑同样的命题并实时渲染结果。密钥只存在你本地浏览器、只发往你自己填写的接口,不经过本站任何服务器。</p>
+    <p class="lede">填入任意 OpenAI 兼容接口(Base URL + Key + 模型名),选一道题或自己写,浏览器直接让你的模型跑同样的命题并实时渲染结果。模型 API Key 只保留在当前页面内存、只发往你填写的接口，不写入本地持久存储。</p>
   </section>
 
   <main class="pg">
@@ -31,10 +31,10 @@
         <span class="pg-key"><input id="pg-keyin" type="password" placeholder="sk-..." autocomplete="off" spellcheck="false"><button id="pg-eye" type="button" title="显示 / 隐藏">显示</button></span>
       </label>
       <div class="pg-row">
-        <label class="chk"><input id="pg-remember" type="checkbox"> 记住配置(仅存本地浏览器)</label>
+        <label class="chk"><input id="pg-remember" type="checkbox"> 记住地址与模型（不保存 API Key）</label>
         <button id="pg-forget" type="button" class="pg-ghost">忘记密钥</button>
       </div>
-      <p class="pg-sec">🔒 密钥仅保存在本机 <code>localStorage</code>,请求由你的浏览器直连你填写的接口;本站是纯静态页面,不收集、不转发密钥或数据。仅能连接<strong>开放跨域(CORS)</strong>的接口;本地服务(如 Ollama)需自行开启 CORS。</p>
+      <p class="pg-sec">🔒 模型 API Key 仅保存在当前页面内存，刷新即清除；绝不写入 <code>localStorage</code>。请求由你的浏览器直连所填写接口，本站不接收模型 API Key。仅能连接<strong>开放跨域(CORS)</strong>的接口;本地服务(如 Ollama)需自行开启 CORS。</p>
     </div>
 
     <div class="pg-card">
