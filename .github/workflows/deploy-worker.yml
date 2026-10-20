@@ -1,0 +1,71 @@
+name: Deploy Cloudflare Worker
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "worker/**"
+      - ".github/workflows/deploy-worker.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloudflare-worker-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: worker/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+        working-directory: worker
+
+      - name: Verify worker tests and syntax
+        run: |
+          node --check src/index.js
+          node --check src/quota.js
+          node --check src/rubrics.js
+          node --check src/score.js
+          node --test test/*.test.mjs
+        working-directory: worker
+
+      - name: Verify deployment credentials
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          if [[ -z "$CLOUDFLARE_API_TOKEN" || -z "$CLOUDFLARE_ACCOUNT_ID" ]]; then
+            echo "::error::Set CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID repository secrets to deploy."
+            exit 1
+          fi
+
+      - name: Deploy zoo-jev with Wrangler
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        working-directory: worker
+        run: npx wrangler deploy
+
+      - name: Verify production Worker CORS preflight
+        run: |
+          for i in {1..6}; do
+            code=$(curl -sS -o /dev/null -w "%{http_code}" -X OPTIONS "https://zoo-jev.zhoushimiao.workers.dev/score" -H "Origin: https://agentest.shimiao.work" -H "Access-Control-Request-Method: POST") || true
+            if [[ "$code" == "204" ]]; then
+              echo "Worker preflight OK: HTTP 204"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "::error::Worker preflight smoke check failed."
+          exit 1
