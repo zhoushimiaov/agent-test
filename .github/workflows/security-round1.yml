@@ -1,0 +1,29 @@
+name: Security Round 1 Checks
+
+on:
+  push:
+    branches:
+      - "fix/security-round1-20261020"
+  pull_request:
+
+jobs:
+  review-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Check JS syntax
+        run: |
+          node --check build.mjs
+          node --check playground/playground.js
+          node --check worker/src/index.js
+          node --check worker/src/quota.js
+          node --check worker/src/rubrics.js
+      - name: Test atomic quota behavior
+        run: node --test worker/test/quota.test.mjs
+      - name: Verify generated pages are in sync
+        run: |
+          node build.mjs
+          git diff --exit-code -- index.html playground/index.html */index.html
