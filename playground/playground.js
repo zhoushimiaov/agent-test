@@ -1,6 +1,6 @@
 // 测试你的大模型 — fully client-side tester for OpenAI-compatible endpoints.
 // The browser calls the user's own endpoint directly; the key is kept only in
-// localStorage (opt-in) and the model output is rendered in a sandboxed iframe
+// memory only; optional non-secret configuration can be saved to localStorage. Output is rendered in a sandboxed iframe
 // (sandbox="allow-scripts", NO allow-same-origin) so it can never read the key.
 (() => {
   "use strict";
@@ -19,24 +19,39 @@
   const prompts = JSON.parse($("zoo-prompts").textContent || "[]");
 
   // ---- config persistence (browser only) ----
+  // API keys are NEVER persisted. Strip keys saved by older versions at startup.
   function loadCfg() {
-    let c = {};
-    try { c = JSON.parse(localStorage.getItem(LS) || "{}"); } catch (_) {}
-    el.base.value = c.base || "";
-    el.model.value = c.model || "";
-    el.key.value = c.key || "";
-    el.remember.checked = !!c.remember;
+    let cfg = {};
+    try {
+      cfg = JSON.parse(localStorage.getItem(LS) || "{}") || {};
+      if (Object.prototype.hasOwnProperty.call(cfg, "key")) {
+        localStorage.removeItem(LS);
+        if (cfg.remember) localStorage.setItem(LS, JSON.stringify({
+          base: cfg.base || "", model: cfg.model || "", remember: true,
+        }));
+      }
+    } catch (_) { cfg = {}; }
+    el.base.value = cfg.base || "";
+    el.model.value = cfg.model || "";
+    el.key.value = "";
+    el.remember.checked = !!cfg.remember;
   }
   function saveCfg() {
-    const base = { base: el.base.value.trim(), model: el.model.value.trim(), remember: el.remember.checked };
-    if (el.remember.checked) base.key = el.key.value;
-    localStorage.setItem(LS, JSON.stringify(base));
+    try {
+      if (el.remember.checked) {
+        localStorage.setItem(LS, JSON.stringify({
+          base: el.base.value.trim(), model: el.model.value.trim(), remember: true,
+        }));
+      } else {
+        localStorage.removeItem(LS);
+      }
+    } catch (_) { /* localStorage may be unavailable; no secrets are stored */ }
   }
   function forgetKey() {
     el.key.value = "";
-    localStorage.setItem(LS, JSON.stringify({ base: el.base.value.trim(), model: el.model.value.trim(), remember: false }));
     el.remember.checked = false;
-    setStatus("已清除本地保存的密钥。", "ok");
+    try { localStorage.removeItem(LS); } catch (_) {}
+    setStatus("已清除当前密钥和本地配置。", "ok");
   }
 
   // ---- prompt picker ----
@@ -92,9 +107,21 @@
     setTimeout(() => URL.revokeObjectURL(a.href), 2000);
   }
   function openTab() {
-    const url = URL.createObjectURL(new Blob([lastHtml], { type: "text/html" }));
-    window.open(url, "_blank");
-    setTimeout(() => URL.revokeObjectURL(url), 10000);
+    if (!lastHtml) return;
+    // Never open untrusted HTML as a same-origin top-level blob: page scripts
+    // would inherit our origin. Only a trusted shell may hold the sandbox.
+    const tab = window.open("preview.html", "_blank");
+    if (!tab) return setStatus("浏览器阻止了新窗口，请允许弹出窗口后重试。", "err");
+    const html = lastHtml;
+    const onReady = (event) => {
+      if (event.origin !== location.origin || event.source !== tab ||
+          event.data?.type !== "agent-test-preview-ready") return;
+      window.removeEventListener("message", onReady);
+      tab.postMessage({ type: "agent-test-preview", html }, location.origin);
+    };
+    window.addEventListener("message", onReady);
+    // Clean up when popups are closed or fail to load.
+    setTimeout(() => window.removeEventListener("message", onReady), 15000);
   }
 
   // ---- run ----
@@ -248,6 +275,7 @@
     el.eye.textContent = show ? "隐藏" : "显示";
   });
   ["base", "model"].forEach((k) => el[k].addEventListener("change", saveCfg));
+  el.remember.addEventListener("change", saveCfg);
   if (el.score) {
     el.score.addEventListener("click", scoreWithJev);
     const toggleKey = () => { el.jevKeyWrap.style.display = el.jevOwn.checked ? "" : "none"; };
