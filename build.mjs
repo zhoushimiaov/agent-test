@@ -335,7 +335,7 @@ ${FONTS}
     <p class="lede">用一组经典、直观的任务,横向对比不同大模型与 Agent 的实际输出。每个大类下按模型版本归档,点进去即是可交互的在线效果。</p>
     <div class="hero-cta">
       <a class="btn-primary" href="playground/">🧪 测试你自己的大模型</a>
-      <span class="cta-note">填入你的 API,在浏览器里跑同一道题 · 密钥只留本地</span>
+      <span class="cta-note">填入你的 API,在浏览器里跑同一道题 · 不持久保存密钥</span>
     </div>
   </section>
 
@@ -357,7 +357,7 @@ ${cards}
 }
 
 // ---- category page ----
-function verCard(v, i, score, dimLabels) {
+function verCard(v, i, score, dimLabels, catSlug) {
   let rank = "", badge = "", dims = "";
   if (score) {
     const cls = score.total >= 85 ? " hi" : score.total < 50 ? " lo" : "";
@@ -375,7 +375,7 @@ function verCard(v, i, score, dimLabels) {
       .join("")}</div>`;
   }
   const idx = score ? "" : `<div class="idx">${pad2(i + 1)}</div>`;
-  return `    <a class="ver" href="${v.slug}.html">
+  return `    <a class="ver" href="../viewer/?category=${catSlug}&amp;model=${v.slug}">
       <div class="shot">${rank}${badge}<img src="thumbs/${v.slug}.webp" alt="${v.name} ${v.sub} 预览" loading="lazy" decoding="async" onload="this.classList.add('loaded')"></div>
       <div class="meta">
         ${idx}<div class="txt"><h3>${v.name}</h3><p>${v.sub}</p></div>
@@ -410,7 +410,7 @@ function renderCategory(cat) {
     ? `  <div class="label"><span>${scores ? "Jev 排行" : "模型版本"}</span><b>${scores ? "Leaderboard" : "Versions"}</b><i></i></div>${note}
 
   <div class="grid">
-${ordered.map((v, i) => verCard(v, i, scores?.by[v.slug], dimLabels)).join("\n")}
+${ordered.map((v, i) => verCard(v, i, scores?.by[v.slug], dimLabels, cat.slug)).join("\n")}
   </div>`
     : `  <section class="empty">
     <div class="box">
@@ -461,7 +461,7 @@ ${body}
 // A fully client-side tester: the user supplies an OpenAI-compatible Base URL +
 // Key + model, picks a preset prompt (or writes one), and the browser calls
 // their endpoint directly and renders the returned HTML in a sandboxed iframe.
-// The key never leaves the browser. Logic lives in the hand-written
+// The model API key never goes to our server. Logic lives in the hand-written
 // playground/playground.js; this only emits the shell + embeds the prompts.
 function renderPlayground() {
   const promptsJson = JSON.stringify(PRESET_PROMPTS).replace(/</g, "\\u003c");
@@ -483,7 +483,7 @@ ${FONTS}
   <section class="hero sub">
     <div class="crumb"><a href="../">首页</a> &nbsp;/&nbsp; 测试你的大模型</div>
     <h1>测试你的<em>大模型</em></h1>
-    <p class="lede">填入任意 OpenAI 兼容接口(Base URL + Key + 模型名),选一道题或自己写,浏览器直接让你的模型跑同样的命题并实时渲染结果。密钥只存在你本地浏览器、只发往你自己填写的接口,不经过本站任何服务器。</p>
+    <p class="lede">填入任意 OpenAI 兼容接口(Base URL + Key + 模型名),选一道题或自己写,浏览器直接让你的模型跑同样的命题并实时渲染结果。模型 API Key 只保留在当前页面内存、只发往你填写的接口，不写入本地持久存储。</p>
   </section>
 
   <main class="pg">
@@ -496,10 +496,10 @@ ${FONTS}
         <span class="pg-key"><input id="pg-keyin" type="password" placeholder="sk-..." autocomplete="off" spellcheck="false"><button id="pg-eye" type="button" title="显示 / 隐藏">显示</button></span>
       </label>
       <div class="pg-row">
-        <label class="chk"><input id="pg-remember" type="checkbox"> 记住配置(仅存本地浏览器)</label>
+        <label class="chk"><input id="pg-remember" type="checkbox"> 记住地址与模型（不保存 API Key）</label>
         <button id="pg-forget" type="button" class="pg-ghost">忘记密钥</button>
       </div>
-      <p class="pg-sec">🔒 密钥仅保存在本机 <code>localStorage</code>,请求由你的浏览器直连你填写的接口;本站是纯静态页面,不收集、不转发密钥或数据。仅能连接<strong>开放跨域(CORS)</strong>的接口;本地服务(如 Ollama)需自行开启 CORS。</p>
+      <p class="pg-sec">🔒 模型 API Key 仅保存在当前页面内存，刷新即清除；绝不写入 <code>localStorage</code>。请求由你的浏览器直连所填写接口，本站不接收模型 API Key。仅能连接<strong>开放跨域(CORS)</strong>的接口;本地服务(如 Ollama)需自行开启 CORS。</p>
     </div>
 
     <div class="pg-card">
@@ -527,7 +527,7 @@ ${JEV_ENDPOINT ? `
       <div class="pg-pane-h"><span>Jev 评分 Scoring</span>
         <span class="tag">TypeSafe · System One</span>
       </div>
-      <p class="pg-sec">跑出结果后,可用 <strong>TypeSafe Jev</strong> 按本站同一套评审规则给它打分(满分 100)。可用本站的免费额度(<strong>每人 3 次</strong>),也可以填你自己的 Jev Key(不计次)。评分在服务端进行:把渲染截图的中立描述 + 源代码一起交给 Jev。</p>
+      <p class="pg-sec">跑出结果后，可用 <strong>TypeSafe Jev</strong> 按相同维度打分（满分 100）。可用本站每日免费额度或自己的 Jev Key。<strong>默认仅分析 HTML 源代码</strong>，不等同于实际画面评分；如果服务端启用了截图，结果会明确标注“单帧截图描述 + 代码”，不能全面判断动画。自有 Jev Key 仅支持代码评分。</p>
       <div class="pg-row">
         <label class="chk"><input type="radio" name="pg-jevmode" id="pg-jev-ours" value="ours" checked> 用本站额度(每人 3 次)</label>
         <label class="chk"><input type="radio" name="pg-jevmode" id="pg-jev-own" value="own"> 用我自己的 Jev Key</label>
@@ -552,7 +552,7 @@ ${JEV_ENDPOINT ? `
 
   <script id="zoo-prompts" type="application/json">${promptsJson}</script>
   <script>window.ZOO_JEV_ENDPOINT=${JSON.stringify(JEV_ENDPOINT)};</script>
-  <script src="playground.js"></script>
+  <script type="module" src="playground.js"></script>
 </body>
 </html>
 `;

@@ -4,56 +4,90 @@
 // "our shared Jev key, 3 free scores per visitor" safely (an embedded key
 // leaks instantly; a localStorage counter is trivially reset), and TypeSafe's
 // API is region/CORS-blocked from the browser anyway. This Worker holds the
-// Jev key as a secret, enforces a per-visitor quota in KV, and proxies the
+// Jev key as a secret, enforces atomic per-visitor and global quotas via Durable Objects, and proxies the
 // call — and optionally renders the user's HTML to a screenshot (Cloudflare
 // Browser Rendering) and captions it with a vision model so Jev (text-only)
 // has a faithful depiction of the result (方案 b) alongside the source (方案 c).
 //
 // Bindings / vars (see wrangler.toml):
 //   secret TYPESAFE_API_KEY   our Jev key (ROTATE the exposed one first)
-//   KV     QUOTA               per-visitor free-use counter
+//   DO     QUOTA_LIMITER       per-visitor and global free-use counter
 //   var    FREE_LIMIT          free scores per visitor per day (default 3)
+//   var    GLOBAL_DAILY_LIMIT  sitewide free calls per UTC day (default 100)
 //   var    ALLOWED_ORIGINS     comma-separated allowed browser origins
 //   var    USE_SCREENSHOT      "1" to render+caption (needs BROWSER + vision)
 //   browser BROWSER            Cloudflare Browser Rendering (Workers Paid)
 //   secret VISION_API_KEY / var VISION_BASE_URL / var VISION_MODEL  caption model
 import puppeteer from "@cloudflare/puppeteer";
 import { getRubric } from "./rubrics.js";
+import { normalizeJevResponse } from "./score.js";
 
 const JEV_URL = "https://api.typesafe.ai/v1/systemone";
 const DEFAULT_ORIGINS = "https://agentest.shimiao.work,http://localhost:8080,http://127.0.0.1:8080";
+const MAX_REQUEST_BYTES = 1_600_000;
+// Only known public CDNs are reachable by the untrusted screenshot page.
+// No arbitrary web hosts, private IPs, localhost, or plain HTTP.
+const SCREENSHOT_HOSTS = new Set([
+  "cdnjs.cloudflare.com", "cdn.jsdelivr.net", "unpkg.com",
+  "fonts.googleapis.com", "fonts.gstatic.com",
+]);
 
 export default {
   async fetch(request, env) {
     const origin = request.headers.get("Origin") || "";
     const cors = corsHeaders(origin, env);
+    // Origin is browser isolation only, NOT authentication for non-browser clients.
+    if (origin && !allowedOrigin(origin, env)) {
+      return json({ error: "Origin not allowed" }, 403, {});
+    }
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
     if (request.method !== "POST") return json({ error: "POST only" }, 405, cors);
 
     let body;
-    try { body = await request.json(); } catch { return json({ error: "invalid JSON body" }, 400, cors); }
-    const code = String(body.code || "").trim();
-    const slug = String(body.slug || "").trim();
-    const prompt = String(body.prompt || "").trim();
+    try { body = await readJsonBounded(request); }
+    catch (e) { return json({ error: e.message || "invalid JSON body" }, e.status || 400, cors); }
+    if (!body || typeof body !== "object" || Array.isArray(body)) {
+      return json({ error: "body must be an object" }, 400, cors);
+    }
+    const code = typeof body.code === "string" ? body.code.trim() : "";
+    const slug = typeof body.slug === "string" ? body.slug.trim().slice(0, 80) : "";
+    const prompt = typeof body.prompt === "string" ? body.prompt.trim().slice(0, 4000) : "";
     const ownKey = typeof body.jevKey === "string" ? body.jevKey.trim() : "";
     if (!code) return json({ error: "缺少要评分的 HTML(code)。" }, 400, cors);
     if (code.length > 400000) return json({ error: "HTML 太大,无法评分。" }, 413, cors);
 
     // Quota: only our key is metered; a user's own key bypasses it.
     const limit = Number(env.FREE_LIMIT || 3);
+    const dailyBudget = Number(env.GLOBAL_DAILY_LIMIT || 100);
     let remaining = null;
+    let reservation = null;
     const useOurKey = !ownKey;
     if (useOurKey) {
       if (!env.TYPESAFE_API_KEY) return json({ error: "本站未配置 Jev 额度,请填入你自己的 Jev Key。" }, 503, cors);
-      const q = await checkQuota(env, request, limit);
-      if (!q.ok) return json({ error: `本站的免费额度已用完(每人 ${limit} 次)。请填入你自己的 Jev Key 继续。`, remaining: 0 }, 429, cors);
-      remaining = q.remaining;
+      if (!Number.isSafeInteger(limit) || limit < 1 ||
+          !Number.isSafeInteger(dailyBudget) || dailyBudget < 1) {
+        return json({ error: "评分配额配置无效。" }, 503, cors);
+      }
+      try {
+        reservation = await reserveQuota(env, request, limit, dailyBudget);
+      } catch (_) {
+        // Fail closed: never allow unmetered shared-key requests.
+        return json({ error: "免费额度系统暂时不可用，请改用自己的 Jev Key。" }, 503, cors);
+      }
+      if (!reservation.ok) {
+        return json({ error: reservation.reason === "daily-budget"
+          ? "本站今日免费评分总额度已用完。"
+          : `免费额度已用完（同一网络每日 ${limit} 次）。`, remaining: 0 }, 429, cors);
+      }
+      remaining = reservation.remaining;
     }
     const key = ownKey || env.TYPESAFE_API_KEY;
 
     // Optional: render + caption so Jev sees the actual picture (方案 b).
     let depiction = "", rendering = "web page (HTML/CSS/JS)", hadScreenshot = false;
-    if (String(env.USE_SCREENSHOT || "") === "1" && env.BROWSER && env.VISION_API_KEY) {
+    // The vision API uses our billing account. BYOK Jev requests must not
+    // bypass the shared quota and still consume our paid vision resources.
+    if (useOurKey && String(env.USE_SCREENSHOT || "") === "1" && env.BROWSER && env.VISION_API_KEY) {
       try {
         const shot = await screenshot(env, code);
         depiction = await caption(env, shot, prompt || slug);
@@ -65,57 +99,101 @@ export default {
 
     try {
       const scored = await scoreWithJev({ key, slug, prompt, code, depiction, rendering });
-      return json({ ...scored, usedOurKey: useOurKey, remaining, hadScreenshot }, 200, cors);
+      if (reservation) await finalizeQuota(env, reservation).catch(() => {});
+      return json({ ...scored, usedOurKey: useOurKey, remaining, hadScreenshot,
+        sourceTruncated: code.length > 60000 }, 200, cors);
     } catch (e) {
-      // Roll the quota back if we metered a call that then failed.
-      if (useOurKey) await refundQuota(env, request).catch(() => {});
+      if (reservation) await refundQuota(env, reservation).catch(() => {});
       return json({ error: "Jev 评分失败:" + String(e.message || e) }, 502, cors);
     }
   },
 };
 // __REST__
 
-// ---- CORS ----
-function corsHeaders(origin, env) {
+// ---- request boundary and browser CORS ----
+function allowedOrigin(origin, env) {
   const allowed = String(env.ALLOWED_ORIGINS || DEFAULT_ORIGINS).split(",").map((s) => s.trim());
-  const ok = allowed.includes(origin);
+  return allowed.includes(origin);
+}
+function corsHeaders(origin, env) {
   return {
-    "Access-Control-Allow-Origin": ok ? origin : allowed[0],
+    ...(allowedOrigin(origin, env) ? { "Access-Control-Allow-Origin": origin } : {}),
     "Access-Control-Allow-Methods": "POST, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type",
     "Access-Control-Max-Age": "86400",
     Vary: "Origin",
   };
 }
-function json(obj, status, cors) {
+function json(obj, status, headers = {}) {
   return new Response(JSON.stringify(obj), {
-    status,
-    headers: { "Content-Type": "application/json; charset=utf-8", ...cors },
+    status, headers: { "Content-Type": "application/json; charset=utf-8", ...headers },
   });
 }
+async function readJsonBounded(request) {
+  const length = Number(request.headers.get("Content-Length"));
+  if (Number.isFinite(length) && length > MAX_REQUEST_BYTES) {
+    throw Object.assign(new Error("请求内容太大。"), { status: 413 });
+  }
+  if (!request.body) throw new Error("missing request body");
+  const reader = request.body.getReader();
+  const chunks = [];
+  let total = 0;
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > MAX_REQUEST_BYTES) {
+        await reader.cancel();
+        throw Object.assign(new Error("请求内容太大。"), { status: 413 });
+      }
+      chunks.push(value);
+    }
+  } finally { reader.releaseLock(); }
+  const bytes = new Uint8Array(total);
+  let pos = 0;
+  for (const chunk of chunks) { bytes.set(chunk, pos); pos += chunk.byteLength; }
+  try { return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)); }
+  catch (_) { throw new Error("invalid JSON body"); }
+}
 
-// ---- quota (per visitor IP, per UTC day) ----
-async function quotaKey(env, request) {
-  const ip = request.headers.get("CF-Connecting-IP") || "0.0.0.0";
+// ---- atomic quota with Durable Objects ----
+async function getVisitorHash(request) {
+  const ip = request.headers.get("CF-Connecting-IP");
+  if (!ip) throw new Error("missing Cloudflare visitor IP");
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(ip));
+  return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+async function quotaStub(env, day) {
+  if (!env.QUOTA_LIMITER) throw new Error("QUOTA_LIMITER is not bound");
+  return env.QUOTA_LIMITER.get(env.QUOTA_LIMITER.idFromName("quota:" + day));
+}
+async function quotaAction(env, reservation, action) {
+  const stub = await quotaStub(env, reservation.day);
+  const res = await stub.fetch("https://quota.internal/" + action, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(reservation),
+  });
+  if (!res.ok) throw new Error("quota " + action + " failed");
+  return res.json();
+}
+async function reserveQuota(env, request, limit, dailyBudget) {
   const day = new Date().toISOString().slice(0, 10);
-  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(ip + "|" + day));
-  const hex = [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
-  return "q:" + day + ":" + hex.slice(0, 32);
+  const identity = await getVisitorHash(request);
+  const reservation = { day, identity, requestId: crypto.randomUUID(), limit, dailyBudget };
+  return { ...reservation, ...await quotaAction(env, reservation, "reserve") };
 }
-async function checkQuota(env, request, limit) {
-  if (!env.QUOTA) return { ok: true, remaining: null }; // KV unbound → don't block
-  const k = await quotaKey(env, request);
-  const used = Number((await env.QUOTA.get(k)) || 0);
-  if (used >= limit) return { ok: false, remaining: 0 };
-  await env.QUOTA.put(k, String(used + 1), { expirationTtl: 60 * 60 * 36 });
-  return { ok: true, remaining: Math.max(0, limit - used - 1) };
+async function refundQuota(env, reservation) {
+  await quotaAction(env, reservation, "refund");
 }
-async function refundQuota(env, request) {
-  if (!env.QUOTA) return;
-  const k = await quotaKey(env, request);
-  const used = Number((await env.QUOTA.get(k)) || 0);
-  if (used > 0) await env.QUOTA.put(k, String(used - 1), { expirationTtl: 60 * 60 * 36 });
+async function finalizeQuota(env, reservation) {
+  await quotaAction(env, reservation, "finalize");
 }
+
+// One Durable Object instance per UTC day. Transactions serialize reservations,
+// including the global cost budget, even under concurrent requests.
+export { QuotaLimiter } from "./quota.js";
 
 // ---- screenshot (Cloudflare Browser Rendering) ----
 async function screenshot(env, code) {
@@ -123,8 +201,33 @@ async function screenshot(env, code) {
   try {
     const page = await browser.newPage();
     await page.setViewport({ width: 1280, height: 800, deviceScaleFactor: 1 });
-    await page.setContent(code, { waitUntil: "networkidle0", timeout: 20000 });
-    await new Promise((r) => setTimeout(r, 1500)); // let animations settle
+    await page.setRequestInterception(true);
+    page.on("request", (req) => {
+      let safe = false;
+      try {
+        const url = new URL(req.url());
+        safe = ["about:", "blob:", "data:"].includes(url.protocol) ||
+          (url.protocol === "https:" && SCREENSHOT_HOSTS.has(url.hostname));
+      } catch (_) {}
+      const pending = safe ? req.continue() : req.abort("blockedbyclient");
+      pending.catch(() => {});
+    });
+    // CSP blocks WebSocket/fetch/beacon connections that do not reliably pass
+    // Puppeteer's resource-request interception. Insert it before user scripts.
+    const policy = "default-src 'none'; " +
+      "script-src 'unsafe-inline' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://unpkg.com; " +
+      "style-src 'unsafe-inline' https://fonts.googleapis.com; " +
+      "img-src data: blob: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://unpkg.com; " +
+      "font-src data: https://fonts.gstatic.com; " +
+      "connect-src 'none'; form-action 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'";
+    const meta = '<meta http-equiv="Content-Security-Policy" content="' + policy + '">';
+    const guarded = /<head[\s>]/i.test(code)
+      ? code.replace(/<head[^>]*>/i, (match) => match + meta)
+      : /<html[\s>]/i.test(code)
+        ? code.replace(/<html[^>]*>/i, (match) => match + "<head>" + meta + "</head>")
+        : meta + code;
+    await page.setContent(guarded, { waitUntil: "domcontentloaded", timeout: 12000 });
+    await new Promise((r) => setTimeout(r, 1000)); // let animations settle
     const png = await page.screenshot({ type: "png", clip: { x: 0, y: 0, width: 1280, height: 800 } });
     return "data:image/png;base64," + base64(png);
   } finally {
@@ -181,23 +284,7 @@ async function scoreWithJev({ key, slug, prompt, code, depiction, rendering }) {
   };
   const r = await jevCall(key, { model: "jev-latest", state, questions });
 
-  const dims = {};
-  let total = 0;
-  for (const [k, d] of Object.entries(rubric.dims)) {
-    const a = r.answers?.[k];
-    if (!a) throw new Error("Jev 返回缺少维度 " + k);
-    const maxLevel = d.criteria.length - 1;
-    const frac = a.score / maxLevel;
-    dims[k] = { score: +Number(a.score).toFixed(2), confidence: +Number(a.confidence ?? 0).toFixed(2), frac: +frac.toFixed(3) };
-    total += d.weight * frac;
-  }
-  return {
-    total: Math.round(total),
-    dims,
-    dimLabels: rubric.dimLabels,
-    weights: Object.fromEntries(Object.entries(rubric.dims).map(([k, d]) => [k, d.weight])),
-    jev: r.model || "jev",
-  };
+  return normalizeJevResponse(r, rubric);
 }
 async function jevCall(key, payload) {
   for (let attempt = 0; attempt < 4; attempt++) {
@@ -205,6 +292,7 @@ async function jevCall(key, payload) {
       method: "POST",
       headers: { Authorization: "Bearer " + key, "Content-Type": "application/json" },
       body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(20000),
     });
     if (res.status === 429 || res.status === 529) { await sleep(1500 * (attempt + 1)); continue; }
     if (!res.ok) throw new Error("HTTP " + res.status + " " + (await res.text()).slice(0, 200));

@@ -18,7 +18,7 @@
   <section class="hero sub">
     <div class="crumb"><a href="../">首页</a> &nbsp;/&nbsp; 测试你的大模型</div>
     <h1>测试你的<em>大模型</em></h1>
-    <p class="lede">填入任意 OpenAI 兼容接口(Base URL + Key + 模型名),选一道题或自己写,浏览器直接让你的模型跑同样的命题并实时渲染结果。密钥只存在你本地浏览器、只发往你自己填写的接口,不经过本站任何服务器。</p>
+    <p class="lede">填入任意 OpenAI 兼容接口(Base URL + Key + 模型名),选一道题或自己写,浏览器直接让你的模型跑同样的命题并实时渲染结果。模型 API Key 只保留在当前页面内存、只发往你填写的接口，不写入本地持久存储。</p>
   </section>
 
   <main class="pg">
@@ -31,10 +31,10 @@
         <span class="pg-key"><input id="pg-keyin" type="password" placeholder="sk-..." autocomplete="off" spellcheck="false"><button id="pg-eye" type="button" title="显示 / 隐藏">显示</button></span>
       </label>
       <div class="pg-row">
-        <label class="chk"><input id="pg-remember" type="checkbox"> 记住配置(仅存本地浏览器)</label>
+        <label class="chk"><input id="pg-remember" type="checkbox"> 记住地址与模型（不保存 API Key）</label>
         <button id="pg-forget" type="button" class="pg-ghost">忘记密钥</button>
       </div>
-      <p class="pg-sec">🔒 密钥仅保存在本机 <code>localStorage</code>,请求由你的浏览器直连你填写的接口;本站是纯静态页面,不收集、不转发密钥或数据。仅能连接<strong>开放跨域(CORS)</strong>的接口;本地服务(如 Ollama)需自行开启 CORS。</p>
+      <p class="pg-sec">🔒 模型 API Key 仅保存在当前页面内存，刷新即清除；绝不写入 <code>localStorage</code>。请求由你的浏览器直连所填写接口，本站不接收模型 API Key。仅能连接<strong>开放跨域(CORS)</strong>的接口;本地服务(如 Ollama)需自行开启 CORS。</p>
     </div>
 
     <div class="pg-card">
@@ -62,7 +62,7 @@
       <div class="pg-pane-h"><span>Jev 评分 Scoring</span>
         <span class="tag">TypeSafe · System One</span>
       </div>
-      <p class="pg-sec">跑出结果后,可用 <strong>TypeSafe Jev</strong> 按本站同一套评审规则给它打分(满分 100)。可用本站的免费额度(<strong>每人 3 次</strong>),也可以填你自己的 Jev Key(不计次)。评分在服务端进行:把渲染截图的中立描述 + 源代码一起交给 Jev。</p>
+      <p class="pg-sec">跑出结果后，可用 <strong>TypeSafe Jev</strong> 按相同维度打分（满分 100）。可用本站每日免费额度或自己的 Jev Key。<strong>默认仅分析 HTML 源代码</strong>，不等同于实际画面评分；如果服务端启用了截图，结果会明确标注“单帧截图描述 + 代码”，不能全面判断动画。自有 Jev Key 仅支持代码评分。</p>
       <div class="pg-row">
         <label class="chk"><input type="radio" name="pg-jevmode" id="pg-jev-ours" value="ours" checked> 用本站额度(每人 3 次)</label>
         <label class="chk"><input type="radio" name="pg-jevmode" id="pg-jev-own" value="own"> 用我自己的 Jev Key</label>
@@ -87,6 +87,6 @@
 
   <script id="zoo-prompts" type="application/json">[{"slug":"pelican-bicycle","title":"鹈鹕骑车","emoji":"🦩","prompt":"用一个单独的 HTML 文件,做一个「一只鹈鹕骑自行车」的画面。\n\n交付要求:\n- 全部代码(HTML / CSS / JS)写在同一个文件内,双击即可在浏览器打开运行,无需任何交互。\n- 技术方案自选:纯 CSS/JS 2D,或 Three.js / WebGL 3D 都可以;需要第三方库就用 CDN 引入。\n- 画面不要有操作说明或控件,打开就是成品。\n\n鹈鹕的造型、自行车的结构、骑行的姿态与场景构图,全部由你自己判断,做出你认为最有说服力的一版。"},{"slug":"jellyfish-float","title":"水母漂浮","emoji":"🪼","prompt":"用一个单独的 HTML 文件,做一个「一只水母在水中漂浮」的动画场景。\n\n交付要求:\n- 全部代码(HTML / CSS / JS)写在同一个文件内,双击即可在浏览器打开运行,自动循环播放,无需任何交互。\n- 技术方案自选:纯 CSS/JS 2D 动画,或 Three.js / WebGL 3D 都可以;需要第三方库就用 CDN 引入。\n- 画面不要有操作说明或控件,打开就是成品。\n\n水母的伞体形状和颜色、触手的数量与长度、水的深浅与光感、漂浮的快慢和运镜,全部由你自己判断,做出你认为最有说服力的一版。"},{"slug":"penguin-ski-jump","title":"企鹅滑雪跳台","emoji":"🐧","prompt":"用一个单独的 HTML 文件,做一个「一只企鹅冲下滑雪跳台、腾空再落地」的动画场景。\n\n交付要求:\n- 全部代码(HTML / CSS / JS)写在同一个文件内,双击即可在浏览器打开运行,自动循环播放,无需任何交互。\n- 技术方案自选:纯 CSS/JS 2D 动画,或 Three.js / WebGL 3D 都可以;需要第三方库就用 CDN 引入。\n- 画面不要有操作说明或控件,打开就是成品。\n\n企鹅的造型、跳台的坡度与高度、腾空的幅度、相机怎么跟拍、要不要雪花和远景,以及整体节奏,全部由你自己判断,做出你认为最有说服力的一版。"},{"slug":"whale-over-city","title":"鲸鱼在城市上空游泳","emoji":"🐋","prompt":"用一个单独的 HTML 文件,做一个「一头巨鲸在城市上空游动」的动画场景。\n\n交付要求:\n- 全部代码(HTML / CSS / JS)写在同一个文件内,双击即可在浏览器打开运行,自动循环播放,无需任何交互。\n- 技术方案自选:纯 CSS/JS 2D 动画,或 Three.js / WebGL 3D 都可以;需要第三方库就用 CDN 引入。\n- 画面不要有操作说明或控件,打开就是成品。\n\n鲸鱼的大小、城市的样貌、云层的多少与高低、游动的路线和运镜,全部由你自己判断,做出你认为最有说服力的一版。"},{"slug":"elephant-tightrope","title":"大象走钢丝","emoji":"🐘","prompt":"用一个单独的 HTML 文件,做一个「一头大象踩在钢丝上保持平衡」的动画场景。\n\n交付要求:\n- 全部代码(HTML / CSS / JS)写在同一个文件内,双击即可在浏览器打开运行,自动循环播放,无需任何交互。\n- 技术方案自选:纯 CSS/JS 2D 动画,或 Three.js / WebGL 3D 都可以;需要第三方库就用 CDN 引入。\n- 画面不要有操作说明或控件,打开就是成品。\n\n大象的造型、钢丝的长度与高度、平衡杆的样子、要不要晃动与风、背景和运镜,全部由你自己判断,做出你认为最有说服力的一版。"},{"slug":"octopus-drummer","title":"章鱼打架子鼓","emoji":"🐙","prompt":"用一个单独的 HTML 文件,做一个「一只章鱼在打架子鼓」的动画场景。\n\n交付要求:\n- 全部代码(HTML / CSS / JS)写在同一个文件内,双击即可在浏览器打开运行,自动循环播放,无需任何交互。\n- 技术方案自选:纯 CSS/JS 2D 动画,或 Three.js / WebGL 3D 都可以;需要第三方库就用 CDN 引入。\n- 画面不要有操作说明或控件,打开就是成品。\n\n鼓组怎么摆、章鱼的造型、八条腕怎么分配、鼓点的节奏、要不要音符或打击特效、以及运镜,全部由你自己判断,做出你认为最有说服力的一版。"},{"slug":"rhino-orbit","title":"犀牛绕地球","emoji":"🦏","prompt":"用一个单独的 HTML 文件,做一个「一头犀牛绕着地球公转」的动画场景。\n\n犀牛要做成夸张、醒目的卡通形体 —— 体型占画面相当大的比例,四肢、犄角、皮褶等细节清晰可见,而不是缩成绕行轨道上的一个小点。整体风格可以超现实,重点是让犀牛本身足够抢眼、看得清。\n\n交付要求:\n- 全部代码(HTML / CSS / JS)写在同一个文件内,双击即可在浏览器打开运行,自动循环播放,无需任何交互。\n- 技术方案自选:纯 CSS/JS 2D 动画,或 Three.js / WebGL 3D 都可以;需要第三方库就用 CDN 引入。\n- 画面不要有操作说明或控件,打开就是成品。\n\n地球怎么画、轨道是圆是椭圆、要不要星空背景、公转速度和运镜,全部由你自己判断,做出你认为最有说服力的一版。"},{"slug":"lion-fire-hoop","title":"狮子跳火圈","emoji":"🦁","prompt":"用一个单独的 HTML 文件,做一个「一头狮子跃过火圈」的动画场景。\n\n交付要求:\n- 全部代码(HTML / CSS / JS)写在同一个文件内,双击即可在浏览器打开运行,自动循环播放,无需任何交互。\n- 技术方案自选:纯 CSS/JS 2D 动画,或 Three.js / WebGL 3D 都可以;需要第三方库就用 CDN 引入。\n- 画面不要有操作说明或控件,打开就是成品。\n\n狮子的造型、火圈的大小与位置、火焰效果的强弱、助跑与落地的处理、背景和运镜,全部由你自己判断,做出你认为最有说服力的一版。"}]</script>
   <script>window.ZOO_JEV_ENDPOINT="https://zoo-jev.zhoushimiao.workers.dev";</script>
-  <script src="playground.js"></script>
+  <script type="module" src="playground.js"></script>
 </body>
 </html>
