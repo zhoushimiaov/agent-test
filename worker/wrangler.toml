@@ -12,6 +12,8 @@ compatibility_flags = ["nodejs_compat"]
 
 [vars]
 FREE_LIMIT = "3"
+# Shared-key hard spending cap, across all visitors, per UTC day.
+GLOBAL_DAILY_LIMIT = "100"
 # Browser origins allowed to call this Worker (comma-separated, no trailing slash):
 ALLOWED_ORIGINS = "https://agentest.shimiao.work,http://localhost:8080,http://127.0.0.1:8080"
 # "1" = render the HTML to a screenshot and caption it (方案 b). Needs the
@@ -22,13 +24,18 @@ USE_SCREENSHOT = "0"
 VISION_BASE_URL = "https://api.openai.com/v1"
 VISION_MODEL = "gpt-4o-mini"
 
-# Per-visitor free-quota counter. Create it once, then paste the id here:
-#   npx wrangler kv namespace create QUOTA
-[[kv_namespaces]]
-binding = "QUOTA"
-id = "c1ce71435b054b4bbd3cd104ee90278e"
+# Atomic per-IP/day and site-wide quota counter using a Durable Object.
+[[durable_objects.bindings]]
+name = "QUOTA_LIMITER"
+class_name = "QuotaLimiter"
+
+# Use a new tag if the Worker already has a migration named v1.
+[[migrations]]
+tag = "v1-quota-limiter"
+new_sqlite_classes = ["QuotaLimiter"]
 
 # Cloudflare Browser Rendering (needed only when USE_SCREENSHOT=1; Workers Paid).
-# Leave commented for a free, code-only deploy.
+# Leave commented for a free, code-only deploy. If enabled, the Worker
+# enforces an HTTPS-only public CDN allowlist for external page resources.
 # [browser]
 # binding = "BROWSER"
