@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-14T08:02:44.949Z",
+  "generatedAt": "2026-10-20T02:25:31.426Z",
   "model": "jev-1.13.0",
   "weights": {
     "pelican": 30,
@@ -15,13 +15,41 @@
   },
   "results": [
     {
+      "slug": "ling-3.1-flash",
+      "total": 97,
+      "dims": {
+        "pelican": {
+          "score": 2.89,
+          "confidence": 0.91,
+          "frac": 0.963
+        },
+        "bicycle": {
+          "score": 2.99,
+          "confidence": 1,
+          "frac": 0.997
+        },
+        "riding": {
+          "score": 2.78,
+          "confidence": 0.78,
+          "frac": 0.927
+        },
+        "scene": {
+          "score": 2.97,
+          "confidence": 0.97,
+          "frac": 0.99
+        }
+      },
+      "jev": "jev-1.13.0",
+      "rank": 1
+    },
+    {
       "slug": "opus-4.8",
       "total": 97,
       "dims": {
         "pelican": {
-          "score": 2.93,
-          "confidence": 0.93,
-          "frac": 0.977
+          "score": 2.91,
+          "confidence": 0.92,
+          "frac": 0.97
         },
         "bicycle": {
           "score": 2.99,
@@ -30,54 +58,26 @@
         },
         "riding": {
           "score": 2.84,
-          "confidence": 0.81,
+          "confidence": 0.82,
           "frac": 0.947
         },
         "scene": {
-          "score": 2.87,
-          "confidence": 0.87,
-          "frac": 0.957
-        }
-      },
-      "jev": "jev-1.13.0",
-      "rank": 1
-    },
-    {
-      "slug": "k3-svg",
-      "total": 96,
-      "dims": {
-        "pelican": {
-          "score": 2.9,
-          "confidence": 0.92,
-          "frac": 0.967
-        },
-        "bicycle": {
-          "score": 2.98,
-          "confidence": 0.99,
-          "frac": 0.993
-        },
-        "riding": {
-          "score": 2.85,
-          "confidence": 0.87,
-          "frac": 0.95
-        },
-        "scene": {
-          "score": 2.82,
-          "confidence": 0.82,
-          "frac": 0.94
+          "score": 2.86,
+          "confidence": 0.86,
+          "frac": 0.953
         }
       },
       "jev": "jev-1.13.0",
       "rank": 2
     },
     {
-      "slug": "hy4",
+      "slug": "k3-svg",
       "total": 96,
       "dims": {
         "pelican": {
-          "score": 2.8,
-          "confidence": 0.78,
-          "frac": 0.933
+          "score": 2.88,
+          "confidence": 0.88,
+          "frac": 0.96
         },
         "bicycle": {
           "score": 2.98,
@@ -85,42 +85,42 @@
           "frac": 0.993
         },
         "riding": {
-          "score": 2.88,
-          "confidence": 0.89,
-          "frac": 0.96
+          "score": 2.84,
+          "confidence": 0.84,
+          "frac": 0.947
         },
         "scene": {
-          "score": 2.82,
-          "confidence": 0.82,
-          "frac": 0.94
+          "score": 2.8,
+          "confidence": 0.8,
+          "frac": 0.933
         }
       },
       "jev": "jev-1.13.0",
       "rank": 3
     },
     {
-      "slug": "ling-3.1-flash",
+      "slug": "hy4",
       "total": 96,
       "dims": {
         "pelican": {
+          "score": 2.82,
+          "confidence": 0.8,
+          "frac": 0.94
+        },
+        "bicycle": {
+          "score": 2.99,
+          "confidence": 0.99,
+          "frac": 0.997
+        },
+        "riding": {
           "score": 2.88,
           "confidence": 0.89,
           "frac": 0.96
         },
-        "bicycle": {
-          "score": 2.99,
-          "confidence": 1,
-          "frac": 0.997
-        },
-        "riding": {
-          "score": 2.73,
-          "confidence": 0.72,
-          "frac": 0.91
-        },
         "scene": {
-          "score": 2.96,
-          "confidence": 0.97,
-          "frac": 0.987
+          "score": 2.8,
+          "confidence": 0.8,
+          "frac": 0.933
         }
       },
       "jev": "jev-1.13.0",
@@ -131,9 +131,9 @@
       "total": 96,
       "dims": {
         "pelican": {
-          "score": 2.86,
-          "confidence": 0.86,
-          "frac": 0.953
+          "score": 2.88,
+          "confidence": 0.9,
+          "frac": 0.96
         },
         "bicycle": {
           "score": 2.99,
@@ -141,9 +141,9 @@
           "frac": 0.997
         },
         "riding": {
-          "score": 2.7,
-          "confidence": 0.71,
-          "frac": 0.9
+          "score": 2.72,
+          "confidence": 0.72,
+          "frac": 0.907
         },
         "scene": {
           "score": 2.96,
@@ -160,18 +160,46 @@
       "dims": {
         "pelican": {
           "score": 2.85,
-          "confidence": 0.87,
+          "confidence": 0.86,
           "frac": 0.95
         },
         "bicycle": {
-          "score": 2.87,
+          "score": 2.86,
           "confidence": 0.87,
-          "frac": 0.957
+          "frac": 0.953
         },
         "riding": {
-          "score": 2.75,
+          "score": 2.72,
+          "confidence": 0.72,
+          "frac": 0.907
+        },
+        "scene": {
+          "score": 2.94,
+          "confidence": 0.94,
+          "frac": 0.98
+        }
+      },
+      "jev": "jev-1.13.0",
+      "rank": 6
+    },
+    {
+      "slug": "tierflow-pro-router",
+      "total": 91,
+      "dims": {
+        "pelican": {
+          "score": 2.46,
+          "confidence": 0.46,
+          "frac": 0.82
+        },
+        "bicycle": {
+          "score": 2.84,
+          "confidence": 0.84,
+          "frac": 0.947
+        },
+        "riding": {
+          "score": 2.79,
           "confidence": 0.77,
-          "frac": 0.917
+          "frac": 0.93
         },
         "scene": {
           "score": 2.95,
@@ -180,16 +208,16 @@
         }
       },
       "jev": "jev-1.13.0",
-      "rank": 6
+      "rank": 7
     },
     {
       "slug": "gemini-3.8-flash",
       "total": 90,
       "dims": {
         "pelican": {
-          "score": 2.56,
+          "score": 2.57,
           "confidence": 0.56,
-          "frac": 0.853
+          "frac": 0.857
         },
         "bicycle": {
           "score": 2.98,
@@ -197,9 +225,9 @@
           "frac": 0.993
         },
         "riding": {
-          "score": 2.4,
-          "confidence": 0.41,
-          "frac": 0.8
+          "score": 2.38,
+          "confidence": 0.45,
+          "frac": 0.793
         },
         "scene": {
           "score": 3,
@@ -208,77 +236,105 @@
         }
       },
       "jev": "jev-1.13.0",
-      "rank": 7
-    },
-    {
-      "slug": "tierflow-pro-router",
-      "total": 90,
-      "dims": {
-        "pelican": {
-          "score": 2.39,
-          "confidence": 0.4,
-          "frac": 0.797
-        },
-        "bicycle": {
-          "score": 2.81,
-          "confidence": 0.8,
-          "frac": 0.937
-        },
-        "riding": {
-          "score": 2.74,
-          "confidence": 0.74,
-          "frac": 0.913
-        },
-        "scene": {
-          "score": 2.96,
-          "confidence": 0.96,
-          "frac": 0.987
-        }
-      },
-      "jev": "jev-1.13.0",
       "rank": 8
     },
     {
-      "slug": "haiku-5.5-tabbit",
-      "total": 84,
+      "slug": "deepseek-4.1-flash-261017",
+      "total": 89,
       "dims": {
         "pelican": {
-          "score": 2.53,
-          "confidence": 0.53,
-          "frac": 0.843
+          "score": 2.13,
+          "confidence": 0.12,
+          "frac": 0.71
         },
         "bicycle": {
-          "score": 2.68,
-          "confidence": 0.68,
-          "frac": 0.893
+          "score": 2.96,
+          "confidence": 0.97,
+          "frac": 0.987
         },
         "riding": {
-          "score": 2.15,
-          "confidence": 0.39,
-          "frac": 0.717
+          "score": 2.73,
+          "confidence": 0.74,
+          "frac": 0.91
         },
         "scene": {
-          "score": 2.81,
-          "confidence": 0.81,
-          "frac": 0.937
+          "score": 3,
+          "confidence": 1,
+          "frac": 1
         }
       },
       "jev": "jev-1.13.0",
       "rank": 9
     },
     {
-      "slug": "tierflow-pro-router-3d",
+      "slug": "haiku-5.5-tabbit",
+      "total": 85,
+      "dims": {
+        "pelican": {
+          "score": 2.58,
+          "confidence": 0.57,
+          "frac": 0.86
+        },
+        "bicycle": {
+          "score": 2.69,
+          "confidence": 0.7,
+          "frac": 0.897
+        },
+        "riding": {
+          "score": 2.11,
+          "confidence": 0.37,
+          "frac": 0.703
+        },
+        "scene": {
+          "score": 2.85,
+          "confidence": 0.85,
+          "frac": 0.95
+        }
+      },
+      "jev": "jev-1.13.0",
+      "rank": 10
+    },
+    {
+      "slug": "deepseek-4.1-flash-261017-3d",
+      "total": 85,
+      "dims": {
+        "pelican": {
+          "score": 1.9,
+          "confidence": 0.42,
+          "frac": 0.633
+        },
+        "bicycle": {
+          "score": 2.79,
+          "confidence": 0.79,
+          "frac": 0.93
+        },
+        "riding": {
+          "score": 2.75,
+          "confidence": 0.76,
+          "frac": 0.917
+        },
+        "scene": {
+          "score": 2.99,
+          "confidence": 1,
+          "frac": 0.997
+        }
+      },
+      "jev": "jev-1.13.0",
+      "rank": 11
+    },
+    {
+      "slug": "glm-5.3-flash",
       "total": 83,
       "dims": {
         "pelican": {
-          "score": 1.87,
-          "confidence": 0.65,
-          "frac": 0.623
+          "score": 2.27,
+          "confidence": 0.26,
+          "frac": 0.757
         },
         "bicycle": {
-          "score": 2.98,
-          "confidence": 1,
-          "frac": 0.993
+          "score": 2.86,
+          "confidence": 0.84,
+          "frac": 0.953
         },
         "riding": {
           "score": 2.47,
@@ -286,78 +342,78 @@
           "frac": 0.823
         },
         "scene": {
-          "score": 2.86,
-          "confidence": 0.86,
-          "frac": 0.953
-        }
-      },
-      "jev": "jev-1.13.0",
-      "rank": 10
-    },
-    {
-      "slug": "glm-5.3-flash",
-      "total": 81,
-      "dims": {
-        "pelican": {
-          "score": 2.24,
-          "confidence": 0.25,
-          "frac": 0.747
-        },
-        "bicycle": {
-          "score": 2.8,
-          "confidence": 0.81,
-          "frac": 0.933
-        },
-        "riding": {
-          "score": 2.33,
-          "confidence": 0.32,
-          "frac": 0.777
-        },
-        "scene": {
-          "score": 2.32,
-          "confidence": 0.68,
-          "frac": 0.773
-        }
-      },
-      "jev": "jev-1.13.0",
-      "rank": 11
-    },
-    {
-      "slug": "sensenova-6.8-flash",
-      "total": 78,
-      "dims": {
-        "pelican": {
-          "score": 2.21,
-          "confidence": 0.78,
-          "frac": 0.737
-        },
-        "bicycle": {
-          "score": 2.93,
-          "confidence": 0.93,
-          "frac": 0.977
-        },
-        "riding": {
-          "score": 1.9,
-          "confidence": 0.9,
-          "frac": 0.633
-        },
-        "scene": {
-          "score": 2.41,
-          "confidence": 0.59,
-          "frac": 0.803
+          "score": 2.36,
+          "confidence": 0.64,
+          "frac": 0.787
         }
       },
       "jev": "jev-1.13.0",
       "rank": 12
     },
     {
+      "slug": "tierflow-pro-router-3d",
+      "total": 83,
+      "dims": {
+        "pelican": {
+          "score": 1.85,
+          "confidence": 0.63,
+          "frac": 0.617
+        },
+        "bicycle": {
+          "score": 2.97,
+          "confidence": 0.99,
+          "frac": 0.99
+        },
+        "riding": {
+          "score": 2.44,
+          "confidence": 0.43,
+          "frac": 0.813
+        },
+        "scene": {
+          "score": 2.88,
+          "confidence": 0.88,
+          "frac": 0.96
+        }
+      },
+      "jev": "jev-1.13.0",
+      "rank": 13
+    },
+    {
+      "slug": "sensenova-6.8-flash",
+      "total": 78,
+      "dims": {
+        "pelican": {
+          "score": 2.18,
+          "confidence": 0.8,
+          "frac": 0.727
+        },
+        "bicycle": {
+          "score": 2.93,
+          "confidence": 0.94,
+          "frac": 0.977
+        },
+        "riding": {
+          "score": 1.92,
+          "confidence": 0.91,
+          "frac": 0.64
+        },
+        "scene": {
+          "score": 2.38,
+          "confidence": 0.62,
+          "frac": 0.793
+        }
+      },
+      "jev": "jev-1.13.0",
+      "rank": 14
+    },
+    {
       "slug": "k3-raccoon",
       "total": 77,
       "dims": {
         "pelican": {
-          "score": 2.82,
-          "confidence": 0.82,
-          "frac": 0.94
+          "score": 2.83,
+          "confidence": 0.84,
+          "frac": 0.943
         },
         "bicycle": {
           "score": 2.97,
@@ -365,9 +421,9 @@
           "frac": 0.99
         },
         "riding": {
-          "score": 2.86,
-          "confidence": 0.87,
-          "frac": 0.953
+          "score": 2.88,
+          "confidence": 0.88,
+          "frac": 0.96
         },
         "scene": {
           "score": 0.05,
@@ -376,26 +432,26 @@
         }
       },
       "jev": "jev-1.13.0",
-      "rank": 13
+      "rank": 15
     },
     {
       "slug": "sonnet-5.5-tabbit",
       "total": 77,
       "dims": {
         "pelican": {
-          "score": 2.52,
-          "confidence": 0.52,
-          "frac": 0.84
+          "score": 2.5,
+          "confidence": 0.51,
+          "frac": 0.833
         },
         "bicycle": {
-          "score": 2.62,
-          "confidence": 0.63,
-          "frac": 0.873
+          "score": 2.64,
+          "confidence": 0.66,
+          "frac": 0.88
         },
         "riding": {
-          "score": 1.3,
-          "confidence": 0.31,
-          "frac": 0.433
+          "score": 1.35,
+          "confidence": 0.3,
+          "frac": 0.45
         },
         "scene": {
           "score": 2.85,
@@ -404,16 +460,16 @@
         }
       },
       "jev": "jev-1.13.0",
-      "rank": 14
+      "rank": 16
     },
     {
       "slug": "gpt6-luna",
       "total": 74,
       "dims": {
         "pelican": {
-          "score": 2.7,
-          "confidence": 0.7,
-          "frac": 0.9
+          "score": 2.68,
+          "confidence": 0.68,
+          "frac": 0.893
         },
         "bicycle": {
           "score": 2.99,
@@ -422,87 +478,115 @@
         },
         "riding": {
           "score": 1,
-          "confidence": 1,
+          "confidence": 0.99,
           "frac": 0.333
         },
         "scene": {
-          "score": 2.04,
-          "confidence": 0.96,
-          "frac": 0.68
-        }
-      },
-      "jev": "jev-1.13.0",
-      "rank": 15
-    },
-    {
-      "slug": "k2.8-preview",
-      "total": 72,
-      "dims": {
-        "pelican": {
-          "score": 2.55,
-          "confidence": 0.55,
-          "frac": 0.85
-        },
-        "bicycle": {
-          "score": 2.62,
-          "confidence": 0.62,
-          "frac": 0.873
-        },
-        "riding": {
-          "score": 0.81,
-          "confidence": 0.81,
-          "frac": 0.27
-        },
-        "scene": {
-          "score": 2.75,
-          "confidence": 0.75,
-          "frac": 0.917
-        }
-      },
-      "jev": "jev-1.13.0",
-      "rank": 16
-    },
-    {
-      "slug": "space-bunny",
-      "total": 72,
-      "dims": {
-        "pelican": {
-          "score": 2.18,
-          "confidence": 0.42,
-          "frac": 0.727
-        },
-        "bicycle": {
-          "score": 2.63,
-          "confidence": 0.63,
-          "frac": 0.877
-        },
-        "riding": {
-          "score": 1.17,
-          "confidence": 0,
-          "frac": 0.39
-        },
-        "scene": {
-          "score": 2.77,
-          "confidence": 0.77,
-          "frac": 0.923
+          "score": 2.06,
+          "confidence": 0.94,
+          "frac": 0.687
         }
       },
       "jev": "jev-1.13.0",
       "rank": 17
     },
     {
-      "slug": "qwen-3.8-max-tabbit",
+      "slug": "k2.8-preview",
+      "total": 72,
+      "dims": {
+        "pelican": {
+          "score": 2.53,
+          "confidence": 0.54,
+          "frac": 0.843
+        },
+        "bicycle": {
+          "score": 2.61,
+          "confidence": 0.61,
+          "frac": 0.87
+        },
+        "riding": {
+          "score": 0.82,
+          "confidence": 0.82,
+          "frac": 0.273
+        },
+        "scene": {
+          "score": 2.72,
+          "confidence": 0.72,
+          "frac": 0.907
+        }
+      },
+      "jev": "jev-1.13.0",
+      "rank": 18
+    },
+    {
+      "slug": "space-bunny",
+      "total": 71,
+      "dims": {
+        "pelican": {
+          "score": 2.19,
+          "confidence": 0.49,
+          "frac": 0.73
+        },
+        "bicycle": {
+          "score": 2.55,
+          "confidence": 0.55,
+          "frac": 0.85
+        },
+        "riding": {
+          "score": 1.13,
+          "confidence": 0,
+          "frac": 0.377
+        },
+        "scene": {
+          "score": 2.79,
+          "confidence": 0.79,
+          "frac": 0.93
+        }
+      },
+      "jev": "jev-1.13.0",
+      "rank": 19
+    },
+    {
+      "slug": "qwen-3.8-max-qoder",
       "total": 70,
       "dims": {
         "pelican": {
-          "score": 2.41,
-          "confidence": 0.55,
-          "frac": 0.803
+          "score": 2.46,
+          "confidence": 0.53,
+          "frac": 0.82
         },
         "bicycle": {
-          "score": 2.78,
-          "confidence": 0.78,
-          "frac": 0.927
+          "score": 2.02,
+          "confidence": 0.98,
+          "frac": 0.673
+        },
+        "riding": {
+          "score": 2.31,
+          "confidence": 0.64,
+          "frac": 0.77
+        },
+        "scene": {
+          "score": 1.46,
+          "confidence": 0.5,
+          "frac": 0.487
+        }
+      },
+      "jev": "jev-1.13.0",
+      "rank": 20
+    },
+    {
+      "slug": "qwen-3.8-max-tabbit",
+      "total": 69,
+      "dims": {
+        "pelican": {
+          "score": 2.39,
+          "confidence": 0.58,
+          "frac": 0.797
+        },
+        "bicycle": {
+          "score": 2.73,
+          "confidence": 0.72,
+          "frac": 0.91
         },
         "riding": {
           "score": 0.98,
@@ -510,93 +594,9 @@
           "frac": 0.327
         },
         "scene": {
-          "score": 2.15,
-          "confidence": 0.85,
-          "frac": 0.717
-        }
-      },
-      "jev": "jev-1.13.0",
-      "rank": 18
-    },
-    {
-      "slug": "qwen-3.8-max-qoder",
-      "total": 70,
-      "dims": {
-        "pelican": {
-          "score": 2.45,
-          "confidence": 0.55,
-          "frac": 0.817
-        },
-        "bicycle": {
-          "score": 2.01,
-          "confidence": 0.99,
-          "frac": 0.67
-        },
-        "riding": {
-          "score": 2.31,
-          "confidence": 0.62,
-          "frac": 0.77
-        },
-        "scene": {
-          "score": 1.49,
-          "confidence": 0.49,
-          "frac": 0.497
-        }
-      },
-      "jev": "jev-1.13.0",
-      "rank": 19
-    },
-    {
-      "slug": "deepseek-4.1-flash",
-      "total": 68,
-      "dims": {
-        "pelican": {
-          "score": 2.46,
-          "confidence": 0.52,
-          "frac": 0.82
-        },
-        "bicycle": {
-          "score": 2.52,
-          "confidence": 0.53,
-          "frac": 0.84
-        },
-        "riding": {
-          "score": 0.97,
-          "confidence": 0.97,
-          "frac": 0.323
-        },
-        "scene": {
-          "score": 2.11,
-          "confidence": 0.89,
-          "frac": 0.703
-        }
-      },
-      "jev": "jev-1.13.0",
-      "rank": 20
-    },
-    {
-      "slug": "muse-spark-1.3",
-      "total": 68,
-      "dims": {
-        "pelican": {
-          "score": 2.49,
-          "confidence": 0.5,
-          "frac": 0.83
-        },
-        "bicycle": {
-          "score": 2.37,
-          "confidence": 0.36,
-          "frac": 0.79
-        },
-        "riding": {
-          "score": 1,
-          "confidence": 1,
-          "frac": 0.333
-        },
-        "scene": {
-          "score": 2.18,
-          "confidence": 0.82,
-          "frac": 0.727
+          "score": 2.12,
+          "confidence": 0.88,
+          "frac": 0.707
         }
       },
       "jev": "jev-1.13.0",
@@ -607,37 +607,121 @@
       "total": 68,
       "dims": {
         "pelican": {
-          "score": 2.39,
-          "confidence": 0.39,
-          "frac": 0.797
+          "score": 2.38,
+          "confidence": 0.4,
+          "frac": 0.793
         },
         "bicycle": {
-          "score": 2.53,
-          "confidence": 0.53,
-          "frac": 0.843
+          "score": 2.57,
+          "confidence": 0.56,
+          "frac": 0.857
         },
         "riding": {
-          "score": 2.22,
-          "confidence": 0.24,
-          "frac": 0.74
+          "score": 2.18,
+          "confidence": 0.18,
+          "frac": 0.727
         },
         "scene": {
-          "score": 0.61,
-          "confidence": 0.4,
-          "frac": 0.203
+          "score": 0.65,
+          "confidence": 0.36,
+          "frac": 0.217
         }
       },
       "jev": "jev-1.13.0",
       "rank": 22
     },
     {
-      "slug": "longcat2.5-preview",
+      "slug": "deepseek-4.1-flash",
       "total": 67,
       "dims": {
         "pelican": {
-          "score": 1.14,
-          "confidence": 0.79,
-          "frac": 0.38
+          "score": 2.45,
+          "confidence": 0.53,
+          "frac": 0.817
+        },
+        "bicycle": {
+          "score": 2.49,
+          "confidence": 0.5,
+          "frac": 0.83
+        },
+        "riding": {
+          "score": 0.97,
+          "confidence": 0.97,
+          "frac": 0.323
+        },
+        "scene": {
+          "score": 2.09,
+          "confidence": 0.9,
+          "frac": 0.697
+        }
+      },
+      "jev": "jev-1.13.0",
+      "rank": 23
+    },
+    {
+      "slug": "muse-spark-1.3",
+      "total": 67,
+      "dims": {
+        "pelican": {
+          "score": 2.48,
+          "confidence": 0.49,
+          "frac": 0.827
+        },
+        "bicycle": {
+          "score": 2.37,
+          "confidence": 0.37,
+          "frac": 0.79
+        },
+        "riding": {
+          "score": 1,
+          "confidence": 0.99,
+          "frac": 0.333
+        },
+        "scene": {
+          "score": 2.16,
+          "confidence": 0.84,
+          "frac": 0.72
+        }
+      },
+      "jev": "jev-1.13.0",
+      "rank": 24
+    },
+    {
+      "slug": "longcat2.5-preview",
+      "total": 66,
+      "dims": {
+        "pelican": {
+          "score": 1.1,
+          "confidence": 0.81,
+          "frac": 0.367
+        },
+        "bicycle": {
+          "score": 2.81,
+          "confidence": 0.82,
+          "frac": 0.937
+        },
+        "riding": {
+          "score": 2.13,
+          "confidence": 0.67,
+          "frac": 0.71
+        },
+        "scene": {
+          "score": 2.13,
+          "confidence": 0.87,
+          "frac": 0.71
+        }
+      },
+      "jev": "jev-1.13.0",
+      "rank": 25
+    },
+    {
+      "slug": "k3-crush",
+      "total": 64,
+      "dims": {
+        "pelican": {
+          "score": 1.69,
+          "confidence": 0.7,
+          "frac": 0.563
         },
         "bicycle": {
           "score": 2.86,
@@ -645,55 +729,27 @@
           "frac": 0.953
         },
         "riding": {
-          "score": 2.13,
-          "confidence": 0.66,
-          "frac": 0.71
-        },
-        "scene": {
-          "score": 2.11,
-          "confidence": 0.89,
-          "frac": 0.703
-        }
-      },
-      "jev": "jev-1.13.0",
-      "rank": 23
-    },
-    {
-      "slug": "k3-crush",
-      "total": 64,
-      "dims": {
-        "pelican": {
-          "score": 1.71,
-          "confidence": 0.72,
-          "frac": 0.57
-        },
-        "bicycle": {
-          "score": 2.88,
-          "confidence": 0.89,
-          "frac": 0.96
-        },
-        "riding": {
           "score": 0.96,
           "confidence": 0.96,
           "frac": 0.32
         },
         "scene": {
-          "score": 2.22,
-          "confidence": 0.78,
-          "frac": 0.74
+          "score": 2.28,
+          "confidence": 0.72,
+          "frac": 0.76
         }
       },
       "jev": "jev-1.13.0",
-      "rank": 24
+      "rank": 26
     },
     {
       "slug": "mimo-2.6-pro",
-      "total": 63,
+      "total": 62,
       "dims": {
         "pelican": {
-          "score": 2.59,
-          "confidence": 0.59,
-          "frac": 0.863
+          "score": 2.58,
+          "confidence": 0.58,
+          "frac": 0.86
         },
         "bicycle": {
           "score": 0,
@@ -701,9 +757,9 @@
           "frac": 0
         },
         "riding": {
-          "score": 2,
-          "confidence": 0.58,
-          "frac": 0.667
+          "score": 1.97,
+          "confidence": 0.56,
+          "frac": 0.657
         },
         "scene": {
           "score": 2.99,
@@ -712,16 +768,16 @@
         }
       },
       "jev": "jev-1.13.0",
-      "rank": 25
+      "rank": 27
     },
     {
       "slug": "gemma4",
-      "total": 46,
+      "total": 45,
       "dims": {
         "pelican": {
-          "score": 1.7,
-          "confidence": 0.52,
-          "frac": 0.567
+          "score": 1.66,
+          "confidence": 0.47,
+          "frac": 0.553
         },
         "bicycle": {
           "score": 1,
@@ -729,18 +785,18 @@
           "frac": 0.333
         },
         "riding": {
-          "score": 0.82,
-          "confidence": 0.82,
-          "frac": 0.273
+          "score": 0.83,
+          "confidence": 0.83,
+          "frac": 0.277
         },
         "scene": {
-          "score": 2,
-          "confidence": 1,
-          "frac": 0.667
+          "score": 1.99,
+          "confidence": 0.99,
+          "frac": 0.663
         }
       },
       "jev": "jev-1.13.0",
-      "rank": 26
+      "rank": 28
     },
     {
       "slug": "solar-mini-4",
@@ -752,32 +808,32 @@
           "frac": 0.333
         },
         "bicycle": {
-          "score": 1.91,
-          "confidence": 0.87,
-          "frac": 0.637
+          "score": 1.9,
+          "confidence": 0.86,
+          "frac": 0.633
         },
         "riding": {
-          "score": 0.45,
-          "confidence": 0.55,
-          "frac": 0.15
+          "score": 0.44,
+          "confidence": 0.56,
+          "frac": 0.147
         },
         "scene": {
-          "score": 2.31,
-          "confidence": 0.69,
-          "frac": 0.77
+          "score": 2.28,
+          "confidence": 0.71,
+          "frac": 0.76
         }
       },
       "jev": "jev-1.13.0",
-      "rank": 27
+      "rank": 29
     },
     {
       "slug": "glm-5.3-3d",
       "total": 30,
       "dims": {
         "pelican": {
-          "score": 0.66,
-          "confidence": 0.62,
-          "frac": 0.22
+          "score": 0.62,
+          "confidence": 0.59,
+          "frac": 0.207
         },
         "bicycle": {
           "score": 1,
@@ -791,12 +847,12 @@
         },
         "scene": {
           "score": 2.01,
-          "confidence": 0.98,
+          "confidence": 0.99,
           "frac": 0.67
         }
       },
       "jev": "jev-1.13.0",
-      "rank": 28
+      "rank": 30
     }
   ]
 }

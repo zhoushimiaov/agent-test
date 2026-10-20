@@ -1,0 +1,1469 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="day">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>鹈鹕骑车 · Pelican Cycling — SVG Animation</title>
+<style>
+/* ============================================================
+   壳 / Shell
+   ============================================================ */
+*,*::before,*::after{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0; background:#fafafa; color:#111;
+  font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",
+       "PingFang SC","Hiragino Sans GB","Microsoft YaHei","Noto Sans SC",Arial,sans-serif;
+  -webkit-font-smoothing:antialiased;
+  overflow:hidden;
+}
+.app{display:flex;height:100dvh;height:100vh}
+
+/* ============================================================
+   舞台 / Stage —— CSS 3D 立体景箱
+   ============================================================ */
+.frame{
+  position:relative; flex:1 1 auto; min-width:0; overflow:hidden;
+  background:#cfe6f6;
+  isolation:isolate;
+}
+.stage{position:absolute;inset:0;perspective:1000px;perspective-origin:50% 48%}
+.world{
+  position:absolute;inset:0;
+  transform-style:flat;
+  transform-origin:50% 50%;
+  transition:transform .5s cubic-bezier(.22,.9,.28,1);
+}
+.world.is3d{transform-style:preserve-3d}
+.lyr{position:absolute;inset:0;pointer-events:none;transform-origin:50% 50%;transition:transform .5s cubic-bezier(.22,.9,.28,1)}
+.lyr svg{display:block;width:100%;height:100%}
+.dragging .world,.dragging .lyr{transition:none}
+
+/* 环境色罩 */
+.ambient{position:absolute;inset:0;pointer-events:none;background:var(--ambient,transparent);mix-blend-mode:soft-light}
+.vignette{
+  position:absolute;inset:0;pointer-events:none;
+  background:radial-gradient(120% 90% at 50% 45%,transparent 55%,rgba(0,0,0,.16) 100%);
+}
+.haze{position:absolute;inset:0;pointer-events:none;background:linear-gradient(180deg,transparent 40%,var(--haze,transparent) 100%)}
+
+/* ============================================================
+   舞台叠加文字
+   ============================================================ */
+.badge-title{
+  position:absolute;left:22px;top:20px;pointer-events:none;
+  color:#0b1017;text-shadow:0 1px 12px rgba(255,255,255,.65);
+}
+.badge-title b{display:block;font-size:19px;font-weight:650;letter-spacing:-.01em}
+.badge-title span{display:block;font-size:11.5px;font-weight:500;opacity:.62;letter-spacing:.04em;margin-top:2px}
+[data-theme="night"] .badge-title{color:#eaf1ff;text-shadow:0 1px 12px rgba(0,0,0,.55)}
+
+.hud{
+  position:absolute;left:22px;bottom:20px;pointer-events:none;
+  display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;
+}
+.hud .chip{
+  background:rgba(255,255,255,.82);backdrop-filter:blur(14px) saturate(180%);
+  -webkit-backdrop-filter:blur(14px) saturate(180%);
+  border:1px solid rgba(0,0,0,.07); border-radius:10px;
+  padding:7px 11px; box-shadow:0 4px 18px rgba(0,0,0,.10);
+  min-width:74px;
+}
+.hud .chip i{display:block;font-style:normal;font-size:9.5px;font-weight:600;letter-spacing:.07em;
+  text-transform:uppercase;color:#8a8a8a;margin-bottom:1px}
+.hud .chip u{display:block;text-decoration:none;font-size:15px;font-weight:640;letter-spacing:-.01em;
+  font-variant-numeric:tabular-nums;color:#111}
+.hud .chip u small{font-size:10px;font-weight:550;color:#8a8a8a;margin-left:2px}
+.hud .chip.slow u{color:#a06400}
+[data-theme="night"] .hud .chip{background:rgba(18,24,36,.72);border-color:rgba(255,255,255,.12)}
+[data-theme="night"] .hud .chip u{color:#f0f5ff}
+
+/* ============================================================
+   控制面板
+   ============================================================ */
+.panel{
+  width:326px;flex:0 0 326px;height:100%;background:#fff;
+  border-left:1px solid #ececec;display:flex;flex-direction:column;
+  box-shadow:-1px 0 40px rgba(0,0,0,.05);z-index:5;
+}
+.p-head{
+  display:flex;align-items:flex-start;justify-content:space-between;gap:10px;
+  padding:16px 18px 14px;border-bottom:1px solid #f0f0f0;
+}
+.p-head h1{margin:0;font-size:15px;font-weight:650;letter-spacing:-.015em}
+.p-head p{margin:2px 0 0;font-size:11.5px;color:#8a8a8a;letter-spacing:.01em}
+.p-body{flex:1 1 auto;overflow-y:auto;overscroll-behavior:contain;padding:4px 0 22px}
+.p-body::-webkit-scrollbar{width:9px}
+.p-body::-webkit-scrollbar-thumb{background:#e2e2e2;border-radius:9px;border:3px solid #fff}
+.p-body::-webkit-scrollbar-thumb:hover{background:#cfcfcf}
+
+section{padding:14px 18px 4px}
+section+section{border-top:1px solid #f4f4f4}
+section h2{
+  margin:0 0 11px;font-size:10.5px;font-weight:700;letter-spacing:.1em;
+  text-transform:uppercase;color:#9a9a9a;
+}
+.field{margin:0 0 13px}
+.field:last-child{margin-bottom:6px}
+.field>label{
+  display:flex;align-items:baseline;justify-content:space-between;gap:8px;
+  font-size:12.5px;font-weight:520;color:#3a3a3a;margin-bottom:7px;
+}
+.field output{
+  font-size:11.5px;font-weight:600;color:#111;font-variant-numeric:tabular-nums;
+  background:#f4f4f5;border-radius:5px;padding:2px 6px;letter-spacing:-.01em;
+}
+.row{display:flex;gap:8px;margin-bottom:13px}
+.row>*{flex:1 1 0}
+
+/* range */
+input[type=range]{
+  -webkit-appearance:none;appearance:none;display:block;width:100%;height:4px;
+  border-radius:99px;outline:none;margin:0;cursor:pointer;
+  background:linear-gradient(90deg,#111 var(--p,50%),#e7e7e7 var(--p,50%));
+}
+input[type=range]::-webkit-slider-thumb{
+  -webkit-appearance:none;width:15px;height:15px;border-radius:50%;
+  background:#fff;border:1px solid rgba(0,0,0,.16);
+  box-shadow:0 1px 4px rgba(0,0,0,.2);transition:transform .12s ease;
+}
+input[type=range]:hover::-webkit-slider-thumb{transform:scale(1.12)}
+input[type=range]:active::-webkit-slider-thumb{transform:scale(1.22);border-color:#111}
+input[type=range]::-moz-range-thumb{
+  width:14px;height:14px;border-radius:50%;background:#fff;
+  border:1px solid rgba(0,0,0,.16);box-shadow:0 1px 4px rgba(0,0,0,.2);cursor:pointer;
+}
+input[type=range]:disabled{opacity:.4;cursor:default}
+
+/* buttons */
+.btn{
+  -webkit-appearance:none;appearance:none;border:1px solid #e3e3e3;background:#fff;
+  color:#111;border-radius:8px;padding:8px 10px;font:inherit;font-size:12.5px;font-weight:560;
+  cursor:pointer;transition:background .14s,border-color .14s,transform .08s;
+  display:inline-flex;align-items:center;justify-content:center;gap:6px;white-space:nowrap;
+}
+.btn:hover{background:#f7f7f7;border-color:#d8d8d8}
+.btn:active{transform:scale(.975)}
+.btn.primary{background:#111;border-color:#111;color:#fff}
+.btn.primary:hover{background:#2b2b2b;border-color:#2b2b2b}
+.btn.on{background:#111;border-color:#111;color:#fff}
+.btn .k{font-size:9.5px;opacity:.42;font-weight:600;letter-spacing:.04em}
+.btn.primary .k{opacity:.6}
+
+/* segmented */
+.seg{display:flex;background:#f4f4f5;border-radius:9px;padding:3px;gap:2px;margin-bottom:13px}
+.seg button{
+  flex:1 1 0;-webkit-appearance:none;appearance:none;border:0;background:transparent;
+  font:inherit;font-size:12px;font-weight:560;color:#6b6b6b;padding:6px 4px;border-radius:7px;
+  cursor:pointer;transition:background .16s,color .16s,box-shadow .16s;
+}
+.seg button:hover{color:#111}
+.seg button[aria-pressed=true]{background:#fff;color:#111;box-shadow:0 1px 3px rgba(0,0,0,.1)}
+
+/* switch */
+.sw{display:flex;align-items:center;justify-content:space-between;gap:10px;
+  font-size:12.5px;font-weight:520;color:#3a3a3a;padding:6px 0;cursor:pointer;user-select:none}
+.sw input{position:absolute;opacity:0;pointer-events:none}
+.sw .track{
+  flex:0 0 auto;width:34px;height:19px;border-radius:99px;background:#e2e2e2;
+  position:relative;transition:background .18s cubic-bezier(.4,0,.2,1);
+}
+.sw .track::after{
+  content:'';position:absolute;top:2px;left:2px;width:15px;height:15px;border-radius:50%;
+  background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.25);
+  transition:transform .18s cubic-bezier(.4,0,.2,1);
+}
+.sw input:checked+.track{background:#111}
+.sw input:checked+.track::after{transform:translateX(15px)}
+.sw input:focus-visible+.track{box-shadow:0 0 0 3px rgba(0,0,0,.12)}
+
+/* telemetry grid */
+.tgrid{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-bottom:10px}
+.tcell{background:#fafafa;border:1px solid #f0f0f0;border-radius:9px;padding:8px 10px}
+.tcell i{display:block;font-style:normal;font-size:9.5px;font-weight:600;letter-spacing:.07em;
+  text-transform:uppercase;color:#a0a0a0;margin-bottom:2px}
+.tcell u{display:block;text-decoration:none;font-size:14.5px;font-weight:640;
+  font-variant-numeric:tabular-nums;letter-spacing:-.015em}
+.tcell u small{font-size:10px;font-weight:540;color:#9a9a9a;margin-left:2px}
+
+.hint{margin:10px 18px 0;font-size:11px;line-height:1.75;color:#a3a3a3}
+.hint kbd{
+  font:inherit;font-size:10px;font-weight:600;background:#f4f4f5;border:1px solid #e8e8e8;
+  border-radius:4px;padding:1px 5px;color:#5c5c5c;
+}
+.icon-btn{
+  -webkit-appearance:none;appearance:none;border:1px solid #e8e8e8;background:#fff;
+  width:28px;height:28px;border-radius:7px;cursor:pointer;color:#666;font-size:15px;line-height:1;
+  display:flex;align-items:center;justify-content:center;transition:background .14s;
+}
+.icon-btn:hover{background:#f5f5f5}
+
+/* 折叠态 */
+.panel.collapsed .p-body{display:none}
+.panel.collapsed{height:auto}
+
+/* ============================================================
+   主题变量默认值 + SVG 可着色部件
+   ============================================================ */
+:root{
+  --leg:#E08B2C; --leg-d:#B47014; --flower-core:#C99A2A;
+  --wind:rgba(255,255,255,.92);
+}
+/* 渐变 stop 用 CSS 着色，换主题瞬间生效，不用重建 DOM */
+.st-sky-0{stop-color:var(--sky-0)}
+.st-sky-1{stop-color:var(--sky-1)}
+.st-sky-2{stop-color:var(--sky-2)}
+.st-sky-3{stop-color:var(--sky-3)}
+.st-glow  {stop-color:var(--glow);stop-opacity:1}
+.st-glow-m{stop-color:var(--glow);stop-opacity:.42}
+.st-glow-0{stop-color:var(--glow);stop-opacity:0}
+.st-shadow-0{stop-color:#000;stop-opacity:.26}
+.st-shadow-1{stop-color:#000;stop-opacity:0}
+.st-blur-0{stop-color:var(--rim);stop-opacity:.5}
+.st-blur-1{stop-color:var(--rim);stop-opacity:0}
+.moon-crater{fill:rgba(120,140,170,.28)}
+.windline{stroke:var(--wind)}
+/* 角色描边：让白色鹈鹕在任何天空色下都有轮廓 */
+.bout{stroke:var(--bird-ln);stroke-width:2.4;stroke-linejoin:round;stroke-linecap:round}
+.flower-core{fill:var(--flower-core)}
+.star{fill:#fff;animation:twinkle 4.2s ease-in-out infinite}
+@keyframes twinkle{0%,100%{opacity:.22}50%{opacity:1}}
+@media (prefers-reduced-motion:reduce){ .star{animation:none;opacity:.75} }
+
+/* ============================================================
+   响应式
+   ============================================================ */
+@media (max-width:900px){
+  body{overflow:auto}
+  .app{flex-direction:column;height:100dvh;height:100vh}
+  /* 竖屏若放任舞台拉伸，slice 会把前后轮切掉；固定 4:3 刚好装下整只鹈鹕与两个轮子 */
+  .frame{flex:0 0 auto;aspect-ratio:4/3;max-height:52vh;min-height:0}
+  .panel{width:100%;flex:1 1 auto;height:auto;min-height:0;border-left:0;border-top:1px solid #ececec}
+  .badge-title{left:14px;top:12px}
+  .badge-title b{font-size:15px}
+  .hud{left:14px;bottom:12px;gap:6px}
+  .hud .chip{padding:5px 8px;min-width:60px}
+  .hud .chip u{font-size:12.5px}
+}
+@media (prefers-reduced-motion:reduce){
+  .world,.lyr{transition:none}
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <main class="frame" id="frame">
+    <div class="stage">
+      <div class="world" id="world">
+        <!-- 星体层固定在平面：天体在无穷远，不该随景箱一起旋转 -->
+        <div class="lyr" id="lyr-sky"    data-fixed="1" data-p="0"></div>
+        <div class="lyr" id="lyr-clouds" data-z="-440" data-p="0.05"></div>
+        <div class="lyr" id="lyr-mtn"    data-z="-360" data-p="0.10"></div>
+        <div class="lyr" id="lyr-hills"  data-z="-280" data-p="0.18"></div>
+        <div class="lyr" id="lyr-trees"  data-z="-200" data-p="0.34"></div>
+        <div class="lyr" id="lyr-side"   data-z="-120" data-p="0.66"></div>
+        <div class="lyr" id="lyr-road"   data-z="0"    data-p="1"></div>
+        <div class="lyr" id="lyr-bike"   data-z="40"   data-p="0"></div>
+        <div class="lyr" id="lyr-fg"     data-z="200"  data-p="1.35"></div>
+      </div>
+    </div>
+    <div class="haze"></div>
+    <div class="ambient"></div>
+    <div class="vignette"></div>
+
+    <div class="badge-title">
+      <b>鹈鹕骑车 · Pelican Cycling</b>
+      <span>纯 SVG 矢量动画 · 骨骼 IK 踏板联动 · CSS 3D 景箱</span>
+    </div>
+
+    <div class="hud" id="hud">
+      <div class="chip"><i>Speed</i><u id="h-kmh">18.6<small>km/h</small></u></div>
+      <div class="chip"><i>Cadence</i><u id="h-cad">60<small>rpm</small></u></div>
+      <div class="chip"><i>Wheel</i><u id="h-wrpm">145<small>rpm</small></u></div>
+      <div class="chip" id="h-slowchip"><i>Playback</i><u id="h-slow">×0.30</u></div>
+    </div>
+  </main>
+
+  <aside class="panel" id="panel">
+    <div class="p-head">
+      <div>
+        <h1>控制面板</h1>
+        <p>整台自行车由同一套物理关系驱动</p>
+      </div>
+      <button class="icon-btn" id="btn-collapse" title="折叠 / 展开面板" aria-label="折叠面板">−</button>
+    </div>
+
+    <div class="p-body">
+      <!-- 播放 -->
+      <section>
+        <h2>播放</h2>
+        <div class="row">
+          <button class="btn primary" id="btn-play">暂停 <span class="k">SPACE</span></button>
+          <button class="btn" id="btn-rev">反向 <span class="k">R</span></button>
+        </div>
+        <div class="field">
+          <label>车速 <output id="out-speed">18.6 km/h</output></label>
+          <input type="range" id="r-speed" min="0" max="2000" step="10" value="1400">
+        </div>
+        <div class="field">
+          <label>慢动作倍率 <output id="out-time">×0.30</output></label>
+          <input type="range" id="r-time" min="5" max="150" step="1" value="30">
+        </div>
+        <div class="field">
+          <label>齿比 · 轮转/曲柄转 <output id="out-gear">2.40</output></label>
+          <input type="range" id="r-gear" min="100" max="350" step="5" value="240">
+        </div>
+      </section>
+
+      <!-- 动作 -->
+      <section>
+        <h2>动作</h2>
+        <div class="field">
+          <label>翅膀</label>
+          <div class="seg" id="seg-flap">
+            <button data-v="0" aria-pressed="false">收起</button>
+            <button data-v="1" aria-pressed="true">轻摆</button>
+            <button data-v="2" aria-pressed="false">扇动</button>
+          </div>
+        </div>
+        <div class="field">
+          <label>身体起伏 <output id="out-bob">100%</output></label>
+          <input type="range" id="r-bob" min="0" max="200" step="5" value="100">
+        </div>
+        <div class="field">
+          <label>围巾飘动 <output id="out-scarf">100%</output></label>
+          <input type="range" id="r-scarf" min="0" max="200" step="5" value="100">
+        </div>
+        <label class="sw">
+          <span>眨眼</span>
+          <input type="checkbox" id="c-blink" checked><span class="track"></span>
+        </label>
+      </section>
+
+      <!-- 场景 -->
+      <section>
+        <h2>场景</h2>
+        <div class="field">
+          <label>时间</label>
+          <div class="seg" id="seg-theme">
+            <button data-v="day" aria-pressed="true">白昼</button>
+            <button data-v="dusk" aria-pressed="false">黄昏</button>
+            <button data-v="night" aria-pressed="false">夜晚</button>
+          </div>
+        </div>
+        <div class="field">
+          <label>空气感 <output id="out-air">100%</output></label>
+          <input type="range" id="r-air" min="0" max="150" step="5" value="100">
+        </div>
+        <label class="sw"><span>风痕速度线</span><input type="checkbox" id="c-wind" checked><span class="track"></span></label>
+        <label class="sw"><span>轮辐动态模糊</span><input type="checkbox" id="c-blur" checked><span class="track"></span></label>
+        <label class="sw"><span>扬尘</span><input type="checkbox" id="c-dust" checked><span class="track"></span></label>
+      </section>
+
+      <!-- 视角 -->
+      <section>
+        <h2>视角</h2>
+        <div class="field">
+          <label>投影</label>
+          <div class="seg" id="seg-view">
+            <button data-v="2d" aria-pressed="true">2D 平视</button>
+            <button data-v="3d" aria-pressed="false">3D 景箱</button>
+          </div>
+        </div>
+        <div class="field">
+          <label>俯仰 X <output id="out-rx">7°</output></label>
+          <input type="range" id="r-rx" min="-20" max="20" step="1" value="7">
+        </div>
+        <div class="field">
+          <label>旋转 Y <output id="out-ry">−11°</output></label>
+          <input type="range" id="r-ry" min="-20" max="20" step="1" value="-11">
+        </div>
+        <div class="field">
+          <label>镜头推近 <output id="out-zoom">100%</output></label>
+          <input type="range" id="r-zoom" min="100" max="180" step="1" value="100">
+        </div>
+        <div class="row">
+          <button class="btn" id="btn-rig">显示骨骼 <span class="k">G</span></button>
+          <button class="btn" id="btn-reset">重置视角</button>
+        </div>
+      </section>
+
+      <!-- 遥测 -->
+      <section>
+        <h2>遥测</h2>
+        <div class="tgrid">
+          <div class="tcell"><i>车速</i><u id="t-kmh">18.6<small>km/h</small></u></div>
+          <div class="tcell"><i>踏频</i><u id="t-cad">60<small>rpm</small></u></div>
+          <div class="tcell"><i>轮速</i><u id="t-wrpm">145<small>rpm</small></u></div>
+          <div class="tcell"><i>曲柄角</i><u id="t-ang">0<small>°</small></u></div>
+          <div class="tcell"><i>里程</i><u id="t-dist">0<small>m</small></u></div>
+          <div class="tcell"><i>骑行时间</i><u id="t-time">0.0<small>s</small></u></div>
+        </div>
+        <p class="hint" style="margin:0 0 4px">
+          轮径按 700c（半径 0.34 m）折算，故车速 = 轮周长 × 轮转数。踏频 = 轮转数 ÷ 齿比。
+          齿盘与飞轮的直径比就是滑杆上的齿比，链条、踏板、车轮三者永远同步，不会「打滑」。
+        </p>
+      </section>
+
+      <p class="hint">
+        <kbd>空格</kbd> 播放 / 暂停　<kbd>R</kbd> 反向　<kbd>T</kbd> 换时间<br>
+        <kbd>D</kbd> 2D / 3D　<kbd>G</kbd> 骨骼　拖拽画面可转视角，滚轮推拉镜头
+      </p>
+    </div>
+  </aside>
+</div>
+
+<script>
+(() => {
+'use strict';
+const NS = 'http://www.w3.org/2000/svg';
+const TAU = Math.PI * 2, D2R = Math.PI / 180, R2D = 180 / Math.PI;
+
+/* ---------------------------------------------------------------- utils */
+const S = (tag, attrs, parent) => {
+  const n = document.createElementNS(NS, tag);
+  if (attrs) for (const k in attrs) { const v = attrs[k]; if (v != null) n.setAttribute(k, v); }
+  if (parent) parent.appendChild(n);
+  return n;
+};
+const G   = (attrs, parent) => S('g', attrs, parent);
+const mod = (a, b) => ((a % b) + b) % b;
+const lerp = (a, b, t) => a + (b - a) * t;
+const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+const f = n => n.toFixed(1);
+const rnd = (seed => () => (seed = (seed * 1664525 + 1013904223) % 4294967296) / 4294967296)(20261018);
+const between = (a, b) => a + rnd() * (b - a);
+
+/** 由圆锥曲线采样点 + 逐点半宽生成闭合轮廓（用于脖子、喙这类锥形） */
+function taper(pts, widths){
+  const L = [], R = [];
+  for (let i = 0; i < pts.length; i++){
+    const p = pts[i];
+    const a = pts[Math.max(0, i - 1)], b = pts[Math.min(pts.length - 1, i + 1)];
+    let dx = b.x - a.x, dy = b.y - a.y;
+    const m = Math.hypot(dx, dy) || 1; dx /= m; dy /= m;
+    const w = widths[i];
+    L.push([p.x - dy * w, p.y + dx * w]);
+    R.push([p.x + dy * w, p.y - dx * w]);
+  }
+  const seg = arr => arr.map((q, i) => `${i ? 'L' : 'M'}${f(q[0])} ${f(q[1])}`).join(' ');
+  return `${seg(L)} ${seg(R.reverse())} Z`;
+}
+function cubic(p0, p1, p2, p3, n){
+  const out = [];
+  for (let i = 0; i <= n; i++){
+    const t = i / n, u = 1 - t;
+    out.push({
+      x: u*u*u*p0.x + 3*u*u*t*p1.x + 3*u*t*t*p2.x + t*t*t*p3.x,
+      y: u*u*u*p0.y + 3*u*u*t*p1.y + 3*u*t*t*p2.y + t*t*t*p3.y
+    });
+  }
+  return out;
+}
+
+/** 椭圆上的点：在椭圆自身坐标系里取角 aDeg、半径系数 f，再整体旋转 rotDeg */
+const f2 = n => (Math.round(n * 10) / 10).toString();
+function arcP(cx, cy, rx, ry, rotDeg, aDeg, f){
+  const a = aDeg * D2R, cs = Math.cos(rotDeg * D2R), sn = Math.sin(rotDeg * D2R);
+  const x = Math.cos(a) * rx * f, y = Math.sin(a) * ry * f;
+  return { x: cx + x * cs - y * sn, y: cy + x * sn + y * cs };
+}
+/** 新月形翅膀：外缘贴身体轮廓，内缘向内拱起，两端自然收尖 */
+function wingCrescent(cx, cy, rx, ry, rotDeg, a0, a1, k){
+  const P = (a, f) => { const q = arcP(cx, cy, rx, ry, rotDeg, a, f); return `${f2(q.x)} ${f2(q.y)}`; };
+  const c = arcP(cx, cy, rx, ry, rotDeg, (a0 + a1) / 2, k);
+  return `M${P(a0, 1)} A${rx} ${ry} ${rotDeg} ${a1 - a0 > 180 ? 1 : 0} 1 ${P(a1, 1)}`
+       + ` Q${f2(c.x)} ${f2(c.y)} ${P(a0, 1)} Z`;
+}
+
+/* ---------------------------------------------------------------- 几何 */
+/* 视图坐标系 1200 × 675（16:9），地面接触线 y = 597 */
+const W_TILE = 1200;                 // 视差滚动单元宽度
+const G0 = {
+  horizon: 452,
+  roadTop: 566, roadBot: 648,
+  rear:  { x: 430, y: 505 },         // 后轴
+  front: { x: 795, y: 505 },         // 前轴
+  bb:    { x: 612, y: 505 },         // 五通
+  wheelR: 92, crankR: 34, ringR: 34,
+  seat:  { x: 556, y: 358 },
+  ht:    { x: 726, y: 330 },         // 头管上端
+  hb:    { x: 748, y: 390 },         // 头管下端
+  contact: { x: 430, y: 597 },
+  hipN:  { x: 526, y: 328 },         // 近侧（右腿）髋
+  hipF:  { x: 534, y: 320 },         // 远侧（左腿）髋
+  thigh: 116, shin: 126,
+  bodyC: { x: 486, y: 282 }, bodyRX: 74, bodyRY: 68, bodyRot: -6,
+  headC: { x: 664, y: 148 }, headR: 36,
+  neckRoot: { x: 530, y: 240 },
+  headBase: { x: 644, y: 156 },
+  shoulder: { x: 540, y: 240 },
+  scarfRoot:{ x: 548, y: 244 },
+  beak:  { x: 698, y: 138 },
+  eye:   { x: 672, y: 134, r: 9.5 }
+};
+const PX2M = 0.0037;                 // 700c 轮半径 0.34 m / 92 px
+const KMH_PER_PXS = PX2M * 3.6;
+
+/* ---------------------------------------------------------------- 主题 */
+const THEMES = {
+  day: {
+    shell:'#cfe6f6',
+    'sky-0':'#78BEEB','sky-1':'#B4DCF4','sky-2':'#E6F3FB','sky-3':'#FBF3E2',
+    'sun':'#FFD166','glow':'rgba(255,214,110,.55)','moon':0,'star':0,
+    'mtn':'#B4D3E6','mtn-2':'#C6DEEE','hills':'#A3CBBE','hills-2':'#B8D8CB',
+    'tree':'#8CC49B','tree-d':'#6BA37F','trunk':'#8C6248',
+    'side':'#8BBE74','side-2':'#77AC60',
+    'ground':'#84B96C','ground-2':'#6CA45A',
+    'road':'#9DA3A9','road-e':'#C6CCD2','road-d':'#7E858C',
+    'fg':'#4E7F3E','fg-2':'#3E6C32','flower':'#F4C752',
+    'cloud':'#FFFFFF','cloud-o':'#EEF4FA',
+    'bird':'#FFFFFF','bird-sh':'#D8E4EE','bird-ln':'#8FA6BC',
+    'beak':'#F2A03D','beak-sh':'#D57F1C','pouch':'#F8B75F',
+    'leg':'#E08B2C','leg-d':'#B47014','flower-core':'#C99A2A',
+    'frame':'#0E7C86','frame-hi':'#44ADB6','tire':'#2E3238','rim':'#C3CCD3',
+    'ambient':'rgba(255,238,205,.20)','haze':'rgba(255,246,225,.42)','wind':'rgba(255,255,255,.92)'
+  },
+  dusk: {
+    shell:'#8a7a90',
+    'sky-0':'#3E3670','sky-1':'#8A5F8C','sky-2':'#DE8A5C','sky-3':'#F6C489',
+    'sun':'#FF7A3D','glow':'rgba(255,140,70,.60)','moon':0,'star':0.35,
+    'mtn':'#7A6B94','mtn-2':'#8E7B9E','hills':'#876A82','hills-2':'#9A7B8C',
+    'tree':'#6C5674','tree-d':'#523F5C','trunk':'#463229',
+    'side':'#6E5A66','side-2':'#5C4A56',
+    'ground':'#75656A','ground-2':'#5C4F55',
+    'road':'#6E6673','road-e':'#928A98','road-d':'#565061',
+    'fg':'#463A44','fg-2':'#352B34','flower':'#F0A65A',
+    'cloud':'#F7C79E','cloud-o':'#E0A87E',
+    'bird':'#FFF3E4','bird-sh':'#DCC4AE','bird-ln':'#8E7361',
+    'beak':'#F09A3A','beak-sh':'#C1711A','pouch':'#F6AC57',
+    'leg':'#D07E28','leg-d':'#9C5F14','flower-core':'#B87C34',
+    'frame':'#1C5E6A','frame-hi':'#3E93A2','tire':'#25272D','rim':'#B8BEC6',
+    'ambient':'rgba(255,150,80,.30)','haze':'rgba(255,170,110,.40)','wind':'rgba(255,222,186,.92)'
+  },
+  night: {
+    shell:'#101a2e',
+    'sky-0':'#060A1A','sky-1':'#101E40','sky-2':'#1D2E52','sky-3':'#2A3D60',
+    'sun':'#EEF3FF','glow':'rgba(190,215,255,.30)','moon':1,'star':1,
+    'mtn':'#1B2743','mtn-2':'#22304F','hills':'#182238','hills-2':'#1E2A45',
+    'tree':'#16203A','tree-d':'#0E1728','trunk':'#0C1220',
+    'side':'#141E32','side-2':'#0F1828',
+    'ground':'#17222F','ground-2':'#111A24',
+    'road':'#252B36','road-e':'#3A4250','road-d':'#1A1F28',
+    'fg':'#0D151E','fg-2':'#080F16','flower':'#93AACC',
+    'cloud':'#26334F','cloud-o':'#1E2A42',
+    'bird':'#E6EDF6','bird-sh':'#B2C1D3','bird-ln':'#5F7089',
+    'beak':'#D98A32','beak-sh':'#9E5A16','pouch':'#E0973F',
+    'leg':'#B4732A','leg-d':'#6E4410','flower-core':'#4E5F7C',
+    'frame':'#0A525C','frame-hi':'#2A8A96','tire':'#181B20','rim':'#98A2AC',
+    'ambient':'rgba(80,120,190,.28)','haze':'rgba(70,110,170,.24)','wind':'rgba(186,214,255,.88)'
+  }
+};
+function applyTheme(name){
+  const t = THEMES[name];
+  const r = document.documentElement.style;
+  for (const k in t){
+    if (k === 'shell') continue;
+    r.setProperty('--' + k, typeof t[k] === 'number' ? String(t[k]) : t[k]);
+  }
+  document.documentElement.dataset.theme = name;
+  // 天空用 CSS 渐变画在最底层：它永远铺满画框，不会因为景箱旋转而露出四角
+  document.getElementById('frame').style.background =
+    `linear-gradient(180deg,${t['sky-0']} 0%,${t['sky-1']} 40%,${t['sky-2']} 66%,${t['sky-3']} 100%)`;
+  // 太阳 / 月亮
+  const sun = document.getElementById('cel-sun');
+  const moon = document.getElementById('cel-moon');
+  const stars = document.getElementById('cel-stars');
+  sun.setAttribute('opacity', t.moon ? 0 : 1);
+  moon.setAttribute('opacity', t.moon ? 1 : 0);
+  stars.setAttribute('opacity', t.star ? String(t.star) : '0');
+  const dusk = name === 'dusk';
+  sun.setAttribute('transform', dusk ? 'translate(-104 246) scale(1.5)' : 'translate(0 0) scale(1)');
+}
+
+/* ---------------------------------------------------------------- 建层 */
+const SVGS = {};
+function makeLayer(id){
+  const host = document.getElementById(id);
+  const svg = S('svg', { viewBox:`0 0 ${W_TILE} 675`, preserveAspectRatio:'xMidYMid slice' });
+  host.appendChild(svg);
+  SVGS[id] = svg;
+  return svg;
+}
+/** 生成「周期性山体」函数，x 取任意值都有定义，天然无缝循环 */
+function ridge(baseY, terms){
+  return x => {
+    let y = baseY;
+    for (const [a, freq, ph] of terms) y -= a * (0.5 - 0.5 * Math.cos(TAU * freq * x / W_TILE + ph));
+    return y;
+  };
+}
+function ridgePath(fn, bottom, step = 14){
+  let d = `M${-1200} ${bottom} `;
+  const first = fn(-1200);
+  d += `L${-1200} ${f(first)} `;
+  for (let x = -1200 + step; x <= 2400; x += step) d += `L${x} ${f(fn(x))} `;
+  d += `L2400 ${bottom} Z`;
+  return d;
+}
+
+/* ---- 1. 天空 + 天体 ---- */
+(function buildSky(){
+  const svg = makeLayer('lyr-sky');
+  const defs = S('defs', {}, svg);
+  const lg = S('linearGradient', { id:'skyG', x1:'0', y1:'0', x2:'0', y2:'1' }, defs);
+  S('stop', { offset:'0',   class:'st-sky-0' }, lg);
+  S('stop', { offset:'.44', class:'st-sky-1' }, lg);
+  S('stop', { offset:'.72', class:'st-sky-2' }, lg);
+  S('stop', { offset:'1',   class:'st-sky-3' }, lg);
+  const rg = S('radialGradient', { id:'sunGlow' }, defs);
+  S('stop', { offset:'0',   class:'st-glow' }, rg);
+  S('stop', { offset:'.45', class:'st-glow-m' }, rg);
+  S('stop', { offset:'1',   class:'st-glow-0' }, rg);
+
+  const cel = G({ id:'cel-sun' }, svg);
+  S('circle', { cx:934, cy:122, r:214, fill:'url(#sunGlow)' }, cel);
+  S('circle', { cx:934, cy:122, r:41,  fill:'var(--sun)' }, cel);
+  S('circle', { cx:934, cy:122, r:41,  fill:'none', stroke:'rgba(255,255,255,.5)', 'stroke-width':2 }, cel);
+
+  const mm = S('mask', { id:'moonCut' }, defs);
+  S('rect', { x:640, y:-160, width:760, height:700, fill:'#fff' }, mm);
+  S('circle', { cx:949, cy:129, r:33, fill:'#000' }, mm);
+
+  const moon = G({ id:'cel-moon', opacity:0 }, svg);
+  S('circle', { cx:930, cy:146, r:84, fill:'url(#sunGlow)', opacity:.5 }, moon);
+  const disc = G({ mask:'url(#moonCut)' }, moon);
+  S('circle', { cx:930, cy:146, r:36, fill:'var(--sun)' }, disc);
+  S('circle', { cx:916, cy:162, r:5.6, class:'moon-crater' }, disc);
+  S('circle', { cx:928, cy:134, r:3.4, class:'moon-crater' }, disc);
+  S('circle', { cx:938, cy:156, r:4.2, class:'moon-crater' }, disc);
+
+  const stars = G({ id:'cel-stars', opacity:0 }, svg);
+  for (let i = 0; i < 120; i++){
+    const x = between(-300, 1500), y = between(-260, 430), r = between(.7, 2.1);
+    S('circle', { cx:f(x), cy:f(y), r:f(r), class:'star', style:`animation-delay:${f(-between(0,6))}s` }, stars);
+  }
+})();
+
+/* ---- 2. 云 ---- */
+(function buildClouds(){
+  const svg = makeLayer('lyr-clouds');
+  const g = G({ id:'g-clouds' }, svg);
+  for (let i = 0; i < 20; i++){
+    const x = between(-1200, 2400), y = between(-40, 320);
+    const s = between(.5, 1.2), o = lerp(.35, .85, (s - .5) / .7);
+    const c = G({ transform:`translate(${f(x)} ${f(y)}) scale(${f(s)})`, opacity:f(o), 'data-o':f(o) }, g);
+    S('ellipse', { cx:0,   cy:0,  rx:78, ry:27, fill:'var(--cloud)' }, c);
+    S('ellipse', { cx:-52, cy:8,  rx:46, ry:20, fill:'var(--cloud)' }, c);
+    S('ellipse', { cx:54,  cy:9,  rx:52, ry:21, fill:'var(--cloud)' }, c);
+    S('ellipse', { cx:-8,  cy:-16,rx:46, ry:24, fill:'var(--cloud)' }, c);
+    S('ellipse', { cx:34,  cy:-9, rx:34, ry:18, fill:'var(--cloud)' }, c);
+  }
+})();
+
+/* ---- 3. 远山 ---- */
+(function buildMtn(){
+  const svg = makeLayer('lyr-mtn');
+  const g = G({ id:'g-mtn' }, svg);
+  const A = ridge(452, [[104,1,.4],[58,2,2.2],[30,3,4.4],[14,5,1.1]]);
+  S('path', { d: ridgePath(A, 1320), fill:'var(--mtn)', opacity:.9 }, g);
+  const B = ridge(452, [[62,2,1.1],[36,3,3.6],[20,5,.4],[10,7,2.7]]);
+  S('path', { d: ridgePath(B, 1320), fill:'var(--mtn-2)', opacity:.95 }, g);
+})();
+
+/* ---- 4. 近山 ---- */
+(function buildHills(){
+  const svg = makeLayer('lyr-hills');
+  const g = G({ id:'g-hills' }, svg);
+  const A = ridge(470, [[40,1,1.9],[26,2,3.3],[13,4,.7]]);
+  S('path', { d: ridgePath(A, 1320), fill:'var(--hills)', opacity:1 }, g);
+  const B = ridge(494, [[26,2,.5],[15,3,2.9],[9,6,1.7]]);
+  S('path', { d: ridgePath(B, 1320), fill:'var(--hills-2)', opacity:1 }, g);
+})();
+
+/* ---- 5. 树林 ---- */
+(function buildTrees(){
+  const svg = makeLayer('lyr-trees');
+  const g = G({ id:'g-trees' }, svg);
+  const line = ridge(524, [[18,1,2.4],[11,3,1.2],[7,5,3.8]]);
+  S('path', { d: ridgePath(line, 1320), fill:'var(--side)', opacity:1 }, g);
+
+  const trees = G({}, g);
+  for (let i = 0; i < 62; i++){
+    const x = between(-1200, 2400);
+    if (x > W_TILE - 90 && x < W_TILE + 90) continue;   // 避开接缝
+    if (x > 2 * W_TILE - 90 && x < 2 * W_TILE + 90) continue;
+    if (x > -90 && x < 90) continue;
+    const y = line(x) + between(2, 16);
+    const s = between(.5, 1.15), pine = rnd() > .45;
+    const t = G({ transform:`translate(${f(x)} ${f(y)}) scale(${f(s)})` }, trees);
+    S('rect', { x:-3.5, y:-34, width:7, height:36, rx:3, fill:'var(--trunk)' }, t);
+    if (pine){
+      S('path', { d:'M0 -104 L26 -46 L-26 -46 Z', fill:'var(--tree-d)' }, t);
+      S('path', { d:'M0 -78 L21 -32 L-21 -32 Z',  fill:'var(--tree)' }, t);
+    } else {
+      S('circle', { cx:-14, cy:-52, r:21, fill:'var(--tree)' }, t);
+      S('circle', { cx:15,  cy:-50, r:19, fill:'var(--tree)' }, t);
+      S('circle', { cx:0,   cy:-68, r:23, fill:'var(--tree-d)' }, t);
+      S('circle', { cx:2,   cy:-58, r:15, fill:'var(--tree)' }, t);
+    }
+  }
+})();
+
+/* ---- 6. 路肩草丛 / 篱笆 ---- */
+(function buildSide(){
+  const svg = makeLayer('lyr-side');
+  const g = G({ id:'g-side' }, svg);
+  S('rect', { x:-1200, y:470, width:3600, height:420, fill:'var(--side)' }, g);
+  S('rect', { x:-1200, y:548, width:3600, height:70,  fill:'var(--side-2)' }, g);
+
+  // 草丛
+  for (let i = 0; i < 190; i++){
+    const x = between(-1200, 2400), y = between(486, 566);
+    const h = between(9, 22), s = between(.7, 1.3);
+    const c = G({ transform:`translate(${f(x)} ${f(y)}) scale(${f(s)})` }, g);
+    S('path', { d:`M0 0 q-4 ${-h * .6} -9 ${-h} q6 3 9 ${h*.25} q3 -${h*.75} 9 -${h} q-5 ${h*.62} -9 ${h}`, fill:'var(--side-2)' }, c);
+  }
+  // 木栅栏
+  for (let i = 0; i < 46; i++){
+    const x = between(-1200, 2400);
+    if (x > W_TILE - 60 && x < W_TILE + 60) continue;
+    if (x > 2 * W_TILE - 60 && x < 2 * W_TILE + 60) continue;
+    if (x > -60 && x < 60) continue;
+    const post = G({ transform:`translate(${f(x)} 0)` }, g);
+    S('rect', { x:-4, y:492, width:8, height:52, rx:2, fill:'var(--trunk)', opacity:.85 }, post);
+    S('rect', { x:-4, y:502, width:64, height:5, rx:2, fill:'var(--trunk)', opacity:.7 }, post);
+    S('rect', { x:-4, y:522, width:64, height:5, rx:2, fill:'var(--trunk)', opacity:.7 }, post);
+  }
+  // 远景小石子
+  for (let i = 0; i < 90; i++){
+    const x = between(-1200, 2400), y = between(552, 604);
+    S('ellipse', { cx:f(x), cy:f(y), rx:f(between(1.5, 4)), ry:f(between(1, 2.4)), fill:'var(--side-2)', opacity:.55 }, g);
+  }
+})();
+
+/* ---- 7. 路面 ---- */
+(function buildRoad(){
+  const svg = makeLayer('lyr-road');
+  const g = G({ id:'g-road' }, svg);
+  S('rect', { x:-1200, y:G0.roadTop, width:3600, height:G0.roadBot - G0.roadTop, fill:'var(--road)' }, g);
+  S('rect', { x:-1200, y:G0.roadTop - 5, width:3600, height:5, fill:'var(--road-e)' }, g);
+  S('rect', { x:-1200, y:G0.roadTop, width:3600, height:16, fill:'var(--road-d)', opacity:.35 }, g);
+  S('rect', { x:-1200, y:G0.roadBot - 3, width:3600, height:60, fill:'var(--ground)' }, g);
+  S('rect', { x:-1200, y:G0.roadBot + 22, width:3600, height:400, fill:'var(--ground-2)' }, g);
+
+  // 沥青颗粒 + 补丁 + 裂纹
+  for (let i = 0; i < 320; i++){
+    const x = between(-1200, 2400), y = between(G0.roadTop + 8, G0.roadBot - 6);
+    S('ellipse', { cx:f(x), cy:f(y), rx:f(between(1.2, 3.6)), ry:f(between(.9, 2)), fill:'var(--road-d)', opacity:f(between(.18, .5)) }, g);
+  }
+  for (let i = 0; i < 26; i++){
+    const x = between(-1200, 2400), y = between(G0.roadTop + 20, G0.roadBot - 14);
+    S('rect', { x:f(x), y:f(y), width:f(between(28, 96)), height:f(between(9, 22)), rx:6, fill:'var(--road-d)', opacity:f(between(.10,.26)) }, g);
+  }
+  for (let i = 0; i < 34; i++){
+    const x = between(-1200, 2400), y = between(G0.roadTop + 16, G0.roadBot - 12);
+    const w = between(22, 70), a = between(-.3, .3);
+    S('path', { d:`M${f(x)} ${f(y)} q${f(w*.4)} ${f(a*18)} ${f(w*.6)} ${f(a*30)} q${f(w*.3)} ${f(a*14)} ${f(w*.5)} ${f(a*38)}`,
+      fill:'none', stroke:'var(--road-d)', 'stroke-width':f(between(.8,1.8)), opacity:f(between(.2,.45)) }, g);
+  }
+})();
+
+/* ---- 9. 前景草 ---- */
+(function buildFg(){
+  const svg = makeLayer('lyr-fg');
+  const g = G({ id:'g-fg' }, svg);
+  S('rect', { x:-1200, y:700, width:3600, height:700, fill:'var(--fg)' }, g);
+  for (let i = 0; i < 130; i++){
+    const x = between(-1200, 2400), y = between(668, 900);
+    const h = between(46, 150), s = between(.8, 1.6), lean = between(-40, 40);
+    const c = G({ transform:`translate(${f(x)} ${f(y)}) scale(${f(s)})` }, g);
+    S('path', { d:`M0 0 q${f(lean*.3)} ${f(-h*.55)} ${f(lean*.8)} ${f(-h)}
+                     q${f(lean*.25)} ${f(h*.5)} ${f(-lean*.75)} ${f(h)} Z`, fill:'var(--fg)' }, c);
+    if (rnd() > .62){
+      S('path', { d:`M0 0 q${f(-lean*.3)} ${f(-h*.7)} ${f(-lean)} ${f(-h*1.25)}
+                       q${f(-lean*.2)} ${f(h*.6)} ${f(lean)} ${f(h*1.25)} Z`, fill:'var(--fg-2)' }, c);
+    }
+  }
+  for (let i = 0; i < 34; i++){
+    const x = between(-1200, 2400), y = between(672, 820), s = between(.8, 1.5);
+    const fl = G({ transform:`translate(${f(x)} ${f(y)}) scale(${f(s)})` }, g);
+    S('path', { d:'M0 0 q1 -34 3 -52', fill:'none', stroke:'var(--fg-2)', 'stroke-width':2.4, 'stroke-linecap':'round' }, fl);
+    S('circle', { cx:3, cy:-56, r:7.5, fill:'var(--flower)' }, fl);
+    S('circle', { cx:3, cy:-56, r:2.6, class:'flower-core' }, fl);
+  }
+})();
+
+/* ---------------------------------------------------------------- 主体：鹈鹕 + 自行车 ---- */
+const BIKE = (() => {
+  const svg = makeLayer('lyr-bike');
+  const defs = S('defs', {}, svg);
+  const rg = S('radialGradient', { id:'shadeG' }, defs);
+  S('stop', { offset:'0', class:'st-shadow-0' }, rg);
+  S('stop', { offset:'1', class:'st-shadow-1' }, rg);
+  const bg = S('radialGradient', { id:'blurG' }, defs);
+  S('stop', { offset:'0', class:'st-blur-0' }, bg);
+  S('stop', { offset:'1', class:'st-blur-1' }, bg);
+
+  const root = G({}, svg);
+
+  /* --- 影子 --- */
+  const shadow = G({ id:'b-shadow' }, root);
+  S('ellipse', { cx:430, cy:596, rx:74, ry:12, fill:'url(#shadeG)' }, shadow);
+  S('ellipse', { cx:795, cy:596, rx:74, ry:12, fill:'url(#shadeG)' }, shadow);
+  S('ellipse', { cx:560, cy:594, rx:190, ry:20, fill:'url(#shadeG)', opacity:.5 }, shadow);
+
+  /* --- 扬尘 --- */
+  const dust = G({ id:'b-dust' }, root);
+  const dustP = [];
+  for (let i = 0; i < 46; i++){
+    dustP.push({ x:0, y:0, r:0, life:0, vx:0, vy:0,
+      n: S('circle', { cx:0, cy:0, r:0, fill:'var(--road-e)', opacity:0 }, dust) });
+  }
+
+  /* --- 远侧（左）腿 --- */
+  const farSide = G({ id:'b-farleg', opacity:.86 }, root);
+  const farCrank = S('line', { stroke:'#5d666e', 'stroke-width':11, 'stroke-linecap':'round' }, farSide);
+  const farPedal = G({}, farSide);
+  S('rect', { x:-18, y:-4, width:36, height:7.5, rx:3, fill:'#3c434a' }, farPedal);
+  const farThigh = S('line', { stroke:'var(--leg-d)', 'stroke-width':22, 'stroke-linecap':'round' }, farSide);
+  const farShin  = S('line', { stroke:'var(--leg-d)', 'stroke-width':17, 'stroke-linecap':'round' }, farSide);
+  const farFoot  = G({}, farSide);
+
+  /* --- 车轮 --- */
+  function wheel(cx, cy, low){
+    const w = G({ transform:`translate(${cx} ${cy})` }, root);
+    S('circle', { cx:0, cy:0, r:G0.wheelR, fill:'none', stroke:'var(--tire)', 'stroke-width':11 }, w);
+    S('circle', { cx:0, cy:0, r:G0.wheelR - 7, fill:'none', stroke:'var(--rim)', 'stroke-width':7 }, w);
+    S('circle', { cx:0, cy:0, r:G0.wheelR - 15, fill:'none', stroke:'var(--rim)', 'stroke-width':1.6, opacity:.7 }, w);
+    const blur = S('circle', { cx:0, cy:0, r:G0.wheelR - 8, fill:'url(#blurG)', opacity:0 }, w);
+    const sp = G({}, w);
+    for (let i = 0; i < 24; i++){
+      const a = i * TAU / 24;
+      S('line', { x1:f(Math.cos(a) * 12), y1:f(Math.sin(a) * 12),
+                  x2:f(Math.cos(a) * 82), y2:f(Math.sin(a) * 82),
+                  stroke:'var(--rim)', 'stroke-width':1.7, opacity:.85 }, sp);
+    }
+    S('circle', { cx:0, cy:0, r:12, fill:'var(--rim)' }, w);
+    S('circle', { cx:0, cy:0, r:5.5, fill:'#5B646C' }, w);
+    return { w, sp, blur, low };
+  }
+  const wRear  = wheel(G0.rear.x,  G0.rear.y,  true);
+  const wFront = wheel(G0.front.x, G0.front.y, false);
+
+  /* --- 挡泥板 --- */
+  function fender(cx, cy, a0, a1, dr){
+    const path = `M${f(cx + Math.cos(a0 * D2R) * dr)} ${f(cy + Math.sin(a0 * D2R) * dr)}
+                  A${dr} ${dr} 0 0 1 ${f(cx + Math.cos(a1 * D2R) * dr)} ${f(cy + Math.sin(a1 * D2R) * dr)}`;
+    S('path', { d:path, fill:'none', stroke:'var(--frame)', 'stroke-width':8, 'stroke-linecap':'round' }, root);
+    S('path', { d:path, fill:'none', stroke:'var(--frame-hi)', 'stroke-width':2.4, 'stroke-linecap':'round', opacity:.7 }, root);
+  }
+  fender(G0.rear.x,  G0.rear.y,  198, 342, G0.wheelR + 8);
+  fender(G0.front.x, G0.front.y, 200, 320, G0.wheelR + 8);
+
+  /* --- 车架 --- */
+  const frame = G({ id:'b-frame' }, root);
+  const tube = (a, b, w, col) => S('line', { x1:a.x, y1:a.y, x2:b.x, y2:b.y,
+    stroke: col || 'var(--frame)', 'stroke-width':w, 'stroke-linecap':'round' }, frame);
+  tube(G0.bb, G0.rear, 12);                                  // 后下叉
+  tube(G0.seat, G0.rear, 10);                                // 后上叉
+  tube(G0.bb, G0.seat, 14);                                  // 立管
+  tube(G0.bb, G0.hb, 15);                                    // 下管
+  tube({ x:566, y:354 }, { x:722, y:334 }, 13);              // 上管
+  tube({ x:722, y:334 }, G0.hb, 17);                         // 头管
+  tube(G0.hb, G0.front, 11);                                 // 前叉
+  tube({ x:753.7, y:403.9 }, { x:789.3, y:491.1 }, 3, 'var(--frame-hi)');
+  // 高光
+  tube(G0.bb, G0.hb, 4, 'var(--frame-hi)');
+  tube({ x:566, y:352 }, { x:720, y:332 }, 3, 'var(--frame-hi)');
+  // 立管水壶架
+  S('rect', { x:566, y:404, width:22, height:46, rx:6, fill:'var(--frame-hi)', opacity:.55, transform:'rotate(-13 577 427)' }, frame);
+
+  /* --- 传动 --- */
+  const drive = G({ id:'b-drive' }, root);
+  const ringR = G0.ringR;
+  S('circle', { cx:G0.bb.x, cy:G0.bb.y, r:ringR, fill:'none', stroke:'var(--rim)', 'stroke-width':6 }, drive);
+  S('circle', { cx:G0.bb.x, cy:G0.bb.y, r:ringR - 7, fill:'none', stroke:'var(--rim)', 'stroke-width':2, opacity:.75 }, drive);
+  const crankSpokes = G({ id:'b-ringspoke' }, drive);
+  for (let i = 0; i < 5; i++){
+    const a = i * TAU / 5;
+    S('line', { x1:G0.bb.x, y1:G0.bb.y, x2:f(G0.bb.x + Math.cos(a) * (ringR - 4)), y2:f(G0.bb.y + Math.sin(a) * (ringR - 4)),
+      stroke:'var(--rim)', 'stroke-width':3, opacity:.6 }, crankSpokes);
+  }
+  const cogR = S('circle', { cx:G0.rear.x, cy:G0.rear.y, r:ringR / 2.4, fill:'none', stroke:'var(--rim)', 'stroke-width':6 }, drive);
+  const cogS = S('circle', { cx:G0.rear.x, cy:G0.rear.y, r:ringR / 2.4 - 5, fill:'none', stroke:'var(--rim)', 'stroke-width':2, opacity:.7 }, drive);
+  const chainTop = S('line', { stroke:'#8E979E', 'stroke-width':3.4, 'stroke-dasharray':'7 4' }, drive);
+  const chainBot = S('line', { stroke:'#8E979E', 'stroke-width':3.4, 'stroke-dasharray':'7 4' }, drive);
+
+  /* --- 车座 / 车把 --- */
+  const cockpit = G({}, root);
+  S('path', { d:'M496 350 q34 -12 92 -6 q16 2 14 12 q-2 10 -20 12 q-52 6 -86 -4 q-8 -6 0 -14 Z',
+    fill:'#6B4A34' }, cockpit);
+  S('path', { d:'M500 348 q34 -10 88 -5', fill:'none', stroke:'#8A6247', 'stroke-width':3, opacity:.8 }, cockpit);
+  S('line', { x1:556, y1:352, x2:556, y2:362, stroke:'#4E5661', 'stroke-width':9 }, cockpit);
+  S('line', { x1:G0.ht.x, y1:G0.ht.y, x2:716, y2:312, stroke:'#4E5661', 'stroke-width':9, 'stroke-linecap':'round' }, cockpit);
+  S('path', { d:'M716 312 q-24 -10 -58 -4', fill:'none', stroke:'#4E5661', 'stroke-width':9, 'stroke-linecap':'round' }, cockpit);
+  S('path', { d:'M664 306 q-12 -1 -14 6', fill:'none', stroke:'#6B4A34', 'stroke-width':13, 'stroke-linecap':'round' }, cockpit);
+  S('path', { d:'M716 312 q-24 -10 -58 -4', fill:'none', stroke:'#7d8794', 'stroke-width':3, opacity:.5, 'stroke-linecap':'round' }, cockpit);
+
+  /* 收拢的翅膀 = 躯干椭圆后上侧的一道新月：前缘起自肩部、后缘收在尾部，
+     胸腹与头顶保持白色，飞羽用同心新月排布 */
+  const BC = G0.bodyC, BRX = G0.bodyRX, BRY = G0.bodyRY, BROT = G0.bodyRot;
+  const WING_D = wingCrescent(BC.x, BC.y, BRX, BRY, BROT, 148, 334, .16);
+  /* 躯干整体（身体 + 双翅 + 围巾）共享起伏变换；腿用 IK 单独求解 */
+  const birdAll = G({ id:'b-birdAll' }, root);
+
+  /* --- 鹈鹕：远侧翅膀 --- */
+  /* 同一道新月整体挪一点，被躯干挡住大半，只在上缘露出一条暗边；
+     扇翅时它与近侧反相转动，前后层次就出来了 */
+  const wingFar = G({ id:'b-wingfar' }, birdAll);
+  S('path', { d: wingCrescent(BC.x - 13, BC.y - 13, BRX, BRY, BROT, 154, 326, .2),
+    class:'bout', fill:'var(--bird-ln)', opacity:.85 }, wingFar);
+
+  /* --- 鹈鹕：身体 --- */
+  const body = G({ id:'b-body' }, birdAll);
+
+  // 尾羽：短圆扇
+  S('path', { d:'M434 266 C414 260 396 268 383 280 C399 291 418 293 431 289 C443 285 444 274 434 266 Z',
+    class:'bout', fill:'var(--bird-sh)' }, body);
+  S('path', { d:'M426 270 C410 273 395 277 385 281', fill:'none', stroke:'var(--bird-ln)', 'stroke-width':1.5, opacity:.5 }, body);
+
+  // 躯干
+  S('ellipse', { cx:BC.x, cy:BC.y, rx:BRX, ry:BRY, transform:`rotate(${BROT} ${BC.x} ${BC.y})`,
+    class:'bout', fill:'var(--bird)' }, body);
+
+  // 脖子（锥形）
+  const neckPts = cubic(G0.neckRoot, { x:552, y:200 }, { x:586, y:168 }, G0.headBase, 16);
+  const neckW = neckPts.map((_, i) => lerp(25, 17, i / (neckPts.length - 1)));
+  S('path', { d: taper(neckPts, neckW), class:'bout', fill:'var(--bird)' }, body);
+
+  // 头
+  const headGrp = G({ id:'b-head' }, body);
+  S('circle', { cx:G0.headC.x, cy:G0.headC.y, r:G0.headR, class:'bout', fill:'var(--bird)' }, headGrp);
+  S('circle', { cx:658, cy:160, r:21, fill:'var(--bird-sh)', opacity:.32 }, headGrp);
+
+  // 喙：下颌 + 喉囊
+  S('path', { id:'b-pouch', class:'bout',
+    d:'M698 144 C706 190 738 226 780 226 C822 226 846 194 854 166 C826 178 766 176 716 158 C706 154 701 150 698 144 Z',
+    fill:'var(--pouch)' }, headGrp);
+  S('path', { d:'M716 174 C728 204 750 220 776 220', fill:'none', stroke:'var(--beak-sh)', 'stroke-width':2, opacity:.4 }, headGrp);
+  S('path', { d:'M734 184 C748 206 766 216 788 212', fill:'none', stroke:'var(--beak-sh)', 'stroke-width':1.5, opacity:.26 }, headGrp);
+  // 喙：上颌
+  const upPts = cubic({ x:G0.beak.x, y:G0.beak.y }, { x:764, y:146 }, { x:816, y:156 }, { x:852, y:166 }, 14);
+  S('path', { d: taper(upPts, upPts.map((_, i) => lerp(12, 4, i / (upPts.length - 1)))), class:'bout', fill:'var(--beak)' }, headGrp);
+  S('path', { d:'M854 166 q6 8 2 15 q-8 -3 -9 -11 Z', class:'bout', fill:'var(--beak-sh)' }, headGrp);
+  S('path', { d:'M712 129 q50 8 96 26', fill:'none', stroke:'#fff', 'stroke-width':2, opacity:.42 }, headGrp);
+  S('path', { d:'M702 150 q52 8 104 22', fill:'none', stroke:'var(--beak-sh)', 'stroke-width':2, opacity:.45 }, headGrp);
+
+  // 眼睛
+  const eyeG = G({ id:'b-eye' }, headGrp);
+  S('circle', { cx:G0.eye.x, cy:G0.eye.y, r:G0.eye.r, fill:'#fff', stroke:'var(--bird-ln)', 'stroke-width':1.5 }, eyeG);
+  S('circle', { cx:G0.eye.x + 2, cy:G0.eye.y + 1, r:5, fill:'#20262E' }, eyeG);
+  S('circle', { cx:G0.eye.x + 4.2, cy:G0.eye.y - 1.6, r:1.9, fill:'#fff' }, eyeG);
+  S('path', { d:'M662 121 q12 -8 23 -2', fill:'none', stroke:'var(--bird-ln)', 'stroke-width':2.6, 'stroke-linecap':'round' }, eyeG);
+  const lid = S('ellipse', { cx:G0.eye.x, cy:G0.eye.y, rx:G0.eye.r + 2.4, ry:G0.eye.r + 2.4, fill:'var(--bird)' }, eyeG);
+
+  /* --- 鹈鹕：近侧翅膀 --- */
+  const wingNear = G({ id:'b-wingnear' }, birdAll);
+  S('path', { d:WING_D, class:'bout', fill:'var(--bird-sh)' }, wingNear);
+  // 三层叠压的飞羽：每层都是同心的新月，越靠内越短
+  for (const [sc, a0, a1, k] of [[.87, 160, 326, .22], [.73, 174, 316, .3]])
+    S('path', { d: wingCrescent(BC.x, BC.y, BRX * sc, BRY * sc, BROT, a0, a1, k),
+      fill:'none', stroke:'var(--bird-ln)', 'stroke-width':1.7, opacity:.55 }, wingNear);
+
+  /* --- 围巾 --- */
+  const scarf = S('path', { id:'b-scarf', fill:'none', stroke:'#E5484D', 'stroke-width':8, 'stroke-linecap':'round' }, birdAll);
+  const scarfHi = S('path', { fill:'none', stroke:'#F27276', 'stroke-width':3, 'stroke-linecap':'round', opacity:.9 }, birdAll);
+  const scarfKnot = S('circle', { cx:G0.scarfRoot.x, cy:G0.scarfRoot.y + 2, r:9.5, fill:'#E5484D' }, birdAll);
+
+  /* --- 近侧（右）腿 --- */
+  const nearCrank = S('line', { stroke:'#6C757D', 'stroke-width':12, 'stroke-linecap':'round' }, root);
+  const nearPedal = G({}, root);
+  S('rect', { x:-19, y:-4, width:38, height:8, rx:3, fill:'#454C54' }, nearPedal);
+  S('rect', { x:-19, y:-4, width:38, height:3, rx:1.5, fill:'#6E7880' }, nearPedal);
+  const nearThigh = S('line', { stroke:'var(--leg)', 'stroke-width':23, 'stroke-linecap':'round' }, root);
+  const nearShin  = S('line', { stroke:'var(--leg)', 'stroke-width':18, 'stroke-linecap':'round' }, root);
+  const nearFoot  = G({}, root);
+  S('path', { d:'M-17 -6 Q6 -13 30 -7 Q41 -4 38 5 Q18 10 -13 9 Z', fill:'var(--beak)' }, nearFoot);
+  S('path', { d:'M-14 -3 Q8 -9 30 -4', fill:'none', stroke:'var(--beak-sh)', 'stroke-width':1.6, opacity:.5 }, nearFoot);
+
+  const farFootEls = (() => {
+    const c = document.createElementNS(NS, 'g');
+    S('path', { d:'M-17 -6 Q6 -13 30 -7 Q41 -4 38 5 Q18 10 -13 9 Z', fill:'var(--leg-d)' }, c);
+    farFoot.appendChild(c); return c;
+  })();
+
+  /* --- 风痕速度线 --- */
+  const wind = G({ id:'g-wind', opacity:0 }, root);
+  for (let i = 0; i < 30; i++){
+    const y = between(516, 792), x0 = between(-1200, 2400), len = between(46, 180);
+    S('line', { x1:f(x0), y1:f(y), x2:f(x0 + len), y2:f(y),
+      class:'windline', 'stroke-width':f(between(1, 2.8)),
+      'stroke-linecap':'round', opacity:f(between(.18, .62)) }, wind);
+  }
+
+  /* --- 骨骼叠加层 --- */
+  const rig = G({ id:'b-rig', opacity:0, 'pointer-events':'none' }, root);
+  S('circle', { cx:G0.bb.x, cy:G0.bb.y, r:G0.crankR, fill:'none', stroke:'#00A3FF', 'stroke-width':1.4,
+    'stroke-dasharray':'5 4', opacity:.9 }, rig);
+  S('circle', { cx:G0.bb.x, cy:G0.bb.y, r:2.5, fill:'#00A3FF' }, rig);
+  const rigL = { hipN:S('circle',{r:4.5,fill:'#FF2D55'},rig), kneeN:S('circle',{r:4.5,fill:'#FFD400'},rig), ankN:S('circle',{r:4.5,fill:'#00A3FF'},rig),
+                 hipF:S('circle',{r:3.5,fill:'#FF2D55',opacity:.55},rig), kneeF:S('circle',{r:3.5,fill:'#FFD400',opacity:.55},rig), ankF:S('circle',{r:3.5,fill:'#00A3FF',opacity:.55},rig) };
+  const rigT1 = S('line', { stroke:'#FF2D55', 'stroke-width':1.4, 'stroke-dasharray':'4 3' }, rig);
+  const rigT2 = S('line', { stroke:'#FFD400', 'stroke-width':1.4, 'stroke-dasharray':'4 3' }, rig);
+  const rigT3 = S('line', { stroke:'#FF2D55', 'stroke-width':1, 'stroke-dasharray':'3 3', opacity:.55 }, rig);
+  const rigT4 = S('line', { stroke:'#FFD400', 'stroke-width':1, 'stroke-dasharray':'3 3', opacity:.55 }, rig);
+
+  return {
+    root, shadow, dust, dustP, wRear, wFront, cogR, cogS, chainTop, chainBot, drive, wind, ringSpoke: crankSpokes,
+    birdAll, body, headGrp, neckPts, wingNear, wingFar, eyeG, lid, scarf, scarfHi, scarfKnot, scarfRoot:G0.scarfRoot,
+    nearCrank, nearPedal, nearThigh, nearShin, nearFoot, farCrank, farPedal, farThigh, farShin, farFoot, farFootEls, farSide,
+    rig, rigL, rigT1, rigT2, rigT3, rigT4,
+    neckRoot: G0.neckRoot, shoulder: G0.shoulder
+  };
+})();
+
+/* ---------------------------------------------------------------- 状态 */
+const ST = {
+  playing: true, dir: 1,
+  speed: 1400,          // px/s 真实地面速度
+  time: .30,            // 播放倍率（慢动作）
+  gear: 2.40,           // 车轮转数 / 曲柄转数
+  flap: 1, bob: 1, scarf: 1, blink: true,
+  theme: 'day', air: 1, wind: true, blur: true, dustOn: true,
+  view: '2d', rx: 7, ry: -11, zoom: 1,
+  rigOn: false
+};
+let crankA = 0, wheelA = 0, scroll = 0, windScroll = 0, rideT = 0, rideD = 0;
+let flapPh = 0, blinkT = 2.4, blinkK = 0;
+const P = { off: {}, is3d: false };
+
+/* 视差层引用 */
+const LAYERS = [...document.querySelectorAll('.lyr')].map(n => ({
+  node: n, p: parseFloat(n.dataset.p), z: parseFloat(n.dataset.z || '0'),
+  fixed: n.dataset.fixed === '1', g: n.querySelector('g')
+}));
+
+/* ---------------------------------------------------------------- 视图变换 */
+const PERSP = 1000;   // 与 .stage 的 perspective 保持一致
+
+/* 平面绕中心旋转后会向内收缩成梯形，这里反解出「刚好铺满画框」所需的最小放大倍率。
+   随倾角实时计算，所以平放时倍率正好是 1，不会有额外缩放。 */
+function coverFor(z, rx, ry, a, b){
+  const th = ry * D2R, ph = rx * D2R;
+  const cth = Math.cos(th), sth = Math.sin(th), cph = Math.cos(ph), sph = Math.sin(ph);
+  const fits = c => {
+    for (let i = 0; i < 4; i++){
+      const X = (i & 1 ? a : -a) * c, Y = (i & 2 ? b : -b) * c;
+      const X1 = X * cth + z * sth, Z1 = -X * sth + z * cth;
+      const Y2 = Y * cph - Z1 * sph, Z2 = Y * sph + Z1 * cph;
+      const k = PERSP / (PERSP - Z2);
+      if (Math.abs(X1 * k) < a - 1 || Math.abs(Y2 * k) < b - 1) return false;
+    }
+    return true;
+  };
+  if (fits(1)) return 1;
+  let hi = 1;
+  while (hi < 6 && !fits(hi)) hi *= 1.12;
+  let lo = hi / 1.12;
+  for (let i = 0; i < 16; i++){ const mid = (lo + hi) / 2; if (fits(mid)) hi = mid; else lo = mid; }
+  return Math.min(hi, 6);
+}
+
+let frameW = 1274, frameH = 900;
+function applyView(){
+  const world = document.getElementById('world');
+  const is3d = ST.view === '3d';
+  frameW = document.getElementById('frame').clientWidth || frameW;
+  frameH = document.getElementById('frame').clientHeight || frameH;
+  world.classList.toggle('is3d', is3d);
+  world.style.transform = is3d
+    ? `rotateX(${ST.rx}deg) rotateY(${ST.ry}deg) scale(${ST.zoom})`
+    : `scale(${ST.zoom})`;
+  const a = frameW / 2, b = frameH / 2;
+  for (const L of LAYERS){
+    if (L.fixed){ L.node.style.transform = 'none'; continue; }
+    if (!is3d){ L.node.style.transform = 'translateZ(0px)'; continue; }
+    const c = coverFor(L.z, ST.rx, ST.ry, a, b);
+    L.node.style.transform = `translateZ(${L.z}px) scale(${c.toFixed(4)})`;
+  }
+}
+applyView();
+addEventListener('resize', applyView);
+
+/* ---------------------------------------------------------------- 主循环 */
+/* 两骨 IK：髋 → 膝 → 踝，膝朝前（屏幕坐标 y 向下，取 θ−α 分支） */
+function legIK(hip, ankle, L1, L2){
+  let dx = ankle.x - hip.x, dy = ankle.y - hip.y;
+  let d = Math.hypot(dx, dy);
+  const dMax = (L1 + L2) * .999, dMin = Math.abs(L1 - L2) + 1;
+  const dc = clamp(d, dMin, dMax);
+  if (d < 1e-4) { dx = 0; dy = 1; d = 1; }
+  const ux = dx / d, uy = dy / d;
+  const cosA = clamp((L1 * L1 + dc * dc - L2 * L2) / (2 * L1 * dc), -1, 1);
+  const A = Math.acos(cosA);
+  const th = Math.atan2(uy, ux) - A;
+  const knee = { x: hip.x + Math.cos(th) * L1, y: hip.y + Math.sin(th) * L1 };
+  const ank  = { x: hip.x + ux * dc, y: hip.y + uy * dc };
+  return { knee, ank, over: d > dMax };
+}
+const setLine = (el, a, b) => { el.setAttribute('x1', f(a.x)); el.setAttribute('y1', f(a.y));
+                                el.setAttribute('x2', f(b.x)); el.setAttribute('y2', f(b.y)); };
+
+let last = performance.now(), tAcc = 0;
+function frame(now){
+  requestAnimationFrame(frame);
+  const dtRaw = Math.min((now - last) / 1000, .05); last = now;
+  const ts = ST.playing ? ST.time : 0;
+  const v  = ST.speed * ST.dir * ts;                       // 屏幕上游走的 px/s
+
+  wheelA += (v / G0.wheelR) * dtRaw;
+  crankA += (v / G0.wheelR / ST.gear) * dtRaw;
+  scroll += v * dtRaw;
+  rideT  += dtRaw * ts;
+  rideD  += Math.abs(v) * dtRaw * PX2M;
+
+  /* --- 视差滚动 --- */
+  for (const L of LAYERS){
+    if (!L.g || !L.p) continue;
+    L.g.setAttribute('transform', `translate(${f(-mod(scroll * L.p, W_TILE))} 0)`);
+  }
+
+  /* --- 车轮 --- */
+  const deg = wheelA * R2D;
+  const revPerSec = Math.abs(v) / (TAU * G0.wheelR);
+  const spokeO = ST.blur ? clamp(1.15 - revPerSec * .18, .18, 1) : 1;
+  const blurO  = ST.blur ? clamp((revPerSec - 1) * .3, 0, .55) : 0;
+  for (const w of [BIKE.wRear, BIKE.wFront]){
+    w.sp.setAttribute('transform', `rotate(${f(deg)})`);
+    w.sp.setAttribute('opacity', f(spokeO));
+    w.blur.setAttribute('opacity', f(blurO));
+  }
+  BIKE.ringSpoke.setAttribute('transform', `rotate(${f(crankA * R2D)} ${G0.bb.x} ${G0.bb.y})`);
+
+  /* --- 传动：飞轮半径 = 齿盘半径 / 齿比，链条永远吻合 --- */
+  const cog = G0.ringR / ST.gear;
+  BIKE.cogR.setAttribute('r', f(cog));
+  BIKE.cogS.setAttribute('r', f(Math.max(cog - 5, 1.5)));
+  setLine(BIKE.chainTop, { x:G0.bb.x, y:G0.bb.y - G0.ringR }, { x:G0.rear.x, y:G0.rear.y - cog });
+  setLine(BIKE.chainBot, { x:G0.bb.x, y:G0.bb.y + G0.ringR }, { x:G0.rear.x, y:G0.rear.y + cog });
+  const linkPhase = mod(crankA * G0.ringR, 11);
+  BIKE.chainTop.setAttribute('stroke-dashoffset', f(linkPhase));
+  BIKE.chainBot.setAttribute('stroke-dashoffset', f(-linkPhase));
+
+  /* --- 曲柄 + 踏板 --- */
+  const cA = crankA, fA = crankA + Math.PI;
+  const pedN = { x:G0.bb.x + Math.cos(cA) * G0.crankR, y:G0.bb.y + Math.sin(cA) * G0.crankR };
+  const pedF = { x:G0.bb.x + Math.cos(fA) * G0.crankR, y:G0.bb.y + Math.sin(fA) * G0.crankR };
+  setLine(BIKE.nearCrank, G0.bb, pedN);
+  BIKE.nearPedal.setAttribute('transform', `translate(${f(pedN.x)} ${f(pedN.y)})`);
+  setLine(BIKE.farCrank, G0.bb, pedF);
+  BIKE.farPedal.setAttribute('transform', `translate(${f(pedF.x)} ${f(pedF.y)})`);
+
+  /* --- 身体起伏（每圈两次，与踏频同步） --- */
+  const bobPh = crankA * 2;
+  const bobDy = Math.sin(bobPh) * 3.4 * ST.bob;
+  const bobDx = Math.cos(bobPh) * 1.6 * ST.bob;
+  const bobRot = Math.sin(bobPh) * 1.5 * ST.bob;
+  BIKE.birdAll.setAttribute('transform',
+    `translate(${f(bobDx)} ${f(bobDy)}) rotate(${f(bobRot)} ${G0.hipN.x} ${G0.hipN.y})`);
+  BIKE.shadow.setAttribute('transform', `translate(${f(bobDx * .4)} ${f(bobDy * .18)})`);
+
+  /* --- 腿 IK（髋点跟随起伏） --- */
+  const hipN = { x:G0.hipN.x + bobDx, y:G0.hipN.y + bobDy };
+  const hipF = { x:G0.hipF.x + bobDx, y:G0.hipF.y + bobDy };
+  const ankN = { x:pedN.x - 3, y:pedN.y - 15 };
+  const ankF = { x:pedF.x - 3, y:pedF.y - 15 };
+  const k1 = legIK(hipN, ankN, G0.thigh, G0.shin);
+  const k2 = legIK(hipF, ankF, G0.thigh, G0.shin);
+  setLine(BIKE.nearThigh, hipN, k1.knee); setLine(BIKE.nearShin, k1.knee, k1.ank);
+  setLine(BIKE.farThigh,  hipF, k2.knee); setLine(BIKE.farShin,  k2.knee, k2.ank);
+  const footRot = Math.cos(cA) * 6;
+  BIKE.nearFoot.setAttribute('transform', `translate(${f(pedN.x)} ${f(pedN.y - 5)}) rotate(${f(footRot)})`);
+  BIKE.farFootEls.setAttribute('transform', `translate(${f(pedF.x)} ${f(pedF.y - 5)}) rotate(${f(Math.cos(fA) * 6)})`);
+
+  /* --- 骨骼层 --- */
+  if (ST.rigOn){
+    const put = (c, p) => { c.setAttribute('cx', f(p.x)); c.setAttribute('cy', f(p.y)); };
+    put(BIKE.rigL.hipN, hipN); put(BIKE.rigL.kneeN, k1.knee); put(BIKE.rigL.ankN, k1.ank);
+    put(BIKE.rigL.hipF, hipF); put(BIKE.rigL.kneeF, k2.knee); put(BIKE.rigL.ankF, k2.ank);
+    setLine(BIKE.rigT1, hipN, k1.knee); setLine(BIKE.rigT2, k1.knee, k1.ank);
+    setLine(BIKE.rigT3, hipF, k2.knee); setLine(BIKE.rigT4, k2.knee, k2.ank);
+  }
+
+  /* --- 翅膀 --- */
+  const flapFreq = ST.flap === 2 ? 2.6 : .55;
+  const flapAmp  = ST.flap === 2 ? 52 : (ST.flap === 1 ? 7 : 0);
+  flapPh += dtRaw * flapFreq * TAU * (0.35 + 0.65 * Math.min(Math.abs(v) / 420, 1));
+  const wA = Math.sin(flapPh) * flapAmp;
+  const wS = 1 + Math.abs(Math.sin(flapPh)) * .06 * (flapAmp / 52);
+  const rot = (el, a, s) => el.setAttribute('transform',
+    `rotate(${f(a)} ${G0.shoulder.x} ${G0.shoulder.y}) translate(${f(G0.shoulder.x)} ${f(G0.shoulder.y)}) scale(${f(s)}) translate(${f(-G0.shoulder.x)} ${f(-G0.shoulder.y)})`);
+  rot(BIKE.wingNear, wA, wS);
+  rot(BIKE.wingFar, wA * .8 + 6, 1 + (wS - 1) * .6);
+
+  /* --- 眨眼 --- */
+  if (ST.blink){
+    blinkT -= dtRaw;
+    if (blinkT < 0){ blinkK = 1; blinkT = 2.2 + Math.random() * 4.5; }
+    blinkK = Math.max(0, blinkK - dtRaw * 9);
+  } else blinkK = 0;
+  // 眼睑自上眼睑沿向下扫：0 时完全收起，1 时闭合
+  const lidTop = G0.eye.y - G0.eye.r - 2.4;
+  BIKE.lid.setAttribute('transform',
+    `translate(${G0.eye.x} ${f(lidTop)}) scale(1 ${f(clamp(blinkK, 0, 1))}) translate(${-G0.eye.x} ${f(-lidTop)})`);
+
+  /* --- 围巾 --- */
+  const sc = ST.scarf;
+  const scAmp = (16 + Math.min(Math.abs(v) / 18, 26)) * sc;
+  const scPh = scroll * .014 + now / 230;
+  const seg = 22, scLen = 176 + Math.min(Math.abs(v) * .1, 70);
+  let d1 = '';
+  for (let i = 0; i <= seg; i++){
+    const t = i / seg;
+    const x = G0.scarfRoot.x - scLen * t;
+    // 布料的质感主要来自高频波动；整体只略微上飘再垂下
+    const y = G0.scarfRoot.y + 2 - 11 * Math.sin(Math.PI * t * .8) - 5 * t * t
+            + Math.sin(scPh + t * 9.5) * scAmp * t * 1.35
+            + Math.sin(scPh * 1.7 + t * 16) * scAmp * .38 * t;
+    d1 += `${i ? 'L' : 'M'}${f(x)} ${f(y)} `;
+  }
+  BIKE.scarf.setAttribute('d', d1);
+  BIKE.scarfHi.setAttribute('d', d1);
+  BIKE.scarfHi.setAttribute('transform', 'translate(0 -2.6)');
+  BIKE.scarfKnot.setAttribute('transform', `translate(${f(Math.sin(scPh) * scAmp * .18)} ${f(Math.cos(scPh * 1.3) * scAmp * .22)})`);
+
+  /* --- 扬尘 --- */
+  if (ST.dustOn && Math.abs(v) > 40){
+    const rate = Math.min(Math.abs(v) / 90, 4.5);
+    P.off.dust = (P.off.dust || 0) + dtRaw * rate * 26;
+    while (P.off.dust >= 1){
+      P.off.dust -= 1;
+      const p = BIKE.dustP.find(q => q.life <= 0);
+      if (p){
+        p.x = G0.contact.x + between(-10, 22);
+        p.y = 590 + between(-6, 4);
+        p.r = between(3, 12);
+        p.life = 1;
+        p.vx = -Math.abs(v) * between(.06, .22) * (v < 0 ? -1 : 1);
+        p.vy = between(-38, -6);
+        p.n.setAttribute('fill', ST.theme === 'night' ? '#2A3550' : 'var(--road-e)');
+      }
+    }
+  }
+  for (const p of BIKE.dustP){
+    if (p.life <= 0){ if (p.n.getAttribute('opacity') !== '0') p.n.setAttribute('opacity', 0); continue; }
+    p.life -= dtRaw * 1.35;
+    p.x += p.vx * dtRaw; p.y += p.vy * dtRaw; p.vy += 26 * dtRaw; p.r += 13 * dtRaw;
+    p.n.setAttribute('cx', f(p.x)); p.n.setAttribute('cy', f(p.y)); p.n.setAttribute('r', f(p.r));
+    p.n.setAttribute('opacity', f(clamp(p.life, 0, 1) * .38));
+  }
+
+  /* --- 风痕 --- */
+  windScroll += Math.abs(v) * 1.25 * dtRaw;
+  BIKE.wind.setAttribute('transform', `translate(${f(-mod(windScroll, W_TILE))} 0)`);
+  BIKE.wind.setAttribute('opacity',
+    ST.wind ? f(clamp((Math.abs(v) - 55) / 780, 0, 1) * .62) : 0);
+
+  /* --- 遥测（约 8Hz） --- */
+  tAcc += dtRaw;
+  if (tAcc > .12){ tAcc = 0; updateTelemetry(); }
+}
+
+/* ---------------------------------------------------------------- 遥测 */
+const $ = id => document.getElementById(id);
+let hudCache = {};
+function updateTelemetry(){
+  const sp = ST.speed;
+  const kmh = sp * KMH_PER_PXS;
+  const wrpm = sp / (TAU * G0.wheelR) * 60;
+  const cad  = wrpm / ST.gear;
+  const rev = n => n < 10 ? n.toFixed(1) : n.toFixed(0);
+  setTxt('t-kmh', rev(kmh), 'km/h');
+  setTxt('t-cad', rev(cad), 'rpm');
+  setTxt('t-wrpm', rev(wrpm), 'rpm');
+  setTxt('t-ang', (mod(crankA * R2D, 360)).toFixed(0), '°');
+  setTxt('t-dist', rideD < 1000 ? rideD.toFixed(0) : (rideD / 1000).toFixed(2), rideD < 1000 ? 'm' : 'km');
+  setTxt('t-time', rideT.toFixed(1), 's');
+  setTxt('h-kmh', rev(kmh), 'km/h');
+  setTxt('h-cad', rev(cad), 'rpm');
+  setTxt('h-wrpm', rev(wrpm), 'rpm');
+  const slow = $('h-slow');
+  slow.textContent = '×' + ST.time.toFixed(2);
+  $('h-slowchip').classList.toggle('slow', ST.time < .95 || !ST.playing);
+}
+function setTxt(id, v, unit){
+  const el = $(id);
+  const key = v + '|' + unit;
+  if (hudCache[id] === key) return;
+  hudCache[id] = key;
+  el.innerHTML = v + (unit ? `<small>${unit}</small>` : '');
+}
+
+/* ---------------------------------------------------------------- UI */
+function syncRange(el){
+  const p = (el.value - el.min) / (el.max - el.min) * 100;
+  el.style.setProperty('--p', p.toFixed(2) + '%');
+}
+document.querySelectorAll('input[type=range]').forEach(e => {
+  syncRange(e);
+  e.addEventListener('input', () => syncRange(e));
+});
+
+function segBind(id, cb){
+  const box = $(id);
+  box.addEventListener('click', e => {
+    const b = e.target.closest('button'); if (!b) return;
+    [...box.querySelectorAll('button')].forEach(x => x.setAttribute('aria-pressed', String(x === b)));
+    cb(b.dataset.v);
+  });
+}
+
+$('btn-play').addEventListener('click', () => setPlaying(!ST.playing));
+function setPlaying(v){
+  ST.playing = v;
+  $('btn-play').innerHTML = (v ? '暂停' : '播放') + ' <span class="k">SPACE</span>';
+  updateTelemetry();
+}
+$('btn-rev').addEventListener('click', () => setDir(-ST.dir));
+function setDir(d){
+  ST.dir = d;
+  $('btn-rev').classList.toggle('on', d < 0);
+}
+
+$('r-speed').addEventListener('input', e => {
+  ST.speed = +e.target.value;
+  $('out-speed').textContent = (ST.speed * KMH_PER_PXS).toFixed(1) + ' km/h';
+  updateTelemetry();
+});
+$('r-time').addEventListener('input', e => {
+  ST.time = +e.target.value / 100;
+  $('out-time').textContent = '×' + ST.time.toFixed(2);
+  updateTelemetry();
+});
+$('r-gear').addEventListener('input', e => {
+  ST.gear = +e.target.value / 100;
+  $('out-gear').textContent = ST.gear.toFixed(2);
+  updateTelemetry();
+});
+$('r-bob').addEventListener('input', e => {
+  ST.bob = +e.target.value / 100;
+  $('out-bob').textContent = e.target.value + '%';
+});
+$('r-scarf').addEventListener('input', e => {
+  ST.scarf = +e.target.value / 100;
+  $('out-scarf').textContent = e.target.value + '%';
+});
+$('r-air').addEventListener('input', e => {
+  ST.air = +e.target.value / 100;
+  $('out-air').textContent = e.target.value + '%';
+  applyAir();
+});
+function applyAir(){
+  const a = ST.air;
+  document.querySelectorAll('#g-clouds > g').forEach(n => {
+    const base = parseFloat(n.dataset.o || '1');
+    n.style.opacity = String(clamp(base * a, 0, 1));
+  });
+  document.querySelector('.haze').style.opacity = String(clamp(a, 0, 1));
+  document.querySelector('.ambient').style.opacity = String(clamp(a, 0, 1));
+}
+
+segBind('seg-flap', v => ST.flap = +v);
+segBind('seg-theme', v => { ST.theme = v; applyTheme(v); });
+segBind('seg-view', v => { ST.view = v; applyView(); });
+
+$('c-blink').addEventListener('change', e => ST.blink = e.target.checked);
+$('c-wind').addEventListener('change', e => ST.wind = e.target.checked);
+$('c-blur').addEventListener('change', e => ST.blur = e.target.checked);
+$('c-dust').addEventListener('change', e => ST.dustOn = e.target.checked);
+
+function num(el, f2){ return +el.value; }
+$('r-rx').addEventListener('input', e => { ST.rx = +e.target.value; $('out-rx').textContent = ST.rx + '°'; applyView(); });
+$('r-ry').addEventListener('input', e => { ST.ry = +e.target.value; $('out-ry').textContent = (ST.ry < 0 ? '−' : '') + Math.abs(ST.ry) + '°'; applyView(); });
+$('r-zoom').addEventListener('input', e => { ST.zoom = +e.target.value / 100; $('out-zoom').textContent = e.target.value + '%'; applyView(); });
+
+$('btn-rig').addEventListener('click', () => {
+  ST.rigOn = !ST.rigOn;
+  $('btn-rig').classList.toggle('on', ST.rigOn);
+  BIKE.rig.setAttribute('opacity', ST.rigOn ? 1 : 0);
+});
+$('btn-reset').addEventListener('click', () => {
+  ST.rx = 7; ST.ry = -11; ST.zoom = 1;
+  $('r-rx').value = 7; $('r-ry').value = -11; $('r-zoom').value = 100;
+  $('out-rx').textContent = '7°'; $('out-ry').textContent = '−11°'; $('out-zoom').textContent = '100%';
+  ['r-rx','r-ry','r-zoom'].forEach(id => syncRange($(id)));
+  if (ST.view === '3d') applyView();
+});
+$('btn-collapse').addEventListener('click', () => {
+  $('panel').classList.toggle('collapsed');
+  $('btn-collapse').textContent = $('panel').classList.contains('collapsed') ? '+' : '−';
+});
+
+/* 拖拽转视角 / 滚轮推拉 */
+(function drag(){
+  const frame = $('frame');
+  let down = false, lx = 0, ly = 0;
+  frame.addEventListener('pointerdown', e => {
+    if (ST.view !== '3d') return;
+    down = true; lx = e.clientX; ly = e.clientY;
+    frame.setPointerCapture(e.pointerId);
+    frame.classList.add('dragging');
+  });
+  frame.addEventListener('pointermove', e => {
+    if (!down) return;
+    ST.ry = clamp(ST.ry + (e.clientX - lx) * .28, -20, 20);
+    ST.rx = clamp(ST.rx - (e.clientY - ly) * .22, -20, 20);
+    lx = e.clientX; ly = e.clientY;
+    $('r-rx').value = ST.rx.toFixed(0); $('r-ry').value = ST.ry.toFixed(0);
+    $('out-rx').textContent = ST.rx.toFixed(0) + '°';
+    $('out-ry').textContent = (ST.ry < 0 ? '−' : '') + Math.abs(ST.ry).toFixed(0) + '°';
+    syncRange($('r-rx')); syncRange($('r-ry'));
+    applyView();
+  });
+  const up = e => { down = false; frame.classList.remove('dragging'); };
+  frame.addEventListener('pointerup', up);
+  frame.addEventListener('pointercancel', up);
+  frame.addEventListener('wheel', e => {
+    if (ST.view !== '3d') return;
+    e.preventDefault();
+    ST.zoom = clamp(ST.zoom * (e.deltaY > 0 ? .94 : 1.06), 1, 1.8);
+    $('r-zoom').value = (ST.zoom * 100).toFixed(0);
+    $('out-zoom').textContent = (ST.zoom * 100).toFixed(0) + '%';
+    syncRange($('r-zoom'));
+    applyView();
+  }, { passive: false });
+})();
+
+document.addEventListener('keydown', e => {
+  if (e.target.matches('input,button,textarea,select')) return;
+  const k = e.key.toLowerCase();
+  if (e.code === 'Space'){ e.preventDefault(); setPlaying(!ST.playing); }
+  else if (k === 'r') setDir(-ST.dir);
+  else if (k === 'g') $('btn-rig').click();
+  else if (k === 'd'){
+    const v = ST.view === '3d' ? '2d' : '3d';
+    $('seg-view').querySelectorAll('button').forEach(b =>
+      b.setAttribute('aria-pressed', String(b.dataset.v === v)));
+    ST.view = v; applyView();
+  } else if (k === 't'){
+    const order = ['day','dusk','night'];
+    const v = order[(order.indexOf(ST.theme) + 1) % 3];
+    $('seg-theme').querySelectorAll('button').forEach(b =>
+      b.setAttribute('aria-pressed', String(b.dataset.v === v)));
+    ST.theme = v; applyTheme(v);
+  }
+});
+
+/* ---------------------------------------------------------------- 启动 */
+applyTheme('day');
+applyAir();
+setPlaying(true);
+setDir(1);
+updateTelemetry();
+requestAnimationFrame(t => { last = t; frame(t); });
+})();
+</script>
+<!--zc-home:start--><style>.zc-home-btn{position:fixed;top:16px;left:16px;z-index:2147483647;display:inline-flex;align-items:center;gap:6px;padding:8px 14px;font:500 13px/1.1 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Noto Sans SC",sans-serif;color:#111;background:rgba(255,255,255,.86);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);border:1px solid rgba(0,0,0,.08);border-radius:999px;text-decoration:none;box-shadow:0 2px 12px rgba(0,0,0,.2);transition:background .2s ease,transform .2s ease,box-shadow .2s ease}.zc-home-btn:hover{background:#fff;transform:translateY(-1px);box-shadow:0 4px 18px rgba(0,0,0,.26)}</style><a class="zc-home-btn" href="../">← 返回首页</a><!--zc-home:end-->
+</body>
+</html>

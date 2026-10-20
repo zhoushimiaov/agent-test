@@ -51,6 +51,8 @@ const pelicanVersions = [
   ["opus-4.8", "Claude Opus 4.8", "SVG + SMIL 动画"],
   ["longcat2.5-preview", "LongCat 2.5 Preview", "Three.js 3D"],
   ["gemini4argon", "Gemini 4 Argon", "Canvas 2D"],
+  ["deepseek-4.1-flash-261017", "DeepSeek V4.1 Flash 261017", "SVG 动画"],
+  ["deepseek-4.1-flash-261017-3d", "DeepSeek V4.1 Flash 261017", "Three.js 3D"],
 ].map(([slug, name, sub]) => ({ slug, name, sub }));
 
 // Categories in hub order. `cover` = thumbnail (if versions exist); else emoji.
