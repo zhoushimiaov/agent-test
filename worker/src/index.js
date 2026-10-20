@@ -209,7 +209,21 @@ async function screenshot(env, code) {
       const pending = safe ? req.continue() : req.abort("blockedbyclient");
       pending.catch(() => {});
     });
-    await page.setContent(code, { waitUntil: "domcontentloaded", timeout: 12000 });
+    // CSP blocks WebSocket/fetch/beacon connections that do not reliably pass
+    // Puppeteer's resource-request interception. Insert it before user scripts.
+    const policy = "default-src 'none'; " +
+      "script-src 'unsafe-inline' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://unpkg.com; " +
+      "style-src 'unsafe-inline' https://fonts.googleapis.com; " +
+      "img-src data: blob: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://unpkg.com; " +
+      "font-src data: https://fonts.gstatic.com; " +
+      "connect-src 'none'; form-action 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'";
+    const meta = '<meta http-equiv="Content-Security-Policy" content="' + policy + '">';
+    const guarded = /<head[\\s>]/i.test(code)
+      ? code.replace(/<head[^>]*>/i, (match) => match + meta)
+      : /<html[\\s>]/i.test(code)
+        ? code.replace(/<html[^>]*>/i, (match) => match + "<head>" + meta + "</head>")
+        : meta + code;
+    await page.setContent(guarded, { waitUntil: "domcontentloaded", timeout: 12000 });
     await new Promise((r) => setTimeout(r, 1000)); // let animations settle
     const png = await page.screenshot({ type: "png", clip: { x: 0, y: 0, width: 1280, height: 800 } });
     return "data:image/png;base64," + base64(png);
