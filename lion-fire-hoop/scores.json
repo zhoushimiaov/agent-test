@@ -1,6 +1,6 @@
 {
-  "generatedAt": "2026-10-14T08:03:07.703Z",
-  "model": "jev-1.13.0",
+  "generatedAt": "2026-10-22T19:31:20.598Z",
+  "model": "jev-1.14.0",
   "weights": {
     "arc": 30,
     "through": 30,
@@ -15,125 +15,153 @@
   },
   "results": [
     {
-      "slug": "gemini-3.8-flash",
-      "total": 71,
+      "slug": "glm-5.3-flash",
+      "total": 66,
       "dims": {
         "arc": {
-          "score": 2.55,
+          "score": 2.23,
           "confidence": 0.56,
-          "frac": 0.85
+          "frac": 0.743
         },
         "through": {
-          "score": 2.05,
-          "confidence": 0.06,
-          "frac": 0.683
+          "score": 2.45,
+          "confidence": 0.45,
+          "frac": 0.817
         },
         "fire": {
-          "score": 1.92,
-          "confidence": 0.48,
-          "frac": 0.64
+          "score": 1.76,
+          "confidence": 0.5,
+          "frac": 0.587
         },
         "scene": {
-          "score": 1.78,
-          "confidence": 0.54,
-          "frac": 0.593
+          "score": 1.07,
+          "confidence": 0.91,
+          "frac": 0.357
         }
       },
-      "jev": "jev-1.13.0",
+      "jev": "jev-1.14.0",
       "rank": 1
     },
     {
-      "slug": "glm-5.3-flash",
-      "total": 63,
+      "slug": "sn-deepseek-v4.1-flash",
+      "total": 53,
       "dims": {
         "arc": {
-          "score": 2.07,
-          "confidence": 0.76,
-          "frac": 0.69
+          "score": 1.75,
+          "confidence": 0,
+          "frac": 0.583
         },
         "through": {
-          "score": 2.39,
-          "confidence": 0.39,
-          "frac": 0.797
+          "score": 1.57,
+          "confidence": 0,
+          "frac": 0.523
         },
         "fire": {
-          "score": 1.67,
-          "confidence": 0.52,
-          "frac": 0.557
+          "score": 1.32,
+          "confidence": 0.66,
+          "frac": 0.44
         },
         "scene": {
-          "score": 1.03,
-          "confidence": 0.95,
-          "frac": 0.343
+          "score": 1.72,
+          "confidence": 0.64,
+          "frac": 0.573
         }
       },
-      "jev": "jev-1.13.0",
+      "jev": "jev-1.14.0",
       "rank": 2
     },
     {
-      "slug": "gemini4argon",
-      "total": 59,
+      "slug": "gemini-3.8-flash",
+      "total": 51,
       "dims": {
         "arc": {
-          "score": 1.91,
+          "score": 1.71,
           "confidence": 0,
-          "frac": 0.637
+          "frac": 0.57
         },
         "through": {
-          "score": 1.23,
+          "score": 1.12,
           "confidence": 0,
-          "frac": 0.41
+          "frac": 0.373
         },
         "fire": {
-          "score": 2,
-          "confidence": 0.23,
-          "frac": 0.667
+          "score": 1.9,
+          "confidence": 0,
+          "frac": 0.633
         },
         "scene": {
-          "score": 2.19,
-          "confidence": 0.49,
-          "frac": 0.73
+          "score": 1.56,
+          "confidence": 0.21,
+          "frac": 0.52
         }
       },
-      "jev": "jev-1.13.0",
+      "jev": "jev-1.14.0",
       "rank": 3
     },
     {
-      "slug": "deepseek-4.1-flash",
+      "slug": "gemini4argon",
       "total": 39,
       "dims": {
         "arc": {
-          "score": 0.99,
-          "confidence": 0.99,
-          "frac": 0.33
+          "score": 1.29,
+          "confidence": 0,
+          "frac": 0.43
         },
         "through": {
-          "score": 0.51,
-          "confidence": 0.51,
-          "frac": 0.17
+          "score": 0.65,
+          "confidence": 0.34,
+          "frac": 0.217
         },
         "fire": {
-          "score": 1.51,
-          "confidence": 0.49,
-          "frac": 0.503
+          "score": 1.43,
+          "confidence": 0,
+          "frac": 0.477
         },
         "scene": {
-          "score": 2.02,
-          "confidence": 0.96,
-          "frac": 0.673
+          "score": 1.47,
+          "confidence": 0,
+          "frac": 0.49
         }
       },
-      "jev": "jev-1.13.0",
+      "jev": "jev-1.14.0",
       "rank": 4
     },
     {
-      "slug": "ling-3.1-flash",
-      "total": 25,
+      "slug": "deepseek-4.1-flash",
+      "total": 38,
       "dims": {
         "arc": {
-          "score": 0.78,
-          "confidence": 0.78,
-          "frac": 0.26
+          "score": 0.97,
+          "confidence": 0.95,
+          "frac": 0.323
+        },
+        "through": {
+          "score": 0.45,
+          "confidence": 0.55,
+          "frac": 0.15
+        },
+        "fire": {
+          "score": 1.51,
+          "confidence": 0.48,
+          "frac": 0.503
+        },
+        "scene": {
+          "score": 2.04,
+          "confidence": 0.92,
+          "frac": 0.68
+        }
+      },
+      "jev": "jev-1.14.0",
+      "rank": 5
+    },
+    {
+      "slug": "ling-3.1-flash",
+      "total": 22,
+      "dims": {
+        "arc": {
+          "score": 0.66,
+          "confidence": 0.65,
+          "frac": 0.22
         },
         "through": {
           "score": 0,
@@ -141,21 +169,21 @@
           "frac": 0
         },
         "fire": {
-          "score": 1.11,
-          "confidence": 0.85,
-          "frac": 0.37
+          "score": 1.01,
+          "confidence": 0.88,
+          "frac": 0.337
         },
         "scene": {
-          "score": 1.41,
-          "confidence": 0.58,
-          "frac": 0.47
+          "score": 1.32,
+          "confidence": 0.67,
+          "frac": 0.44
         }
       },
-      "jev": "jev-1.13.0",
-      "rank": 5
+      "jev": "jev-1.14.0",
+      "rank": 6
     },
     {
-      "slug": "glm-5.3",
+      "slug": "tierflow-pro",
       "total": 17,
       "dims": {
         "arc": {
@@ -169,21 +197,21 @@
           "frac": 0
         },
         "fire": {
-          "score": 1.81,
-          "confidence": 0.74,
-          "frac": 0.603
+          "score": 1.39,
+          "confidence": 0.41,
+          "frac": 0.463
         },
         "scene": {
-          "score": 0.81,
-          "confidence": 0.81,
-          "frac": 0.27
+          "score": 1.1,
+          "confidence": 0.84,
+          "frac": 0.367
         }
       },
-      "jev": "jev-1.13.0",
-      "rank": 6
+      "jev": "jev-1.14.0",
+      "rank": 7
     },
     {
-      "slug": "tierflow-pro",
+      "slug": "glm-5.3",
       "total": 16,
       "dims": {
         "arc": {
@@ -197,18 +225,18 @@
           "frac": 0
         },
         "fire": {
-          "score": 1.41,
-          "confidence": 0.38,
-          "frac": 0.47
+          "score": 1.56,
+          "confidence": 0.53,
+          "frac": 0.52
         },
         "scene": {
-          "score": 1,
-          "confidence": 0.84,
-          "frac": 0.333
+          "score": 0.88,
+          "confidence": 0.88,
+          "frac": 0.293
         }
       },
-      "jev": "jev-1.13.0",
-      "rank": 7
+      "jev": "jev-1.14.0",
+      "rank": 8
     },
     {
       "slug": "mimo-2.6-flash",
@@ -225,18 +253,18 @@
           "frac": 0
         },
         "fire": {
-          "score": 2.16,
-          "confidence": 0.57,
-          "frac": 0.72
+          "score": 2.08,
+          "confidence": 0.47,
+          "frac": 0.693
         },
         "scene": {
-          "score": 0.11,
-          "confidence": 0.9,
-          "frac": 0.037
+          "score": 0.16,
+          "confidence": 0.84,
+          "frac": 0.053
         }
       },
-      "jev": "jev-1.13.0",
-      "rank": 8
+      "jev": "jev-1.14.0",
+      "rank": 9
     },
     {
       "slug": "muse-spark",
@@ -253,9 +281,9 @@
           "frac": 0
         },
         "fire": {
-          "score": 1.01,
-          "confidence": 0.95,
-          "frac": 0.337
+          "score": 1.02,
+          "confidence": 0.94,
+          "frac": 0.34
         },
         "scene": {
           "score": 0.64,
@@ -263,8 +291,8 @@
           "frac": 0.213
         }
       },
-      "jev": "jev-1.13.0",
-      "rank": 9
+      "jev": "jev-1.14.0",
+      "rank": 10
     },
     {
       "slug": "opus-4.8",
@@ -281,22 +309,22 @@
           "frac": 0
         },
         "fire": {
-          "score": 1.22,
-          "confidence": 0.75,
-          "frac": 0.407
+          "score": 1.05,
+          "confidence": 0.81,
+          "frac": 0.35
         },
         "scene": {
-          "score": 0.14,
-          "confidence": 0.86,
-          "frac": 0.047
+          "score": 0.24,
+          "confidence": 0.75,
+          "frac": 0.08
         }
       },
-      "jev": "jev-1.13.0",
-      "rank": 10
+      "jev": "jev-1.14.0",
+      "rank": 11
     },
     {
       "slug": "qwen-3.8-flash-next",
-      "total": 9,
+      "total": 5,
       "dims": {
         "arc": {
           "score": 0,
@@ -309,18 +337,18 @@
           "frac": 0
         },
         "fire": {
-          "score": 1.34,
-          "confidence": 0,
-          "frac": 0.447
+          "score": 0.7,
+          "confidence": 0.29,
+          "frac": 0.233
         },
         "scene": {
-          "score": 0.05,
-          "confidence": 0.96,
-          "frac": 0.017
+          "score": 0.11,
+          "confidence": 0.9,
+          "frac": 0.037
         }
       },
-      "jev": "jev-1.13.0",
-      "rank": 11
+      "jev": "jev-1.14.0",
+      "rank": 12
     }
   ]
 }

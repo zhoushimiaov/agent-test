@@ -102,6 +102,11 @@ const categories = [
       ["ling-3.1-flash", "Ling 3.1 Flash", "Three.js 3D"],
       ["step-5-preview", "Step-5 Preview", "Canvas 2D"],
       ["gemini4argon", "Gemini 4 Argon", "Three.js 3D"],
+      ["gpt6.1-sol-3d", "GPT-6.1 Sol", "Three.js 3D"],
+      ["opus-5.5", "Claude Opus 5.5", "Three.js 3D"],
+      ["hy4-preview", "HY4 Preview", "Canvas 2D"],
+      ["kimi-k3", "Kimi K3", "Canvas 2D"],
+      ["kimi-k3-3d", "Kimi K3", "Three.js 3D"],
     ].map(([slug, name, sub]) => ({ slug, name, sub })),
   },
   {
@@ -124,6 +129,7 @@ const categories = [
       ["glm-5.3-raccoon", "GLM 5.3 Raccoon", "Three.js 3D"],
       ["longcat-2.0", "LongCat 2.0", "Canvas 2D"],
       ["gemini4argon", "Gemini 4 Argon", "Three.js 3D"],
+      ["kimi-k3", "Kimi K3", "Three.js 3D"],
     ].map(([slug, name, sub]) => ({ slug, name, sub })),
   },
   {
@@ -205,6 +211,7 @@ const categories = [
       ["muse-spark", "Muse Spark", "Canvas 2D"],
       ["qwen-3.8-flash-next", "Qwen 3.8 Flash Next", "Canvas 2D"],
       ["gemini4argon", "Gemini 4 Argon", "Canvas 2D"],
+      ["sn-deepseek-v4.1-flash", "DeepSeek V4.1 Flash (SN)", "Canvas 2D"],
     ].map(([slug, name, sub]) => ({ slug, name, sub })),
   },
 ];

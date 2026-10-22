@@ -98,6 +98,8 @@ const ITEMS = [
     desc: "A dark arena with spotlights and a tall, narrow upright flaming hoop on a small stand center stage. No lion is visible at any point in the loop — only the burning hoop and the empty stage are shown." },
   { slug: "gemini4argon", render: "2D (animated HTML canvas)",
     desc: "A 2D canvas animation on a deep crimson-to-dark-red background with warm circus-stage lighting. A tawny cartoon lion with a full mane is caught in mid-leap in side view, its body stretched and arcing through the air with legs extended and tail streaming. A large circular hoop wreathed in orange-and-yellow flames sits in its path, and the lion's arc carries it through the fiery ring. Warm rim lighting and simple flat shading." },
+  { slug: "sn-deepseek-v4.1-flash", render: "2D (animated HTML canvas)",
+    desc: "A Canvas 2D night circus arena on a very dark maroon-purple background with a faint warm glow. A tawny orange lion with a dark brown mane advances along the ground at the lower right, lit warmly from one side; a large tilted fire hoop (inner radius 130, tube 16, tilted 58 degrees) is placed ahead of its path in the upper right of the frame, glowing dimly orange rather than brightly burning. The scene layers parallax background, ground dust and foreground grass with soft ground shadows. The page animates a run-up and jump: takeoff at 2.72 s, a ballistic arc whose apex reaches roughly the height of the ring centre, and a landing at 4.02 s. In the captured still the lion is on the ground in its run-up and the hoop's flames are subdued; the whole image is dark, with lion and ring present but low-contrast." },
 ];
 
 const questions = Object.fromEntries(
