@@ -273,7 +273,12 @@ const HOME_BTN_BLOCK =
   `border:1px solid rgba(0,0,0,.08);border-radius:999px;text-decoration:none;box-shadow:0 2px 12px rgba(0,0,0,.2);` +
   `transition:background .2s ease,transform .2s ease,box-shadow .2s ease}` +
   `.zc-home-btn:hover{background:#fff;transform:translateY(-1px);box-shadow:0 4px 18px rgba(0,0,0,.26)}</style>` +
-  `<a class="zc-home-btn" href="../">← 返回首页</a><!--zc-home:end-->`;
+  `<a class="zc-home-btn" href="../">← 返回首页</a>` +
+  // The viewer sandbox embeds these pages; inside it the viewer's own back pill
+  // is the only navigation, so drop ours to avoid a page-inside-a-page chrome.
+  `<script>(function(){try{if(window.self!==window.top||/[?&]embed=1(?:&|$)/.test(location.search)){` +
+  `var b=document.querySelector(".zc-home-btn");if(b&&b.parentNode)b.parentNode.removeChild(b);}}catch(e){}})();</script>` +
+  `<!--zc-home:end-->`;
 const HOME_BTN_RE = /<!--zc-home:start-->[\s\S]*?<!--zc-home:end-->\s*/g;
 
 function injectHomeButton(file) {

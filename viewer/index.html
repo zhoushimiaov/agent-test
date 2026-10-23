@@ -5,26 +5,23 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="referrer" content="no-referrer">
 <title>模型作品 · Agent Test</title>
-<link rel="stylesheet" href="../assets/site.css">
 <style>
-body{min-height:100dvh;display:flex;flex-direction:column}
-.viewer-head{max-width:1120px;width:100%;margin:0 auto;padding:16px 32px;display:flex;justify-content:space-between;align-items:center;gap:16px}
-.viewer-back{font-size:13px;color:#555;border:1px solid #ddd;border-radius:9px;padding:7px 12px}
-.viewer-title{font-size:14px;font-weight:500;overflow-wrap:anywhere}
-.viewer-note{font-size:12px;color:#888}
-.viewer-main{flex:1;display:flex;flex-direction:column;margin:0 20px 20px;min-height:400px}
-.viewer-main iframe{flex:1;width:100%;min-height:calc(100dvh - 170px);border:1px solid #ddd;border-radius:12px;background:#fff}
-.viewer-error{padding:44px;text-align:center}
-@media(max-width:600px){.viewer-head{padding:12px 20px;flex-wrap:wrap}.viewer-main{margin:0 8px 8px}}
+html,body{margin:0;padding:0;width:100%;height:100%;background:#fff;overflow:hidden}
+#frame{position:fixed;inset:0;width:100%;height:100%;border:0;background:#fff;display:block}
+.viewer-back{position:fixed;top:16px;left:16px;z-index:2147483647;display:inline-flex;align-items:center;gap:6px;padding:8px 14px;
+  font:500 13px/1.1 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Noto Sans SC",sans-serif;color:#111;
+  background:rgba(255,255,255,.86);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);
+  border:1px solid rgba(0,0,0,.08);border-radius:999px;text-decoration:none;box-shadow:0 2px 12px rgba(0,0,0,.2);
+  transition:background .2s ease,transform .2s ease,box-shadow .2s ease}
+.viewer-back:hover{background:#fff;transform:translateY(-1px);box-shadow:0 4px 18px rgba(0,0,0,.26)}
+.viewer-back[hidden]{display:none}
+.viewer-error{position:fixed;inset:0;margin:0;display:flex;align-items:center;justify-content:center;
+  font:14px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Noto Sans SC",sans-serif;color:#666}
 </style>
 </head>
 <body>
-<nav class="nav"><a class="brand" href="../"><span class="mark">A</span>Agent Test</a><span class="viewer-note">受限沙箱预览 · 运行第三方模型产出</span></nav>
-<header class="viewer-head">
-  <div><div class="viewer-title" id="title">模型作品</div><div class="viewer-note">模型代码不具有访问 Agent Test API 密钥的权限</div></div>
-  <a class="viewer-back" id="back" href="../">← 返回栏目</a>
-</header>
-<main class="viewer-main" id="main"><iframe id="frame" title="模型作品预览" sandbox="allow-scripts" referrerpolicy="no-referrer"></iframe></main>
+<iframe id="frame" title="模型作品预览" sandbox="allow-scripts" referrerpolicy="no-referrer"></iframe>
+<a class="viewer-back" id="back" href="../" hidden>← 返回栏目</a>
 <script>
 "use strict";
 const q = new URLSearchParams(location.search);
@@ -35,16 +32,19 @@ const categories = new Set([
   "pelican-bicycle", "jellyfish-float", "penguin-ski-jump", "whale-over-city",
   "elephant-tightrope", "octopus-drummer", "rhino-orbit", "lion-fire-hoop",
 ]);
+const frame = document.getElementById("frame");
+const back = document.getElementById("back");
 if (!categories.has(category) || !valid(model)) {
-  document.getElementById("frame").remove();
+  frame.remove();
   const message = document.createElement("p");
   message.className = "viewer-error";
   message.textContent = "无效的作品地址。";
-  document.getElementById("main").appendChild(message);
+  document.body.appendChild(message);
 } else {
-  document.getElementById("title").textContent = category + " / " + model;
-  document.getElementById("back").href = "../" + category + "/";
-  document.getElementById("frame").src = "../" + category + "/" + model + ".html";
+  back.href = "../" + category + "/";
+  back.hidden = false;
+  document.title = category + " / " + model + " · Agent Test";
+  frame.src = "../" + category + "/" + model + ".html?embed=1";
 }
 </script>
 </body>
