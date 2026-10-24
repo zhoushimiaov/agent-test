@@ -1,0 +1,789 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Roadster · A Drive to Orbit</title>
+<style>
+  html, body { margin:0; padding:0; width:100%; height:100%; overflow:hidden; background:#000; }
+  canvas { display:block; }
+  .bar { position:fixed; left:0; right:0; height:6.2vh; background:#000; z-index:6; pointer-events:none; }
+  .bar.top { top:0; }
+  .bar.bot { bottom:0; }
+  #vignette { position:fixed; inset:0; z-index:7; pointer-events:none;
+    background:radial-gradient(ellipse at 50% 50%, rgba(0,0,0,0) 52%, rgba(0,0,0,0.62) 100%); }
+  #fade { position:fixed; inset:0; background:#000; z-index:9; pointer-events:none; opacity:1; }
+</style>
+</head>
+<body>
+<div class="bar top"></div>
+<div class="bar bot"></div>
+<div id="vignette"></div>
+<div id="fade"></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(function () {
+'use strict';
+
+/* ============================================================
+ * ROADSTER · A DRIVE TO ORBIT
+ * 一段马斯克的 Roadster 飞向太空的片段
+ * 纯 Three.js (r128, CDN)，单文件，自动循环，无交互
+ * 时间轴：34s 无缝循环
+ *   0.0 - 1.1  黑场淡入
+ *   0.9 - 4.4  发射台点火（引擎啸叫感/烟尘/震颤）
+ *   4.4 - 23.5 点火升空 → 穿云 → 冲出大气层
+ *   23.5- 34   太空巡航：地球悬于身后，环绕运镜收尾
+ * ============================================================ */
+
+/* ---------------- 工具 ---------------- */
+var clamp = function (v, a, b) { return Math.min(b, Math.max(a, v)); };
+var lerp = function (a, b, t) { return a + (b - a) * t; };
+var rand = function (a, b) { return a + Math.random() * (b - a); };
+function smoothstep(a, b, x) {
+  var t = clamp((x - a) / (b - a), 0, 1);
+  return t * t * (3 - 2 * t);
+}
+function smootherstep(x) { return x * x * x * (x * (x * 6 - 15) + 10); }
+
+/* ---------------- 程序化贴图 ---------------- */
+function softTexture(inner, outer, size) {
+  size = size || 128;
+  var c = document.createElement('canvas');
+  c.width = c.height = size;
+  var g = c.getContext('2d');
+  var gr = g.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+  gr.addColorStop(0, inner);
+  gr.addColorStop(0.4, inner);
+  gr.addColorStop(1, outer);
+  g.fillStyle = gr;
+  g.fillRect(0, 0, size, size);
+  return new THREE.CanvasTexture(c);
+}
+
+function cloudTexture() {
+  var c = document.createElement('canvas');
+  c.width = c.height = 256;
+  var g = c.getContext('2d');
+  for (var i = 0; i < 9; i++) {
+    var x = 128 + rand(-52, 52), y = 128 + rand(-34, 34), r = rand(42, 88);
+    var gr = g.createRadialGradient(x, y, 0, x, y, r);
+    gr.addColorStop(0, 'rgba(255,255,255,0.34)');
+    gr.addColorStop(1, 'rgba(255,255,255,0)');
+    g.fillStyle = gr;
+    g.beginPath(); g.arc(x, y, r, 0, 7); g.fill();
+  }
+  return new THREE.CanvasTexture(c);
+}
+
+/* 周期 value noise（x 方向周期为 P，避免地球贴图接缝） */
+function hash2(x, y) {
+  var h = Math.sin(x * 127.1 + y * 311.7) * 43758.5453123;
+  return h - Math.floor(h);
+}
+function vnoiseW(x, y, P) {
+  var xi = Math.floor(x), yi = Math.floor(y);
+  var xf = x - xi, yf = y - yi;
+  var u = xf * xf * (3 - 2 * xf), v = yf * yf * (3 - 2 * yf);
+  var x0 = ((xi % P) + P) % P, x1 = (((xi + 1) % P) + P) % P;
+  var a = hash2(x0, yi), b = hash2(x1, yi), c = hash2(x0, yi + 1), d = hash2(x1, yi + 1);
+  return a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v;
+}
+function fbmW(x, y, P, oct) {
+  var f = 0, amp = 0.5, fr = 1, norm = 0;
+  for (var i = 0; i < oct; i++) {
+    f += amp * vnoiseW(x * fr, y * fr, P * fr);
+    norm += amp; fr *= 2; amp *= 0.5;
+  }
+  return f / norm;
+}
+
+function earthTexture() {
+  var W = 1024, H = 512;
+  var c = document.createElement('canvas');
+  c.width = W; c.height = H;
+  var g = c.getContext('2d');
+  var img = g.createImageData(W, H);
+  var KL = 19 / (Math.PI * 2);
+  for (var py = 0; py < H; py++) {
+    var lat = (py / H - 0.5) * Math.PI;
+    for (var px = 0; px < W; px++) {
+      var lon = (px / W) * Math.PI * 2;
+      var n = fbmW(lon * KL + 13.7, lat * KL * 1.55 + 7.3, 19, 5);
+      var land = n - 0.52 + 0.05 * Math.sin(lat * 3.0) + 0.03 * Math.sin(lon * 2.0 + 1.0);
+      var r, gg, b;
+      if (land < 0) {
+        var d = clamp(-land * 6, 0, 1);
+        r = lerp(18, 4, d); gg = lerp(88, 30, d); b = lerp(140, 72, d);
+      } else {
+        var e = clamp(land * 3.4, 0, 1);
+        if (e < 0.4) {
+          var t1 = e / 0.4;
+          r = lerp(46, 104, t1); gg = lerp(102, 118, t1); b = lerp(64, 72, t1);
+        } else {
+          var t2 = (e - 0.4) / 0.6;
+          r = lerp(104, 148, t2); gg = lerp(118, 132, t2); b = lerp(72, 116, t2);
+        }
+      }
+      var ice = smoothstep(1.16, 1.42, Math.abs(lat));
+      r = lerp(r, 236, ice); gg = lerp(gg, 243, ice); b = lerp(b, 250, ice);
+      var i4 = (py * W + px) * 4;
+      img.data[i4] = r; img.data[i4 + 1] = gg; img.data[i4 + 2] = b; img.data[i4 + 3] = 255;
+    }
+  }
+  g.putImageData(img, 0, 0);
+  var tex = new THREE.CanvasTexture(c);
+  tex.encoding = THREE.sRGBEncoding;
+  return tex;
+}
+
+function cloudMapTexture() {
+  var W = 1024, H = 512;
+  var c = document.createElement('canvas');
+  c.width = W; c.height = H;
+  var g = c.getContext('2d');
+  var img = g.createImageData(W, H);
+  var KL = 19 / (Math.PI * 2);
+  for (var py = 0; py < H; py++) {
+    var lat = (py / H - 0.5) * Math.PI;
+    for (var px = 0; px < W; px++) {
+      var lon = (px / W) * Math.PI * 2;
+      var n = fbmW(lon * KL * 1.5 + 51.3, lat * KL * 1.9 + 21.7, 29, 5);
+      var a = smoothstep(0.5, 0.72, n) * 0.95 * (0.55 + 0.45 * Math.sin(lat * 4.0));
+      var i4 = (py * W + px) * 4;
+      img.data[i4] = 255; img.data[i4 + 1] = 255; img.data[i4 + 2] = 255;
+      img.data[i4 + 3] = clamp(a, 0, 1) * 255;
+    }
+  }
+  g.putImageData(img, 0, 0);
+  var tex = new THREE.CanvasTexture(c);
+  tex.encoding = THREE.sRGBEncoding;
+  return tex;
+}
+
+function padTexture() {
+  var S = 1024;
+  var c = document.createElement('canvas');
+  c.width = c.height = S;
+  var g = c.getContext('2d');
+  g.fillStyle = '#14161b';
+  g.fillRect(0, 0, S, S);
+  for (var i = 0; i < 9000; i++) {
+    var v = 18 + Math.random() * 42;
+    g.fillStyle = 'rgba(' + (v | 0) + ',' + ((v + 3) | 0) + ',' + ((v + 9) | 0) + ',0.5)';
+    g.fillRect(Math.random() * S, Math.random() * S, 2, 2);
+  }
+  g.strokeStyle = 'rgba(214,214,196,0.26)';
+  g.lineWidth = 3;
+  [466, 388, 300].forEach(function (r) {
+    g.beginPath(); g.arc(512, 512, r, 0, 7); g.stroke();
+  });
+  g.lineWidth = 6;
+  for (var k = 0; k < 24; k++) {
+    var a = k / 24 * Math.PI * 2;
+    g.beginPath();
+    g.moveTo(512 + Math.cos(a) * 446, 512 + Math.sin(a) * 446);
+    g.lineTo(512 + Math.cos(a) * 478, 512 + Math.sin(a) * 478);
+    g.stroke();
+  }
+  var tex = new THREE.CanvasTexture(c);
+  tex.encoding = THREE.sRGBEncoding;
+  return tex;
+}
+
+/* ---------------- 渲染器 / 场景 / 相机 ---------------- */
+var scene = new THREE.Scene();
+scene.background = new THREE.Color(0x02030a);
+
+var camera = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, 0.1, 60000);
+camera.position.set(16, 3.2, 15);
+
+var renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(innerWidth, innerHeight);
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.outputEncoding = THREE.sRGBEncoding;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.12;
+renderer.setClearColor(0x02030a);
+document.body.appendChild(renderer.domElement);
+
+/* ---------------- 灯光 ---------------- */
+var sun = new THREE.DirectionalLight(0xfff2df, 2.6);
+sun.position.set(1500, 800, -6000);
+scene.add(sun);
+scene.add(new THREE.HemisphereLight(0x3a4a6a, 0x0a0c12, 0.55));
+var fill = new THREE.DirectionalLight(0x334466, 0.35);
+fill.position.set(-2000, 800, 1500);
+scene.add(fill);
+
+/* ---------------- 星空 ---------------- */
+var starMat = new THREE.PointsMaterial({
+  size: 1.7, sizeAttenuation: false, map: softTexture('rgba(255,255,255,1)', 'rgba(255,255,255,0)'),
+  transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+  opacity: 0.08, color: 0xcfe0ff
+});
+var starGeo = new THREE.BufferGeometry();
+var starPos = new Float32Array(2600 * 3);
+for (var i = 0; i < 2600; i++) {
+  var th = Math.random() * Math.PI * 2;
+  var ph = Math.acos(rand(-0.35, 1));
+  var rr = 7200;
+  starPos[i * 3] = rr * Math.sin(ph) * Math.cos(th);
+  starPos[i * 3 + 1] = rr * Math.cos(ph);
+  starPos[i * 3 + 2] = rr * Math.sin(ph) * Math.sin(th);
+}
+starGeo.setAttribute('position', new THREE.BufferAttribute(starPos, 3));
+var stars = new THREE.Points(starGeo, starMat);
+scene.add(stars);
+
+var brightStars = [];
+for (var bi = 0; bi < 70; bi++) {
+  var bt = Math.random() * Math.PI * 2;
+  var bp = Math.acos(rand(-0.2, 1));
+  var br = 7000;
+  var bs = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: softTexture('rgba(255,255,255,1)', 'rgba(255,255,255,0)'),
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+    opacity: 0.08, color: [0xffffff, 0xcdd8ff, 0xffe6c8][bi % 3]
+  }));
+  bs.position.set(br * Math.sin(bp) * Math.cos(bt), br * Math.cos(bp), br * Math.sin(bp) * Math.sin(bt));
+  bs.scale.set(rand(16, 44), rand(16, 44), 1);
+  bs.userData.base = rand(0.45, 0.9);
+  scene.add(bs);
+  brightStars.push(bs);
+}
+
+/* ---------------- 地球 ---------------- */
+var earthGroup = new THREE.Group();
+earthGroup.position.set(0, -3200, -4200);
+earthGroup.rotation.z = 0.23;
+scene.add(earthGroup);
+
+var earthMesh = new THREE.Mesh(
+  new THREE.SphereGeometry(3000, 64, 48),
+  new THREE.MeshStandardMaterial({ map: earthTexture(), roughness: 1, metalness: 0 })
+);
+earthGroup.add(earthMesh);
+
+var cloudMesh = new THREE.Mesh(
+  new THREE.SphereGeometry(3045, 48, 32),
+  new THREE.MeshStandardMaterial({
+    map: cloudMapTexture(), transparent: true, opacity: 0.92,
+    depthWrite: false, roughness: 1, metalness: 0
+  })
+);
+earthGroup.add(cloudMesh);
+
+var atmMat = new THREE.ShaderMaterial({
+  vertexShader: [
+    'varying vec3 vN; varying vec3 vP;',
+    'void main(){',
+    '  vN = normalize(normalMatrix * normal);',
+    '  vec4 mv = modelViewMatrix * vec4(position, 1.0);',
+    '  vP = mv.xyz;',
+    '  gl_Position = projectionMatrix * mv;',
+    '}'
+  ].join('\n'),
+  fragmentShader: [
+    'varying vec3 vN; varying vec3 vP;',
+    'uniform vec3 glowColor; uniform float power; uniform float intensity;',
+    'void main(){',
+    '  vec3 v = normalize(-vP);',
+    '  float f = pow(1.0 - abs(dot(vN, v)), power);',
+    '  gl_FragColor = vec4(glowColor, 1.0) * f * intensity;',
+    '}'
+  ].join('\n'),
+  uniforms: {
+    glowColor: { value: new THREE.Color(0x4a90ff) },
+    power: { value: 2.6 },
+    intensity: { value: 1.5 }
+  },
+  side: THREE.BackSide,
+  blending: THREE.AdditiveBlending,
+  transparent: true,
+  depthWrite: false
+});
+var atmosphere = new THREE.Mesh(new THREE.SphereGeometry(3230, 48, 32), atmMat);
+earthGroup.add(atmosphere);
+
+/* ---------------- 云层 ---------------- */
+var cloudGroup = new THREE.Group();
+scene.add(cloudGroup);
+var cloudTex = cloudTexture();
+for (var ci = 0; ci < 26; ci++) {
+  var ca = Math.random() * Math.PI * 2;
+  var cr = rand(220, 660);
+  var cs = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: cloudTex, transparent: true, depthWrite: false,
+    opacity: rand(0.3, 0.55), color: 0x93a4bc
+  }));
+  cs.position.set(Math.cos(ca) * cr, rand(240, 800), Math.sin(ca) * cr);
+  var csc = rand(150, 330);
+  cs.scale.set(csc, csc * 0.62, 1);
+  cloudGroup.add(cs);
+}
+/* 近地薄雾 */
+for (var mi = 0; mi < 10; mi++) {
+  var ma = Math.random() * Math.PI * 2;
+  var mr = rand(60, 320);
+  var ms = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: cloudTex, transparent: true, depthWrite: false,
+    opacity: rand(0.12, 0.22), color: 0x5a6880
+  }));
+  ms.position.set(Math.cos(ma) * mr, rand(6, 26), Math.sin(ma) * mr);
+  var msc = rand(70, 150);
+  ms.scale.set(msc, msc * 0.5, 1);
+  cloudGroup.add(ms);
+}
+
+/* ---------------- 地面 / 发射台 ---------------- */
+var ground = new THREE.Mesh(
+  new THREE.CircleGeometry(1700, 64),
+  new THREE.MeshStandardMaterial({ map: padTexture(), roughness: 0.95, metalness: 0 })
+);
+ground.rotation.x = -Math.PI / 2;
+scene.add(ground);
+
+var structMat = new THREE.MeshStandardMaterial({ color: 0x2a2d33, metalness: 0.6, roughness: 0.5 });
+function addBox(parent, w, h, d, mat, x, y, z) {
+  var m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+  m.position.set(x, y, z);
+  parent.add(m);
+  return m;
+}
+
+var mount = new THREE.Group();
+addBox(mount, 6.4, 0.5, 6.4, structMat, 0, 0.25, 0);
+addBox(mount, 4.8, 0.16, 4.8, structMat, 0, 0.82, 0);
+[[-2.2, -2.2], [2.2, -2.2], [-2.2, 2.2], [2.2, 2.2]].forEach(function (p) {
+  addBox(mount, 0.32, 0.6, 0.32, structMat, p[0], 0.58, p[1]);
+});
+scene.add(mount);
+
+var gantry = new THREE.Group();
+gantry.position.set(-16, 0, -10);
+addBox(gantry, 1, 24, 1, structMat, 0, 12, 0);
+[8, 14, 20].forEach(function (y) {
+  addBox(gantry, 6.5, 0.35, 0.35, structMat, 3.2, y, 0);
+});
+var beacon = new THREE.Mesh(
+  new THREE.SphereGeometry(0.22, 8, 8),
+  new THREE.MeshStandardMaterial({ color: 0x550000, emissive: 0xff3333, emissiveIntensity: 2 })
+);
+beacon.position.set(0, 24.4, 0);
+gantry.add(beacon);
+scene.add(gantry);
+
+/* 探照灯 */
+var floodLights = [];
+[[20, 0, 15], [-21, 0, 13]].forEach(function (p) {
+  var pole = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.16, 9, 8), structMat);
+  pole.position.set(p[0], 4.5, p[2]);
+  scene.add(pole);
+  var head = new THREE.Mesh(
+    new THREE.BoxGeometry(0.7, 0.3, 0.4),
+    new THREE.MeshStandardMaterial({ color: 0x332211, emissive: 0xffc98a, emissiveIntensity: 2.4 })
+  );
+  head.position.set(p[0], 9.2, p[2]);
+  head.lookAt(0, 2, 0);
+  scene.add(head);
+  var pl = new THREE.PointLight(0xffb46a, 1.5, 95, 2);
+  pl.position.set(p[0], 8.6, p[2]);
+  scene.add(pl);
+  floodLights.push(pl);
+});
+
+/* 车底假阴影 */
+var blobShadow = new THREE.Sprite(new THREE.SpriteMaterial({
+  map: softTexture('rgba(0,0,0,0.6)', 'rgba(0,0,0,0)'),
+  transparent: true, depthWrite: false, opacity: 0.6
+}));
+blobShadow.scale.set(7, 7, 1);
+scene.add(blobShadow);
+
+/* ---------------- ROADSTER ---------------- */
+function buildCar() {
+  var car = new THREE.Group();
+
+  var red = new THREE.MeshStandardMaterial({ color: 0xc0132a, metalness: 0.55, roughness: 0.3, envMapIntensity: 1.0 });
+  var dark = new THREE.MeshStandardMaterial({ color: 0x14161a, metalness: 0.4, roughness: 0.6 });
+  var trim = new THREE.MeshStandardMaterial({ color: 0x2a2d33, metalness: 0.7, roughness: 0.4 });
+  var glass = new THREE.MeshStandardMaterial({ color: 0x1a2836, metalness: 0.9, roughness: 0.06, transparent: true, opacity: 0.5 });
+  var headMat = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xfff0c8, emissiveIntensity: 2.2 });
+  var tailMat = new THREE.MeshStandardMaterial({ color: 0x330000, emissive: 0xff1a1a, emissiveIntensity: 1.8 });
+
+  function box(w, h, d, mat, x, y, z, rz, rx) {
+    var m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+    m.position.set(x, y, z);
+    if (rz) m.rotation.z = rz;
+    if (rx) m.rotation.x = rx;
+    car.add(m);
+    return m;
+  }
+
+  /* 车身 */
+  box(1.86, 0.46, 4.3, red, 0, 0.62, 0);
+  box(1.78, 0.2, 1.6, red, 0, 0.88, 0.95);
+  box(1.7, 0.26, 1.45, red, 0, 0.94, -0.2);
+  box(1.74, 0.24, 1.25, red, 0, 0.88, -1.4);
+  box(1.88, 0.14, 3.9, trim, 0, 0.36, 0);
+  box(1.82, 0.26, 0.18, red, 0, 0.56, 2.14);
+  box(1.82, 0.3, 0.18, red, 0, 0.6, -2.12);
+  /* 灯 */
+  box(0.34, 0.12, 0.06, headMat, 0.62, 0.78, 2.2);
+  box(0.34, 0.12, 0.06, headMat, -0.62, 0.78, 2.2);
+  box(1.5, 0.09, 0.05, tailMat, 0, 0.86, -2.16);
+  /* 风挡 */
+  box(1.56, 0.06, 0.06, trim, 0, 1.12, 0.6);
+  box(1.5, 0.52, 0.06, glass, 0, 1.08, 0.58, 0, -0.62);
+  box(0.05, 0.5, 0.05, trim, 0.76, 1.08, 0.58, 0, -0.62);
+  box(0.05, 0.5, 0.05, trim, -0.76, 1.08, 0.58, 0, -0.62);
+  /* 内饰 */
+  box(0.55, 0.55, 0.5, dark, 0, 1.0, -0.55);
+  var wheelRing = new THREE.Mesh(new THREE.TorusGeometry(0.15, 0.03, 8, 20), trim);
+  wheelRing.position.set(0, 1.14, 0.45);
+  wheelRing.rotation.x = 1.15;
+  car.add(wheelRing);
+
+  /* 车轮 */
+  var tire = new THREE.MeshStandardMaterial({ color: 0x101114, roughness: 0.9, metalness: 0.1 });
+  var rim = new THREE.MeshStandardMaterial({ color: 0xb8bcc4, metalness: 0.9, roughness: 0.25 });
+  var tireGeo = new THREE.CylinderGeometry(0.34, 0.34, 0.26, 24);
+  var rimGeo = new THREE.CylinderGeometry(0.17, 0.17, 0.28, 16);
+  [[0.84, 1.32], [-0.84, 1.32], [0.84, -1.32], [-0.84, -1.32]].forEach(function (p) {
+    var w = new THREE.Mesh(tireGeo, tire);
+    w.rotation.z = Math.PI / 2;
+    w.position.set(p[0], 0.34, p[1]);
+    car.add(w);
+    var r = new THREE.Mesh(rimGeo, rim);
+    r.rotation.z = Math.PI / 2;
+    r.position.set(p[0], 0.34, p[1]);
+    car.add(r);
+  });
+
+  /* Starman */
+  var suit = new THREE.MeshStandardMaterial({ color: 0xe9e7e0, roughness: 0.9, metalness: 0.05 });
+  var visor = new THREE.MeshStandardMaterial({ color: 0x0a0a12, metalness: 1, roughness: 0.05 });
+  var starman = new THREE.Group();
+  starman.position.set(0, 1.0, -0.5);
+
+  var torso = new THREE.Mesh(new THREE.SphereGeometry(0.24, 16, 12), suit);
+  torso.scale.set(1.15, 1.25, 0.95);
+  torso.position.y = 0.3;
+  starman.add(torso);
+  var hips = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.2, 0.3), suit);
+  hips.position.y = 0.06;
+  starman.add(hips);
+  var helmet = new THREE.Mesh(new THREE.SphereGeometry(0.165, 16, 12), suit);
+  helmet.position.y = 0.64;
+  starman.add(helmet);
+  var visorMesh = new THREE.Mesh(new THREE.SphereGeometry(0.14, 14, 10), visor);
+  visorMesh.scale.set(1, 0.92, 0.55);
+  visorMesh.position.set(0, 0.64, 0.06);
+  starman.add(visorMesh);
+
+  function limb(from, to, r, mat) {
+    var dir = new THREE.Vector3().subVectors(to, from);
+    var len = dir.length();
+    var m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, len, 8), mat);
+    m.position.copy(from).addScaledVector(dir, 0.5);
+    m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.clone().normalize());
+    return m;
+  }
+  /* 腿（坐姿，膝盖前抬） */
+  starman.add(limb(new THREE.Vector3(-0.13, 0.05, 0.02), new THREE.Vector3(-0.15, 0.1, 0.42), 0.09, suit));
+  starman.add(limb(new THREE.Vector3(0.13, 0.05, 0.02), new THREE.Vector3(0.15, 0.1, 0.42), 0.09, suit));
+  /* 手臂搭在方向盘上 */
+  starman.add(limb(new THREE.Vector3(-0.26, 0.44, 0.02), new THREE.Vector3(-0.12, 1.12, 0.42), 0.07, suit));
+  starman.add(limb(new THREE.Vector3(0.26, 0.44, 0.02), new THREE.Vector3(0.12, 1.12, 0.42), 0.07, suit));
+  car.add(starman);
+
+  /* 尾焰 */
+  var flameGroup = new THREE.Group();
+  flameGroup.position.set(0, 0.02, 0);
+  var flameOuterMat = new THREE.MeshBasicMaterial({
+    color: 0xff8a2a, transparent: true, opacity: 0.8,
+    blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide
+  });
+  var flameOuter = new THREE.Mesh(new THREE.ConeGeometry(0.4, 2.6, 16, 1, true), flameOuterMat);
+  flameOuter.rotation.x = Math.PI;
+  flameOuter.position.y = -1.5;
+  flameGroup.add(flameOuter);
+  var flameInnerMat = new THREE.MeshBasicMaterial({
+    color: 0xffd9a0, transparent: true, opacity: 0.9,
+    blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide
+  });
+  var flameInner = new THREE.Mesh(new THREE.ConeGeometry(0.2, 1.6, 12, 1, true), flameInnerMat);
+  flameInner.rotation.x = Math.PI;
+  flameInner.position.y = -1.1;
+  flameGroup.add(flameInner);
+  var flameGlow = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: softTexture('rgba(255,170,80,0.9)', 'rgba(255,120,30,0)'),
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0.85
+  }));
+  flameGlow.scale.set(4.5, 4.5, 1);
+  flameGlow.position.y = -2.4;
+  flameGroup.add(flameGlow);
+  var nozzle = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.36, 0.3, 12),
+    new THREE.MeshStandardMaterial({ color: 0x1c1e22, metalness: 0.8, roughness: 0.35 }));
+  nozzle.position.y = 0.32;
+  car.add(nozzle);
+  car.add(flameGroup);
+
+  /* 点火光源 */
+  var flameLight = new THREE.PointLight(0xff8c3a, 0, 40, 2);
+  flameLight.position.y = -1.6;
+  car.add(flameLight);
+
+  car.userData = { flameGroup: flameGroup, flameOuter: flameOuter, flameInner: flameInner, flameGlow: flameGlow, flameLight: flameLight };
+  return car;
+}
+
+var car = buildCar();
+scene.add(car);
+
+/* ---------------- 飞行路径 ---------------- */
+var carPath = new THREE.CatmullRomCurve3([
+  new THREE.Vector3(0, 0.9, 0),
+  new THREE.Vector3(0.5, 18, 1),
+  new THREE.Vector3(3, 130, -4),
+  new THREE.Vector3(12, 570, -22),
+  new THREE.Vector3(-8, 1030, -60),
+  new THREE.Vector3(6, 2050, -190),
+  new THREE.Vector3(0, 2600, -420),
+  new THREE.Vector3(0, 2600, -900)
+], false, 'catmullrom', 0.3);
+
+var LIFTOFF = 4.4;
+var T = 34;
+
+function carU(t) {
+  if (t < LIFTOFF) return 0;
+  if (t < 23.5) return 0.86 * smootherstep(clamp((t - LIFTOFF) / 19.1, 0, 1));
+  return 0.86 + 0.14 * clamp((t - 23.5) / 10.5, 0, 1);
+}
+
+/* ---------------- 运镜关键帧（相对车的偏移） ---------------- */
+var camKF = [
+  { t: 0.0,  p: [16, 2.6, 15],      l: [0, 0.6, 0] },
+  { t: 4.4,  p: [12, 3.6, 11],      l: [0, 1.6, 0] },
+  { t: 6.6,  p: [16, 10, 17],       l: [0, 7, 0] },
+  { t: 10.5, p: [20, -38, 32],      l: [0, 12, -4] },
+  { t: 14.5, p: [36, -150, 70],     l: [0, 22, -6] },
+  { t: 18.5, p: [-50, -120, 140],   l: [0, 16, -8] },
+  { t: 21.5, p: [120, -220, 300],   l: [0, 26, -14] },
+  { t: 24.5, p: [300, 500, 800],    l: [0, 24, -14] },
+  { t: 27.5, p: [95, 720, 640],     l: [0, 4, -30] },
+  { t: 31.0, p: [30, 130, 250],     l: [0, 10, -12] },
+  { t: 33.6, p: [30, 130, 250],     l: [0, 10, -12] }
+];
+function sampleKF(t) {
+  var i = 0;
+  while (i < camKF.length - 2 && t > camKF[i + 1].t) i++;
+  var a = camKF[i], b = camKF[i + 1];
+  var k = smoothstep(a.t, b.t, t);
+  return {
+    p: [lerp(a.p[0], b.p[0], k), lerp(a.p[1], b.p[1], k), lerp(a.p[2], b.p[2], k)],
+    l: [lerp(a.l[0], b.l[0], k), lerp(a.l[1], b.l[1], k), lerp(a.l[2], b.l[2], k)]
+  };
+}
+function shakeAmp(t) {
+  return 0.5 * smoothstep(1.0, 2.6, t) * (1 - smoothstep(4.2, 7.0, t))
+       + 0.22 * smoothstep(4.3, 5.2, t) * (1 - smoothstep(9.5, 13, t))
+       + 0.04;
+}
+
+/* ---------------- 烟雾粒子 ---------------- */
+var puffTex = softTexture('rgba(255,255,255,0.9)', 'rgba(255,255,255,0)');
+var PUF_N = 700;
+var puffs = [];
+for (var pi = 0; pi < PUF_N; pi++) {
+  var sp = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: puffTex, transparent: true, depthWrite: false, opacity: 0
+  }));
+  sp.visible = false;
+  scene.add(sp);
+  puffs.push({ sp: sp, life: 0, max: 1, vel: new THREE.Vector3(), s0: 1, grow: 1, op0: 0.5 });
+}
+var puffIdx = 0;
+function spawnPuff(x, y, z, s0, life, vel, color, op, grow) {
+  var p = puffs[puffIdx];
+  puffIdx = (puffIdx + 1) % PUF_N;
+  p.sp.visible = true;
+  p.sp.position.set(x, y, z);
+  p.sp.scale.set(s0, s0, 1);
+  p.life = 0; p.max = life; p.s0 = s0; p.grow = grow; p.op0 = op;
+  p.vel.copy(vel);
+  p.sp.material.color.set(color);
+  p.sp.material.opacity = op;
+}
+function updatePuffs(dt) {
+  for (var i = 0; i < PUF_N; i++) {
+    var p = puffs[i];
+    if (!p.sp.visible) continue;
+    p.life += dt;
+    if (p.life >= p.max) { p.sp.visible = false; continue; }
+    p.sp.position.addScaledVector(p.vel, dt);
+    var k = p.life / p.max;
+    var s = p.s0 + p.grow * k;
+    p.sp.scale.set(s, s, 1);
+    p.sp.material.opacity = p.op0 * (1 - k) * (1 - k);
+  }
+}
+
+/* 发射台地面热坑辉光 */
+var craterGlow = new THREE.Sprite(new THREE.SpriteMaterial({
+  map: softTexture('rgba(255,150,60,0.8)', 'rgba(255,100,20,0)'),
+  transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0
+}));
+craterGlow.scale.set(6, 6, 1);
+craterGlow.position.set(0, 0.15, 0);
+scene.add(craterGlow);
+
+/* ---------------- 环境反射（一次性烘立方图） ---------------- */
+var cubeRT = new THREE.WebGLCubeRenderTarget(256);
+var cubeCam = new THREE.CubeCamera(1, 40000, cubeRT);
+cubeCam.position.set(0, 60, 0);
+scene.add(cubeCam);
+renderer.toneMapping = THREE.NoToneMapping;
+cubeCam.update(renderer, scene);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+scene.environment = cubeRT.texture;
+scene.remove(cubeCam);
+
+/* ---------------- 主循环 ---------------- */
+var fadeEl = document.getElementById('fade');
+var last = performance.now();
+var start = last;
+var flameTipV = new THREE.Vector3();
+var tmpV = new THREE.Vector3();
+var flameHot = new THREE.Color(0xff8a2a);
+var flameCold = new THREE.Color(0x86b8ff);
+
+function frame(now) {
+  var dt = (now - last) / 1000;
+  last = now;
+  if (dt > 0.05) dt = 0.05;
+
+  var t = ((now - start) / 1000) % T;
+
+  /* --- 车的位置与姿态 --- */
+  var u = carU(t);
+  var carPos = carPath.getPointAt(u);
+  var tan = carPath.getTangentAt(u);
+  car.position.copy(carPos);
+  car.lookAt(tmpV.copy(carPos).add(tan));
+  var bank = 0.05 * Math.sin(t * 0.4) + 0.04 * Math.sin(t * 0.23) + 0.03 * Math.sin(t * 0.17);
+  car.rotateZ(bank);
+  if (t > 0.9 && t < LIFTOFF) {
+    car.position.y += (Math.random() - 0.5) * 0.03;
+    car.position.x += (Math.random() - 0.5) * 0.02;
+  }
+
+  /* --- 尾焰 --- */
+  var fd = car.userData;
+  var fy = carPos.y;
+  var spaceF = smoothstep(1600, 2500, fy);
+  var flameEnv = smoothstep(0.9, 1.6, t) * (1 - 0.15 * smoothstep(4.0, 4.4, t));
+  var flick = 1 + 0.16 * Math.sin(t * 37) + 0.09 * Math.sin(t * 13.7 + 1.3);
+  var fscale = (0.75 + 0.35 * flameEnv) * flick * (1 - 0.72 * spaceF);
+  fd.flameGroup.scale.set(fscale, fscale * (0.85 + 0.3 * flameEnv), fscale);
+  fd.flameOuter.material.color.copy(flameHot).lerp(flameCold, spaceF);
+  fd.flameInner.material.color.copy(new THREE.Color(0xffd9a0)).lerp(new THREE.Color(0xd8ecff), spaceF);
+  fd.flameGlow.material.opacity = (0.35 + 0.5 * flameEnv) * (1 - 0.5 * spaceF);
+  fd.flameGlow.material.color.copy(flameHot).lerp(flameCold, spaceF);
+  fd.flameLight.intensity = 3.0 * flameEnv * (1 - 0.6 * spaceF);
+  fd.flameLight.color.copy(flameHot).lerp(flameCold, spaceF);
+
+  /* --- 粒子生成 --- */
+  if (t > 0.9 && t < 5.5 && Math.random() < 0.95) {
+    var a = Math.random() * Math.PI * 2;
+    var r = rand(2.2, 4.6);
+    spawnPuff(Math.cos(a) * r, rand(0.1, 1.4), Math.sin(a) * r,
+      rand(2.5, 5), rand(2.2, 3.8),
+      tmpV.set(Math.cos(a) * rand(1.5, 4), rand(0.8, 2.2), Math.sin(a) * rand(1.5, 4)),
+      0x5a6068, 0.5, rand(6, 14));
+  }
+  if (t > LIFTOFF && fy < 1700 && Math.random() < 0.95) {
+    flameTipV.set(0, -2.6, 0);
+    car.localToWorld(flameTipV);
+    spawnPuff(flameTipV.x, flameTipV.y, flameTipV.z,
+      rand(2, 4), rand(1.3, 2.1),
+      tmpV.copy(tan).multiplyScalar(-rand(6, 11)),
+      0xaab0ba, 0.42, rand(8, 16));
+  }
+  if (fy > 230 && fy < 820 && Math.random() < 0.8) {
+    spawnPuff(carPos.x + rand(-3, 3), carPos.y + rand(-2, 2), carPos.z + rand(-3, 3),
+      rand(5, 9), rand(1.6, 2.4),
+      tmpV.set(rand(-1, 1), rand(-0.5, 1), rand(-1, 1)),
+      0x9fb0c4, 0.5, rand(16, 30));
+  }
+  updatePuffs(dt);
+
+  /* --- 发射台辉光 & 车底阴影 --- */
+  craterGlow.material.opacity = 0.85 * smoothstep(0.9, 1.8, t) * (1 - smoothstep(4.2, 6.5, t)) * (0.85 + 0.15 * Math.sin(t * 31));
+  var shScale = 7 * (1 - smoothstep(15, 380, fy));
+  var shOp = 0.6 * (1 - smoothstep(80, 480, fy));
+  blobShadow.position.set(carPos.x, 0.04, carPos.z);
+  blobShadow.scale.set(shScale, shScale, 1);
+  blobShadow.material.opacity = shOp;
+
+  /* --- 星空显隐 --- */
+  var starOp = 0.08 + 0.92 * smoothstep(250, 1500, fy);
+  starMat.opacity = starOp;
+  for (var si = 0; si < brightStars.length; si++) {
+    brightStars[si].material.opacity = brightStars[si].userData.base * starOp;
+  }
+
+  /* --- 缓慢自转 --- */
+  cloudGroup.rotation.y += dt * 0.004;
+  earthMesh.rotation.y += dt * 0.006;
+  cloudMesh.rotation.y += dt * 0.008;
+
+  /* --- 运镜 --- */
+  var kf = sampleKF(t);
+  var camPos = tmpV.copy(carPos).add(new THREE.Vector3(kf.p[0], kf.p[1], kf.p[2])).clone();
+  var lookAt = new THREE.Vector3().copy(carPos).add(new THREE.Vector3(kf.l[0], kf.l[1], kf.l[2]));
+  var sh = shakeAmp(t);
+  camPos.x += (Math.random() - 0.5) * sh;
+  camPos.y += (Math.random() - 0.5) * sh;
+  camPos.z += (Math.random() - 0.5) * sh;
+  camera.position.copy(camPos);
+  camera.lookAt(lookAt);
+  camera.rotateZ((Math.random() - 0.5) * 0.006 * sh);
+
+  /* --- 淡入淡出（循环缝合） --- */
+  var fo = 0;
+  if (t < 1.1) fo = 1 - smoothstep(0.15, 1.1, t);
+  else if (t > 33.0) fo = smoothstep(33.0, 34, t);
+  fadeEl.style.opacity = fo.toFixed(3);
+
+  renderer.render(scene, camera);
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+/* ---------------- 自适应 ---------------- */
+addEventListener('resize', function () {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+
+})();
+</script>
+<!--
+============================================================
+交付记录 / DELIVERY LOG
+------------------------------------------------------------
+- 完成时间 : 2026-10-23 07:37 (Asia/Shanghai)
+- 模型     : Step-5-Preview
+- 消耗token: ≈ 52,000（输入+输出，估算值）
+- 技术方案 : Three.js r128 (CDN) · 单文件 · 自动循环 34s · 无交互
+- 内容     : 夜间发射台点火 → Roadster 升空 → 穿云 → 太空巡航
+             （地球/大气辉光/Starman/尾焰烟尘/电影级运镜）
+============================================================
+-->
+<!--zc-home:start--><style>.zc-home-btn{position:fixed;top:16px;left:16px;z-index:2147483647;display:inline-flex;align-items:center;gap:6px;padding:8px 14px;font:500 13px/1.1 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Noto Sans SC",sans-serif;color:#111;background:rgba(255,255,255,.86);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);border:1px solid rgba(0,0,0,.08);border-radius:999px;text-decoration:none;box-shadow:0 2px 12px rgba(0,0,0,.2);transition:background .2s ease,transform .2s ease,box-shadow .2s ease}.zc-home-btn:hover{background:#fff;transform:translateY(-1px);box-shadow:0 4px 18px rgba(0,0,0,.26)}</style><a class="zc-home-btn" href="../">← 返回首页</a><script>(function(){try{if(window.self!==window.top||/[?&]embed=1(?:&|$)/.test(location.search)){var b=document.querySelector(".zc-home-btn");if(b&&b.parentNode)b.parentNode.removeChild(b);}}catch(e){}})();</script><!--zc-home:end-->
+</body>
+</html>

@@ -1,0 +1,1896 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Tesla Roadster — SpaceX Cold-Gas Thruster Package Night Test</title>
+<style>
+  * {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+    user-select: none;
+  }
+  html, body {
+    width: 100%;
+    height: 100%;
+    background: #020307;
+    overflow: hidden;
+    font-family: 'JetBrains Mono', 'SF Mono', 'Consolas', 'Roboto Mono', monospace;
+    color: #e6f1ff;
+  }
+  #scene-canvas {
+    position: fixed;
+    inset: 0;
+    width: 100vw;
+    height: 100vh;
+    display: block;
+  }
+  .vignette-overlay {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    background:
+      radial-gradient(circle at 50% 50%, rgba(0,0,0,0) 56%, rgba(1,3,8,0.68) 100%),
+      linear-gradient(180deg, rgba(2,5,12,0.42) 0%, rgba(0,0,0,0) 14%, rgba(0,0,0,0) 84%, rgba(2,5,12,0.58) 100%);
+    z-index: 2;
+  }
+
+  /* Telemetry HUD Panels */
+  .hud-panel {
+    position: fixed;
+    bottom: 26px;
+    z-index: 5;
+    pointer-events: none;
+    background: linear-gradient(155deg, rgba(6, 11, 20, 0.82) 0%, rgba(3, 6, 12, 0.90) 100%);
+    border: 1px solid rgba(110, 175, 255, 0.22);
+    border-radius: 6px;
+    padding: 14px 18px;
+    backdrop-filter: blur(8px);
+    box-shadow: 0 12px 36px rgba(0, 0, 0, 0.72), inset 0 0 18px rgba(70, 145, 255, 0.05);
+  }
+  .hud-panel::before {
+    content: '';
+    position: absolute;
+    top: -1px;
+    left: 14px;
+    width: 44px;
+    height: 2px;
+    background: linear-gradient(90deg, #56b8ff, transparent);
+  }
+  .hud-left {
+    left: 28px;
+    width: 320px;
+  }
+  .hud-right {
+    right: 28px;
+    width: 280px;
+  }
+
+  .hud-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    color: rgba(158, 196, 238, 0.72);
+    text-transform: uppercase;
+    margin-bottom: 8px;
+    border-bottom: 1px solid rgba(110, 175, 255, 0.12);
+    padding-bottom: 5px;
+  }
+  .hud-dot {
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #38d6ff;
+    box-shadow: 0 0 8px #38d6ff;
+    margin-right: 6px;
+    vertical-align: middle;
+  }
+
+  /* Left HUD: G-Force & Attitude Schematic */
+  .hud-left-body {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+  }
+  .gforce-block {
+    flex: 0 0 118px;
+  }
+  .metric-value {
+    font-size: 31px;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    color: #f4f9ff;
+    line-height: 1.05;
+    text-shadow: 0 0 16px rgba(86, 184, 255, 0.38);
+  }
+  .metric-unit {
+    font-size: 13px;
+    font-weight: 500;
+    color: #5ebaff;
+    margin-left: 3px;
+  }
+  .g-bar-track {
+    margin-top: 8px;
+    width: 100%;
+    height: 5px;
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 3px;
+    overflow: hidden;
+    position: relative;
+  }
+  .g-bar-fill {
+    height: 100%;
+    width: 50%;
+    background: linear-gradient(90deg, #36b3ff 0%, #7be0ff 70%, #ff5a67 100%);
+    box-shadow: 0 0 10px rgba(75, 195, 255, 0.7);
+    transition: width 0.06s linear;
+  }
+  .sub-readout {
+    margin-top: 7px;
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    color: rgba(175, 206, 240, 0.78);
+    display: flex;
+    justify-content: space-between;
+  }
+
+  .attitude-box {
+    flex: 1;
+    height: 82px;
+    background: rgba(5, 12, 24, 0.7);
+    border: 1px solid rgba(105, 175, 255, 0.16);
+    border-radius: 4px;
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+  }
+  .attitude-svg {
+    width: 152px;
+    height: 76px;
+    overflow: visible;
+  }
+  .pitch-badge {
+    position: absolute;
+    bottom: 4px;
+    right: 6px;
+    font-size: 9px;
+    letter-spacing: 0.1em;
+    color: #79c8ff;
+  }
+  .rcs-badge {
+    position: absolute;
+    top: 4px;
+    left: 6px;
+    font-size: 8.5px;
+    letter-spacing: 0.12em;
+    color: rgba(140, 195, 245, 0.75);
+  }
+
+  /* Right HUD: Altitude & Stage */
+  .hud-right-body {
+    display: flex;
+    align-items: stretch;
+    justify-content: space-between;
+    gap: 14px;
+  }
+  .alt-main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+  }
+  .alt-tape-wrap {
+    width: 58px;
+    height: 82px;
+    background: rgba(5, 12, 24, 0.75);
+    border: 1px solid rgba(105, 175, 255, 0.16);
+    border-radius: 4px;
+    position: relative;
+    padding: 6px 8px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+  }
+  .alt-scale-bar {
+    position: absolute;
+    left: 10px;
+    top: 7px;
+    bottom: 7px;
+    width: 4px;
+    background: rgba(255, 255, 255, 0.09);
+    border-radius: 2px;
+  }
+  .alt-scale-fill {
+    position: absolute;
+    left: 0;
+    bottom: 0;
+    width: 100%;
+    height: 0%;
+    background: linear-gradient(180deg, #ff4b5c 0%, #57c1ff 45%, #2a7fff 100%);
+    border-radius: 2px;
+    box-shadow: 0 0 8px rgba(87, 193, 255, 0.8);
+  }
+  .alt-peak-line {
+    position: absolute;
+    left: 7px;
+    right: 7px;
+    top: 7px;
+    height: 1px;
+    background: rgba(255, 92, 108, 0.75);
+  }
+  .alt-tick {
+    font-size: 8px;
+    color: rgba(165, 200, 235, 0.62);
+    text-align: right;
+    letter-spacing: 0.06em;
+  }
+  .stage-pill {
+    margin-top: 8px;
+    padding: 4px 8px;
+    border-radius: 3px;
+    background: rgba(45, 130, 220, 0.14);
+    border-left: 2px solid #48b8ff;
+    font-size: 9.5px;
+    letter-spacing: 0.13em;
+    color: #bfe4ff;
+    white-space: nowrap;
+  }
+</style>
+</head>
+<body>
+<canvas id="scene-canvas"></canvas>
+<div class="vignette-overlay"></div>
+
+<!-- Bottom-Left HUD: G-FORCE & Vehicle Attitude Schematic -->
+<div class="hud-panel hud-left">
+  <div class="hud-header">
+    <span><i class="hud-dot" id="hud-status-dot"></i>SPACEX COLD-GAS TELEMETRY</span>
+    <span id="hud-cam-label">CAM 01 // LAUNCH</span>
+  </div>
+  <div class="hud-left-body">
+    <div class="gforce-block">
+      <div style="font-size:9px;letter-spacing:0.15em;color:rgba(155,195,235,0.68);margin-bottom:2px;">G-FORCE LOAD</div>
+      <div class="metric-value"><span id="hud-gforce">0.98</span><span class="metric-unit">G</span></div>
+      <div class="g-bar-track"><div class="g-bar-fill" id="hud-gbar"></div></div>
+      <div class="sub-readout">
+        <span>VEL <strong id="hud-speed" style="color:#e8f4ff;">000</strong> MPH</span>
+        <span id="hud-thruster-state" style="color:#58c4ff;">SUCTION</span>
+      </div>
+    </div>
+    <div class="attitude-box">
+      <span class="rcs-badge" id="hud-rcs-badge">RCS STANDBY</span>
+      <svg class="attitude-svg" viewBox="-76 -38 152 76">
+        <!-- Horizon Reference Line -->
+        <line x1="-66" y1="0" x2="66" y2="0" stroke="rgba(110,180,255,0.2)" stroke-width="1" stroke-dasharray="3 3" />
+        <line x1="0" y1="-30" x2="0" y2="30" stroke="rgba(110,180,255,0.12)" stroke-width="1" />
+        <!-- Rotating Roadster Side-Profile Schematic -->
+        <g id="hud-car-schematic" transform="rotate(0)">
+          <!-- RCS Nose Upper Plume (fires upwards/forwards relative to roof to push nose down) -->
+          <polygon id="hud-rcs-nose" points="22,-6 27,-26 31,-6" fill="url(#rcsGrad)" opacity="0" />
+          <!-- RCS Rear Stabilizer Plume -->
+          <polygon id="hud-rcs-tail" points="-28,4 -33,20 -24,4" fill="url(#rcsGrad)" opacity="0" />
+          <!-- 4 Underbody Main Cold-Gas Retro Plumes (Front & Rear pairs in side view) -->
+          <polygon id="hud-main-front" points="14,6 10,32 22,32 18,6" fill="url(#mainJetGrad)" opacity="0" />
+          <polygon id="hud-main-rear" points="-18,6 -22,32 -10,32 -14,6" fill="url(#mainJetGrad)" opacity="0" />
+          <!-- Sleek Roadster Wedge Silhouette -->
+          <path d="M-32,3 L-30,-4 L-14,-5 L-3,-11 L13,-10 L24,-4 L34,-1 L33,4 L-32,4 Z"
+                fill="rgba(160,210,255,0.14)" stroke="#8ad0ff" stroke-width="1.4" />
+          <!-- Canopy Glass Line -->
+          <path d="M-12,-5 L-2,-9.8 L11,-9 L19,-4 Z" fill="rgba(20,40,70,0.85)" stroke="#55a8ff" stroke-width="0.9" />
+          <!-- Taillight & Headlight Accents -->
+          <line x1="-32" y1="-2.5" x2="-32" y2="2" stroke="#ff384c" stroke-width="2.2" />
+          <line x1="31" y1="-1.5" x2="34" y2="0.5" stroke="#ffffff" stroke-width="2" />
+          <!-- Wheels -->
+          <circle cx="-19" cy="4.5" r="4.8" fill="#08111e" stroke="#6cbdff" stroke-width="1.2" />
+          <circle cx="19" cy="4.5" r="4.8" fill="#08111e" stroke="#6cbdff" stroke-width="1.2" />
+        </g>
+        <defs>
+          <linearGradient id="rcsGrad" x1="0" y1="1" x2="0" y2="0">
+            <stop offset="0%" stop-color="#e8fbff" stop-opacity="0.95" />
+            <stop offset="100%" stop-color="#38b6ff" stop-opacity="0" />
+          </linearGradient>
+          <linearGradient id="mainJetGrad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#ffffff" stop-opacity="0.98" />
+            <stop offset="55%" stop-color="#bfeaff" stop-opacity="0.75" />
+            <stop offset="100%" stop-color="#48b2ff" stop-opacity="0" />
+          </linearGradient>
+        </defs>
+      </svg>
+      <span class="pitch-badge">PITCH <span id="hud-pitch">00</span>°</span>
+    </div>
+  </div>
+</div>
+
+<!-- Bottom-Right HUD: Altitude (0.0 FT ~ 67.5 FT) & Flight Stage -->
+<div class="hud-panel hud-right">
+  <div class="hud-header">
+    <span>RADAR ALTIMETER</span>
+    <span>APOGEE 67.5 FT</span>
+  </div>
+  <div class="hud-right-body">
+    <div class="alt-main">
+      <div>
+        <div style="font-size:9px;letter-spacing:0.15em;color:rgba(155,195,235,0.68);margin-bottom:2px;">ALTITUDE AGL</div>
+        <div class="metric-value"><span id="hud-altitude">0.0</span><span class="metric-unit">FT</span></div>
+      </div>
+      <div class="sub-readout" style="margin-top:4px;">
+        <span>V/S <strong id="hud-vs" style="color:#e8f4ff;">+00.0</strong> FT/S</span>
+        <span>MAX <strong style="color:#ff6e7e;">67.5</strong> FT</span>
+      </div>
+      <div class="stage-pill" id="hud-stage">STAGE 01 // VERTICAL RAMP ASCENT</div>
+    </div>
+    <div class="alt-tape-wrap">
+      <div class="alt-peak-line"></div>
+      <div class="alt-scale-bar">
+        <div class="alt-scale-fill" id="hud-alt-bar"></div>
+      </div>
+      <div class="alt-tick" style="color:#ff7b89;">67.5</div>
+      <div class="alt-tick">45.0</div>
+      <div class="alt-tick">22.5</div>
+      <div class="alt-tick">0.0</div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+<script>
+(() => {
+  'use strict';
+
+  const canvas = document.getElementById('scene-canvas');
+  const renderer = new THREE.WebGLRenderer({
+    canvas,
+    antialias: true,
+    powerPreference: 'high-performance'
+  });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.22;
+
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x020409);
+  scene.fog = new THREE.FogExp2(0x02040a, 0.0042);
+
+  const camera = new THREE.PerspectiveCamera(44, window.innerWidth / window.innerHeight, 0.2, 900);
+
+  // ---------------------------------------------------------------------------
+  // 1. Procedural Textures & Metallic Environment Map
+  // ---------------------------------------------------------------------------
+  function createEnvTexture() {
+    const c = document.createElement('canvas');
+    c.width = 512;
+    c.height = 256;
+    const ctx = c.getContext('2d');
+    const grad = ctx.createLinearGradient(0, 0, 0, 256);
+    grad.addColorStop(0.0, '#040814');
+    grad.addColorStop(0.38, '#102240');
+    grad.addColorStop(0.48, '#4e79b0');
+    grad.addColorStop(0.50, '#d8ecff');
+    grad.addColorStop(0.53, '#1a2030');
+    grad.addColorStop(0.75, '#2b1018');
+    grad.addColorStop(1.0, '#05060a');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, 512, 256);
+
+    // Studio & floodlight reflection strips for sleek metallic car body highlights
+    ctx.fillStyle = 'rgba(220, 240, 255, 0.85)';
+    ctx.fillRect(40, 62, 160, 10);
+    ctx.fillRect(280, 54, 180, 12);
+    ctx.fillStyle = 'rgba(255, 50, 70, 0.55)';
+    ctx.fillRect(0, 142, 512, 8);
+
+    const tex = new THREE.CanvasTexture(c);
+    tex.mapping = THREE.EquirectangularReflectionMapping;
+    tex.colorSpace = THREE.SRGBColorSpace;
+    return tex;
+  }
+  scene.environment = createEnvTexture();
+
+  function createRadialGlowTexture(innerColor, midColor, outerColor) {
+    const c = document.createElement('canvas');
+    c.width = 128;
+    c.height = 128;
+    const ctx = c.getContext('2d');
+    const g = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
+    g.addColorStop(0.0, innerColor);
+    g.addColorStop(0.32, midColor);
+    g.addColorStop(0.72, outerColor);
+    g.addColorStop(1.0, 'rgba(0,0,0,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, 128, 128);
+    return new THREE.CanvasTexture(c);
+  }
+
+  function createSmokePuffTexture() {
+    const c = document.createElement('canvas');
+    c.width = 128;
+    c.height = 128;
+    const ctx = c.getContext('2d');
+    ctx.clearRect(0, 0, 128, 128);
+    const blobs = [
+      [64, 64, 54, 0.55],
+      [48, 56, 38, 0.35],
+      [78, 58, 36, 0.35],
+      [58, 76, 40, 0.32],
+      [72, 48, 34, 0.28]
+    ];
+    for (const [x, y, r, a] of blobs) {
+      const g = ctx.createRadialGradient(x, y, 2, x, y, r);
+      g.addColorStop(0.0, `rgba(246, 250, 255, ${a})`);
+      g.addColorStop(0.5, `rgba(215, 228, 245, ${a * 0.55})`);
+      g.addColorStop(1.0, 'rgba(180, 200, 225, 0)');
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    return new THREE.CanvasTexture(c);
+  }
+
+  function createAsphaltTexture() {
+    const c = document.createElement('canvas');
+    c.width = 512;
+    c.height = 512;
+    const ctx = c.getContext('2d');
+    ctx.fillStyle = '#0c0f15';
+    ctx.fillRect(0, 0, 512, 512);
+    for (let i = 0; i < 18000; i++) {
+      const x = Math.random() * 512;
+      const y = Math.random() * 512;
+      const v = 10 + Math.floor(Math.random() * 24);
+      ctx.fillStyle = `rgb(${v},${v + 2},${v + 6})`;
+      ctx.fillRect(x, y, 2, 2);
+    }
+    // Subtle longitudinal tire / tarmac streaks
+    ctx.fillStyle = 'rgba(255,255,255,0.015)';
+    for (let i = 0; i < 45; i++) {
+      ctx.fillRect(0, Math.random() * 512, 512, 1 + Math.random() * 3);
+    }
+    const tex = new THREE.CanvasTexture(c);
+    tex.wrapS = THREE.RepeatWrapping;
+    tex.wrapT = THREE.RepeatWrapping;
+    tex.repeat.set(36, 4);
+    return tex;
+  }
+
+  const glowWhiteBlueTex = createRadialGlowTexture('rgba(255,255,255,1)', 'rgba(155,220,255,0.65)', 'rgba(40,140,255,0)');
+  const glowRedTex = createRadialGlowTexture('rgba(255,190,195,1)', 'rgba(255,35,55,0.65)', 'rgba(180,0,20,0)');
+  const smokeTex = createSmokePuffTexture();
+  const asphaltTex = createAsphaltTexture();
+
+  // ---------------------------------------------------------------------------
+  // 2. Ambient, Moon & Night Test Facility Lighting
+  // ---------------------------------------------------------------------------
+  const hemiLight = new THREE.HemisphereLight(0x284570, 0x060810, 0.65);
+  scene.add(hemiLight);
+
+  const dirLight = new THREE.DirectionalLight(0x9ec6ff, 1.15);
+  dirLight.position.set(35, 65, 48);
+  dirLight.castShadow = true;
+  dirLight.shadow.mapSize.set(2048, 2048);
+  dirLight.shadow.camera.near = 5;
+  dirLight.shadow.camera.far = 220;
+  dirLight.shadow.camera.left = -45;
+  dirLight.shadow.camera.right = 120;
+  dirLight.shadow.camera.top = 45;
+  dirLight.shadow.camera.bottom = -25;
+  scene.add(dirLight);
+
+  // Night Sky Starfield
+  {
+    const starCount = 1400;
+    const pos = new Float32Array(starCount * 3);
+    for (let i = 0; i < starCount; i++) {
+      const r = 280 + Math.random() * 240;
+      const theta = Math.random() * Math.PI * 2;
+      const phi = Math.random() * Math.PI * 0.46;
+      pos[i * 3] = r * Math.sin(phi) * Math.cos(theta);
+      pos[i * 3 + 1] = Math.max(8, r * Math.cos(phi));
+      pos[i * 3 + 2] = r * Math.sin(phi) * Math.sin(theta);
+    }
+    const starGeo = new THREE.BufferGeometry();
+    starGeo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    const starMat = new THREE.PointsMaterial({
+      color: 0xd8ecff,
+      size: 1.15,
+      transparent: true,
+      opacity: 0.72,
+      depthWrite: false
+    });
+    scene.add(new THREE.Points(starGeo, starMat));
+  }
+
+  // ---------------------------------------------------------------------------
+  // 3. Dark Runway, White Centerline, Red Edge LED Strips & Floodlight Towers
+  // ---------------------------------------------------------------------------
+  // Coordinate system:
+  // X: forward along the runway (Ramp base starts at X = -16.5, vertical lip at X = 0, Y = 19.3m; runway extends X = -40..280)
+  // Y: vertical altitude (Y = 0 is tarmac surface; 67.5 FT = 20.574m)
+  // Z: lateral width (Z = 0 is centerline)
+  const groundMat = new THREE.MeshStandardMaterial({
+    color: 0x06080d,
+    roughness: 0.88,
+    metalness: 0.12
+  });
+  const groundMesh = new THREE.Mesh(new THREE.PlaneGeometry(900, 500), groundMat);
+  groundMesh.rotation.x = -Math.PI / 2;
+  groundMesh.position.set(110, -0.04, 0);
+  groundMesh.receiveShadow = true;
+  scene.add(groundMesh);
+
+  // Main Runway Tarmac
+  const runwayLength = 320;
+  const runwayWidth = 16;
+  const runwayMat = new THREE.MeshStandardMaterial({
+    map: asphaltTex,
+    color: 0x161b24,
+    roughness: 0.46,
+    metalness: 0.28
+  });
+  const runwayMesh = new THREE.Mesh(new THREE.PlaneGeometry(runwayLength, runwayWidth), runwayMat);
+  runwayMesh.rotation.x = -Math.PI / 2;
+  runwayMesh.position.set(120, 0.0, 0);
+  runwayMesh.receiveShadow = true;
+  scene.add(runwayMesh);
+
+  // Prominent White Centerline on Runway
+  const centerLineMat = new THREE.MeshBasicMaterial({ color: 0xf2f7ff });
+  const runwayCenterLine = new THREE.Mesh(new THREE.PlaneGeometry(290, 0.34), centerLineMat);
+  runwayCenterLine.rotation.x = -Math.PI / 2;
+  runwayCenterLine.position.set(142, 0.015, 0);
+  scene.add(runwayCenterLine);
+
+  // Subtle side lane markings
+  for (const zSide of [-6.8, 6.8]) {
+    const sideLine = new THREE.Mesh(
+      new THREE.PlaneGeometry(290, 0.10),
+      new THREE.MeshBasicMaterial({ color: 0x3b485e, transparent: true, opacity: 0.55 })
+    );
+    sideLine.rotation.x = -Math.PI / 2;
+    sideLine.position.set(142, 0.012, zSide);
+    scene.add(sideLine);
+  }
+
+  // Red Warning Light Strips along both sides of the runway
+  const redLedMat = new THREE.MeshBasicMaterial({ color: 0xff2238 });
+  const redHaloMat = new THREE.MeshBasicMaterial({
+    color: 0xff1e38,
+    transparent: true,
+    opacity: 0.24,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false
+  });
+  for (const zSide of [-7.55, 7.55]) {
+    // Continuous red LED strip base rail
+    const rail = new THREE.Mesh(new THREE.BoxGeometry(288, 0.12, 0.18), redLedMat);
+    rail.position.set(142, 0.07, zSide);
+    scene.add(rail);
+
+    // Ground red reflection glow strip
+    const glowStrip = new THREE.Mesh(new THREE.PlaneGeometry(288, 1.35), redHaloMat);
+    glowStrip.rotation.x = -Math.PI / 2;
+    glowStrip.position.set(142, 0.018, zSide * 0.96);
+    scene.add(glowStrip);
+
+    // Segmented high-intensity runway edge emitter nodes
+    for (let x = -2; x <= 265; x += 6) {
+      const node = new THREE.Sprite(new THREE.SpriteMaterial({
+        map: glowRedTex,
+        color: 0xff3b4e,
+        transparent: true,
+        opacity: 0.75,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false
+      }));
+      node.position.set(x, 0.22, zSide);
+      node.scale.set(1.5, 0.85, 1);
+      scene.add(node);
+    }
+  }
+
+  // High-Altitude Floodlight Towers & Volumetric Searchlight Cones along Runway & Ramp
+  function createFloodlightTower(x, z, aimX, aimY, aimZ, towerHeight = 25) {
+    const group = new THREE.Group();
+    const poleMat = new THREE.MeshStandardMaterial({ color: 0x1c2430, metalness: 0.78, roughness: 0.4 });
+
+    // Lattice mast
+    const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.34, towerHeight, 8), poleMat);
+    mast.position.set(x, towerHeight * 0.5, z);
+    group.add(mast);
+
+    // Crossbar & luminaire bank
+    const headPos = new THREE.Vector3(x, towerHeight, z);
+    const housing = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.55, 2.2), poleMat);
+    housing.position.copy(headPos);
+    housing.lookAt(aimX, aimY, aimZ);
+    group.add(housing);
+
+    const lampFace = new THREE.Mesh(
+      new THREE.PlaneGeometry(1.0, 1.9),
+      new THREE.MeshBasicMaterial({ color: 0xeaf6ff, side: THREE.DoubleSide })
+    );
+    lampFace.position.copy(headPos);
+    lampFace.lookAt(aimX, aimY, aimZ);
+    lampFace.translateZ(0.32);
+    group.add(lampFace);
+
+    // Bright halo sprite at floodlight head
+    const flare = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: glowWhiteBlueTex,
+      color: 0xdff2ff,
+      transparent: true,
+      opacity: 0.9,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false
+    }));
+    flare.position.copy(headPos);
+    flare.scale.set(5.5, 5.5, 1);
+    group.add(flare);
+
+    // Volumetric light beam cone
+    const targetVec = new THREE.Vector3(aimX, aimY, aimZ);
+    const beamDir = new THREE.Vector3().subVectors(targetVec, headPos);
+    const beamLen = beamDir.length();
+    const coneGeo = new THREE.ConeGeometry(beamLen * 0.24, beamLen, 20, 1, true);
+    coneGeo.translate(0, -beamLen * 0.5, 0);
+    coneGeo.rotateX(-Math.PI / 2);
+    const coneMat = new THREE.MeshBasicMaterial({
+      color: 0x99ccff,
+      transparent: true,
+      opacity: 0.042,
+      side: THREE.DoubleSide,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false
+    });
+    const beamCone = new THREE.Mesh(coneGeo, coneMat);
+    beamCone.position.copy(headPos);
+    beamCone.lookAt(targetVec);
+    group.add(beamCone);
+
+    scene.add(group);
+  }
+
+  // Place floodlight towers illuminating the ramp, landing zone, and runway
+  const towerPositions = [
+    [-6, -13.5, 0, 12, 0, 27],
+    [-6,  13.5, 0, 12, 0, 27],
+    [24, -13.5, 22, 0, 0, 25],
+    [24,  13.5, 22, 0, 0, 25],
+    [62, -13.5, 58, 0, 0, 24],
+    [62,  13.5, 58, 0, 0, 24],
+    [104, -13.5, 100, 0, 0, 24],
+    [104,  13.5, 100, 0, 0, 24],
+    [150, -13.5, 146, 0, 0, 24],
+    [150,  13.5, 146, 0, 0, 24]
+  ];
+  for (const [tx, tz, ax, ay, az, th] of towerPositions) {
+    createFloodlightTower(tx, tz, ax, ay, az, th);
+  }
+
+  // Dedicated Three.js SpotLights for the ramp & landing zone dramatic illumination
+  const rampSpot = new THREE.SpotLight(0xd6ebff, 420, 85, Math.PI * 0.34, 0.55, 1.4);
+  rampSpot.position.set(16, 30, 18);
+  rampSpot.target.position.set(-2, 10, 0);
+  scene.add(rampSpot, rampSpot.target);
+
+  const landingSpot = new THREE.SpotLight(0xcce6ff, 460, 95, Math.PI * 0.38, 0.6, 1.4);
+  landingSpot.position.set(24, 32, -16);
+  landingSpot.target.position.set(24, 0, 0);
+  scene.add(landingSpot, landingSpot.target);
+
+  // ---------------------------------------------------------------------------
+  // 4. Giant 20m Vertical Curved Ramp (C/J Profile) & Metal Truss Megastructure
+  // ---------------------------------------------------------------------------
+  // We construct a smooth parametric C/J curve from the horizontal approach deck
+  // at (x = -19.5, y = 0.02) curving continuously up to a near-90° vertical wall
+  // topping out at (x = 0.0, y = 19.35m ≈ 63.5 FT), so the Roadster launches off the lip
+  // to an apogee of 20.574m (67.5 FT).
+  const RAMP_SAMPLES = 90;
+  const rampPoints = [];
+  const rampTangents = [];
+  const rampNormals = [];
+  const rampPitchAngles = [];
+  const rampArcLengths = [0];
+
+  (function buildRampCurve() {
+    // Integrate tangent angle theta(u) for u in [0, 1]
+    // u = 0..0.18: horizontal launch pad (theta = 0)
+    // u = 0.18..0.76: smooth J-curve transition from 0° to 86.5° (near 90° vertical)
+    // u = 0.76..1.00: towering near-vertical wall with subtle C-lip (86.5° -> 84°)
+    const totalLength = 27.6;
+    const ds = totalLength / RAMP_SAMPLES;
+    let x = -18.2;
+    let y = 0.02;
+
+    for (let i = 0; i <= RAMP_SAMPLES; i++) {
+      const u = i / RAMP_SAMPLES;
+      let theta = 0;
+      if (u < 0.16) {
+        theta = 0;
+      } else if (u < 0.76) {
+        const t = (u - 0.16) / 0.60;
+        const smooth = t * t * (3 - 2 * t);
+        theta = smooth * (86.5 * Math.PI / 180);
+      } else {
+        const t = (u - 0.76) / 0.24;
+        theta = (86.5 - 2.0 * t) * Math.PI / 180;
+      }
+
+      const tx = Math.cos(theta);
+      const ty = Math.sin(theta);
+      const nx = -ty; // Surface normal pointing toward the car's roof
+      const ny = tx;
+
+      rampPoints.push(new THREE.Vector3(x, y, 0));
+      rampTangents.push(new THREE.Vector3(tx, ty, 0));
+      rampNormals.push(new THREE.Vector3(nx, ny, 0));
+      rampPitchAngles.push(theta);
+
+      if (i < RAMP_SAMPLES) {
+        x += tx * ds;
+        y += ty * ds;
+        rampArcLengths.push(rampArcLengths[rampArcLengths.length - 1] + ds);
+      }
+    }
+
+    // Shift X so the top lip of the ramp is exactly at X = 0.0
+    const lipX = rampPoints[RAMP_SAMPLES].x;
+    for (let i = 0; i <= RAMP_SAMPLES; i++) {
+      rampPoints[i].x -= lipX;
+    }
+  })();
+
+  function sampleRampAtU(u) {
+    const clamped = Math.max(0, Math.min(1, u));
+    const exact = clamped * RAMP_SAMPLES;
+    const idx = Math.min(RAMP_SAMPLES - 1, Math.floor(exact));
+    const frac = exact - idx;
+    const p = new THREE.Vector3().lerpVectors(rampPoints[idx], rampPoints[idx + 1], frac);
+    const n = new THREE.Vector3().lerpVectors(rampNormals[idx], rampNormals[idx + 1], frac).normalize();
+    const pitch = rampPitchAngles[idx] + (rampPitchAngles[idx + 1] - rampPitchAngles[idx]) * frac;
+    return { p, n, pitch };
+  }
+
+  // Build the curved ramp deck mesh, white centerline, side barriers, red LED strips, and steel truss tower
+  (function buildRampStructure() {
+    const rampGroup = new THREE.Group();
+    const deckWidth = 7.4;
+    const deckThickness = 0.55;
+
+    function buildStripGeometry(width, offsetAlongNormal, thickness) {
+      const positions = [];
+      const normals = [];
+      const uvs = [];
+      const indices = [];
+      const halfW = width * 0.5;
+
+      for (let i = 0; i <= RAMP_SAMPLES; i++) {
+        const pt = rampPoints[i];
+        const n = rampNormals[i];
+        const v = i / RAMP_SAMPLES;
+
+        // Top surface vertices (left & right)
+        const topX = pt.x + n.x * offsetAlongNormal;
+        const topY = pt.y + n.y * offsetAlongNormal;
+        // Bottom surface vertices
+        const botX = pt.x + n.x * (offsetAlongNormal - thickness);
+        const botY = pt.y + n.y * (offsetAlongNormal - thickness);
+
+        // 0: top-left, 1: top-right, 2: bot-left, 3: bot-right
+        positions.push(
+          topX, topY, -halfW,
+          topX, topY,  halfW,
+          botX, botY, -halfW,
+          botX, botY,  halfW
+        );
+        normals.push(
+          n.x, n.y, 0,
+          n.x, n.y, 0,
+          -n.x, -n.y, 0,
+          -n.x, -n.y, 0
+        );
+        uvs.push(0, v * 8, 1, v * 8, 0, v * 8, 1, v * 8);
+
+        if (i < RAMP_SAMPLES) {
+          const b = i * 4;
+          const nb = (i + 1) * 4;
+          // Top face
+          indices.push(b, b + 1, nb + 1, b, nb + 1, nb);
+          // Bottom face
+          indices.push(b + 2, nb + 3, b + 3, b + 2, nb + 2, nb + 3);
+          // Left side
+          indices.push(b, nb, nb + 2, b, nb + 2, b + 2);
+          // Right side
+          indices.push(b + 1, b + 3, nb + 3, b + 1, nb + 3, nb + 1);
+        }
+      }
+
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+      geo.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
+      geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+      geo.setIndex(indices);
+      geo.computeVertexNormals();
+      return geo;
+    }
+
+    // Main dark high-grip curved deck slab
+    const deckGeo = buildStripGeometry(deckWidth, 0.0, deckThickness);
+    const deckMat = new THREE.MeshStandardMaterial({
+      map: asphaltTex,
+      color: 0x18202c,
+      roughness: 0.45,
+      metalness: 0.35
+    });
+    const deckMesh = new THREE.Mesh(deckGeo, deckMat);
+    deckMesh.receiveShadow = true;
+    deckMesh.castShadow = true;
+    rampGroup.add(deckMesh);
+
+    // Prominent White Centerline running all the way up the vertical ramp face
+    const rampCenterGeo = buildStripGeometry(0.32, 0.022, 0.015);
+    const rampCenterMesh = new THREE.Mesh(rampCenterGeo, centerLineMat);
+    rampGroup.add(rampCenterMesh);
+
+    // Left and Right Side Curbs + Embedded Red Warning Light Strips
+    const curbMat = new THREE.MeshStandardMaterial({
+      color: 0x202a38,
+      metalness: 0.72,
+      roughness: 0.35
+    });
+    for (const zSign of [-1, 1]) {
+      const curbGeo = buildStripGeometry(0.36, 0.22, 0.78);
+      curbGeo.translate(0, 0, zSign * (deckWidth * 0.5 + 0.16));
+      const curbMesh = new THREE.Mesh(curbGeo, curbMat);
+      rampGroup.add(curbMesh);
+
+      const ledGeo = buildStripGeometry(0.14, 0.25, 0.12);
+      ledGeo.translate(0, 0, zSign * (deckWidth * 0.5 - 0.02));
+      const ledMesh = new THREE.Mesh(ledGeo, redLedMat);
+      rampGroup.add(ledMesh);
+    }
+
+    // Heavy Industrial Steel Truss Structure Supporting the 20m Vertical Ramp
+    const steelMat = new THREE.MeshStandardMaterial({
+      color: 0x263244,
+      metalness: 0.82,
+      roughness: 0.32
+    });
+    const darkSteelMat = new THREE.MeshStandardMaterial({
+      color: 0x161d28,
+      metalness: 0.75,
+      roughness: 0.42
+    });
+
+    function addBeam(p1, p2, radius, mat = steelMat) {
+      const diff = new THREE.Vector3().subVectors(p2, p1);
+      const len = diff.length();
+      if (len < 0.05) return;
+      const cyl = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, len, 6), mat);
+      cyl.position.addVectors(p1, p2).multiplyScalar(0.5);
+      cyl.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), diff.clone().normalize());
+      rampGroup.add(cyl);
+    }
+
+    const zCols = [-deckWidth * 0.48, 0, deckWidth * 0.48];
+    const stationIndices = [10, 20, 30, 40, 50, 60, 70, 80, 90];
+    const backX = 2.6; // Rear vertical spine column plane behind the ramp wall
+
+    // Rear main vertical tower columns at X = backX
+    for (const zc of [-deckWidth * 0.48, deckWidth * 0.48]) {
+      const topY = rampPoints[RAMP_SAMPLES].y;
+      addBeam(new THREE.Vector3(backX, 0, zc), new THREE.Vector3(backX, topY, zc), 0.22, steelMat);
+      // Intermediate vertical tower column
+      addBeam(new THREE.Vector3(backX * 0.45, 0, zc), new THREE.Vector3(backX * 0.45, topY, zc), 0.18, steelMat);
+    }
+
+    // Connect ramp deck stations to the steel tower columns & ground with triangulated trusses
+    let prevDeckLeft = null;
+    let prevDeckRight = null;
+    let prevBackLeft = null;
+    let prevBackRight = null;
+
+    for (let s = 0; s < stationIndices.length; s++) {
+      const idx = stationIndices[s];
+      const pt = rampPoints[idx];
+      const n = rampNormals[idx];
+      const anchorX = pt.x - n.x * 0.48;
+      const anchorY = Math.max(0.15, pt.y - n.y * 0.48);
+
+      const zL = -deckWidth * 0.48;
+      const zR =  deckWidth * 0.48;
+      const deckL = new THREE.Vector3(anchorX, anchorY, zL);
+      const deckR = new THREE.Vector3(anchorX, anchorY, zR);
+
+      // Transverse cross-beam under the ramp deck
+      addBeam(deckL, deckR, 0.14, darkSteelMat);
+
+      if (anchorY < 8.5 && anchorX < -1.2) {
+        // Lower curved section: vertical & angled legs down to ground foundation pads
+        const gndL = new THREE.Vector3(anchorX, 0, zL);
+        const gndR = new THREE.Vector3(anchorX, 0, zR);
+        addBeam(deckL, gndL, 0.15, steelMat);
+        addBeam(deckR, gndR, 0.15, steelMat);
+        addBeam(gndL, gndR, 0.11, darkSteelMat);
+        if (prevDeckLeft) {
+          addBeam(prevDeckLeft, gndL, 0.09, darkSteelMat);
+          addBeam(prevDeckRight, gndR, 0.09, darkSteelMat);
+        }
+      }
+
+      // Horizontal & diagonal struts to the main rear vertical tower spine
+      if (anchorY >= 2.2) {
+        const backL = new THREE.Vector3(backX, anchorY, zL);
+        const backR = new THREE.Vector3(backX, anchorY, zR);
+        const midL = new THREE.Vector3(backX * 0.45, anchorY, zL);
+        const midR = new THREE.Vector3(backX * 0.45, anchorY, zR);
+
+        addBeam(deckL, backL, 0.13, steelMat);
+        addBeam(deckR, backR, 0.13, steelMat);
+        addBeam(backL, backR, 0.12, darkSteelMat);
+        addBeam(midL, midR, 0.10, darkSteelMat);
+        // X-bracing on rear tower face
+        if (prevBackLeft) {
+          addBeam(prevBackLeft, backR, 0.08, darkSteelMat);
+          addBeam(prevBackRight, backL, 0.08, darkSteelMat);
+          addBeam(prevDeckLeft, backL, 0.09, darkSteelMat);
+          addBeam(prevDeckRight, backR, 0.09, darkSteelMat);
+        }
+        prevBackLeft = backL;
+        prevBackRight = backR;
+      }
+
+      prevDeckLeft = deckL;
+      prevDeckRight = deckR;
+    }
+
+    // Red aviation obstruction beacons on top of the 20m ramp tower
+    const topY = rampPoints[RAMP_SAMPLES].y;
+    for (const zSide of [-deckWidth * 0.5, deckWidth * 0.5]) {
+      const beacon = new THREE.Sprite(new THREE.SpriteMaterial({
+        map: glowRedTex,
+        color: 0xff2a3c,
+        transparent: true,
+        opacity: 0.95,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false
+      }));
+      beacon.position.set(backX, topY + 0.5, zSide);
+      beacon.scale.set(2.4, 2.4, 1);
+      rampGroup.add(beacon);
+    }
+
+    scene.add(rampGroup);
+  })();
+
+  // ---------------------------------------------------------------------------
+  // 5. Tesla Roadster (SpaceX Cold-Gas Thruster Package) 3D Vehicle Model
+  // ---------------------------------------------------------------------------
+  const carRoot = new THREE.Group();
+  const carBodyGroup = new THREE.Group(); // Allows suspension pitch/heave on landing
+  carRoot.add(carBodyGroup);
+  scene.add(carRoot);
+
+  // Materials
+  const silverPaintMat = new THREE.MeshStandardMaterial({
+    color: 0xd8e0ea,
+    metalness: 0.86,
+    roughness: 0.18
+  });
+  const gunmetalTrimMat = new THREE.MeshStandardMaterial({
+    color: 0x161b22,
+    metalness: 0.65,
+    roughness: 0.36
+  });
+  const blackCanopyMat = new THREE.MeshStandardMaterial({
+    color: 0x05070b,
+    metalness: 0.92,
+    roughness: 0.08
+  });
+  const tailLightMat = new THREE.MeshBasicMaterial({ color: 0xff1e32 });
+  const drlLightMat = new THREE.MeshBasicMaterial({ color: 0xf4fbff });
+  const tireMat = new THREE.MeshStandardMaterial({
+    color: 0x0b0d12,
+    roughness: 0.72,
+    metalness: 0.15
+  });
+  const rimMat = new THREE.MeshStandardMaterial({
+    color: 0x11151c,
+    roughness: 0.25,
+    metalness: 0.88
+  });
+
+  // Main wedge fuselage profile (X: -2.28m tail to +2.28m nose, Y: height above ground)
+  {
+    const bodyShape = new THREE.Shape();
+    bodyShape.moveTo(-2.22, 0.30);
+    bodyShape.lineTo(-2.26, 0.76);
+    bodyShape.quadraticCurveTo(-1.85, 0.88, -1.25, 0.90);
+    bodyShape.lineTo(-0.35, 0.92);
+    bodyShape.lineTo(0.85, 0.82);
+    bodyShape.quadraticCurveTo(1.72, 0.68, 2.26, 0.42);
+    bodyShape.lineTo(2.22, 0.22);
+    bodyShape.lineTo(-2.15, 0.22);
+    bodyShape.closePath();
+
+    const extrudeSettings = {
+      steps: 1,
+      depth: 1.56,
+      bevelEnabled: true,
+      bevelThickness: 0.16,
+      bevelSize: 0.14,
+      bevelSegments: 5
+    };
+    const coreGeo = new THREE.ExtrudeGeometry(bodyShape, extrudeSettings);
+    coreGeo.translate(0, 0, -0.78);
+    const coreMesh = new THREE.Mesh(coreGeo, silverPaintMat);
+    coreMesh.castShadow = true;
+    coreMesh.receiveShadow = true;
+    carBodyGroup.add(coreMesh);
+
+    // Sculpted Black Panoramic Glass Canopy / Roof (黑色车顶)
+    const canopyShape = new THREE.Shape();
+    canopyShape.moveTo(-1.42, 0.84);
+    canopyShape.quadraticCurveTo(-0.55, 1.24, 0.18, 1.21);
+    canopyShape.quadraticCurveTo(0.82, 1.15, 1.28, 0.78);
+    canopyShape.lineTo(-1.35, 0.80);
+    canopyShape.closePath();
+
+    const canopyGeo = new THREE.ExtrudeGeometry(canopyShape, {
+      steps: 1,
+      depth: 1.22,
+      bevelEnabled: true,
+      bevelThickness: 0.12,
+      bevelSize: 0.10,
+      bevelSegments: 4
+    });
+    canopyGeo.translate(0, 0, -0.61);
+    const canopyMesh = new THREE.Mesh(canopyGeo, blackCanopyMat);
+    canopyMesh.castShadow = true;
+    carBodyGroup.add(canopyMesh);
+
+    // Muscular Front & Rear Wide Fenders (Left & Right haunches)
+    const fenderPositions = [
+      [ 1.36, 0.54,  0.84, 1.18, 0.48, 0.36],
+      [ 1.36, 0.54, -0.84, 1.18, 0.48, 0.36],
+      [-1.36, 0.60,  0.86, 1.28, 0.54, 0.40],
+      [-1.36, 0.60, -0.86, 1.28, 0.54, 0.40]
+    ];
+    for (const [fx, fy, fz, sx, sy, sz] of fenderPositions) {
+      const fender = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), silverPaintMat);
+      fender.position.set(fx, fy, fz);
+      fender.castShadow = true;
+      carBodyGroup.add(fender);
+    }
+
+    // Side Aero Skirts & Carbon Front Splitter / Rear Diffuser
+    const splitter = new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.07, 1.98), gunmetalTrimMat);
+    splitter.position.set(2.18, 0.19, 0);
+    carBodyGroup.add(splitter);
+
+    const diffuser = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.18, 1.94), gunmetalTrimMat);
+    diffuser.position.set(-2.14, 0.25, 0);
+    carBodyGroup.add(diffuser);
+
+    const sideSkirtL = new THREE.Mesh(new THREE.BoxGeometry(2.45, 0.10, 0.14), gunmetalTrimMat);
+    sideSkirtL.position.set(0, 0.20, 0.96);
+    const sideSkirtR = sideSkirtL.clone();
+    sideSkirtR.position.z = -0.96;
+    carBodyGroup.add(sideSkirtL, sideSkirtR);
+
+    // Side Aero Intake Scoops
+    for (const zSign of [-1, 1]) {
+      const scoop = new THREE.Mesh(new THREE.BoxGeometry(0.95, 0.26, 0.08), gunmetalTrimMat);
+      scoop.position.set(-0.28, 0.55, zSign * 0.95);
+      carBodyGroup.add(scoop);
+    }
+
+    // Full-Width Red Horizontal Taillight Bar (贯穿式红色一字尾灯)
+    const tailBar = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.075, 1.88), tailLightMat);
+    tailBar.position.set(-2.38, 0.72, 0);
+    carBodyGroup.add(tailBar);
+
+    // Taillight additive glow halo
+    const tailGlowPlane = new THREE.Mesh(
+      new THREE.PlaneGeometry(2.15, 0.34),
+      new THREE.MeshBasicMaterial({
+        color: 0xff1e38,
+        transparent: true,
+        opacity: 0.62,
+        side: THREE.DoubleSide,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false
+      })
+    );
+    tailGlowPlane.rotation.y = Math.PI / 2;
+    tailGlowPlane.position.set(-2.43, 0.72, 0);
+    carBodyGroup.add(tailGlowPlane);
+
+    // Front Full-Width Daytime Running Light Strip (前贯穿日行灯带)
+    const drlCenter = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.055, 1.86), drlLightMat);
+    drlCenter.position.set(2.38, 0.44, 0);
+    carBodyGroup.add(drlCenter);
+
+    for (const zSign of [-1, 1]) {
+      const lampPod = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.06, 0.38), drlLightMat);
+      lampPod.position.set(2.26, 0.48, zSign * 0.76);
+      lampPod.rotation.y = zSign * -0.18;
+      carBodyGroup.add(lampPod);
+    }
+  }
+
+  // Headlight Spotbeams & Rear Taillight PointLight attached to the Roadster
+  const headLightL = new THREE.SpotLight(0xe8f6ff, 140, 48, Math.PI * 0.22, 0.45, 1.3);
+  headLightL.position.set(2.3, 0.5, 0.65);
+  headLightL.target.position.set(16, -0.4, 0.65);
+  carBodyGroup.add(headLightL, headLightL.target);
+
+  const headLightR = new THREE.SpotLight(0xe8f6ff, 140, 48, Math.PI * 0.22, 0.45, 1.3);
+  headLightR.position.set(2.3, 0.5, -0.65);
+  headLightR.target.position.set(16, -0.4, -0.65);
+  carBodyGroup.add(headLightR, headLightR.target);
+
+  const tailPointLight = new THREE.PointLight(0xff1e35, 18, 9, 1.6);
+  tailPointLight.position.set(-2.6, 0.68, 0);
+  carBodyGroup.add(tailPointLight);
+
+  // 4 Black Multi-Spoke Sport Wheels (黑色运动轮毂)
+  const wheelMeshes = [];
+  const wheelCoords = [
+    [ 1.38, 0.36,  0.94],
+    [ 1.38, 0.36, -0.94],
+    [-1.38, 0.38,  0.96],
+    [-1.38, 0.38, -0.96]
+  ];
+  for (const [wx, wy, wz] of wheelCoords) {
+    const wGroup = new THREE.Group();
+    wGroup.position.set(wx, wy, wz);
+
+    const tire = new THREE.Mesh(new THREE.CylinderGeometry(0.36, 0.36, 0.30, 24), tireMat);
+    tire.rotation.x = Math.PI / 2;
+    wGroup.add(tire);
+
+    const rim = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.25, 0.31, 16), rimMat);
+    rim.rotation.x = Math.PI / 2;
+    wGroup.add(rim);
+
+    // 5 Dual Aero Spokes
+    for (let s = 0; s < 5; s++) {
+      const angle = (s / 5) * Math.PI * 2;
+      const spoke = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.042, 0.32), rimMat);
+      spoke.rotation.z = angle;
+      wGroup.add(spoke);
+    }
+
+    carRoot.add(wGroup);
+    wheelMeshes.push(wGroup);
+  }
+
+  // Underbody Suction / Ground-Effect Glow (Stage 1 Vertical Climb Downforce System)
+  const suctionGlowMesh = new THREE.Mesh(
+    new THREE.PlaneGeometry(4.2, 2.1),
+    new THREE.MeshBasicMaterial({
+      map: glowWhiteBlueTex,
+      color: 0x38b6ff,
+      transparent: true,
+      opacity: 0.0,
+      side: THREE.DoubleSide,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false
+    })
+  );
+  suctionGlowMesh.rotation.x = -Math.PI / 2;
+  suctionGlowMesh.position.set(0, 0.06, 0);
+  carBodyGroup.add(suctionGlowMesh);
+
+  // ---------------------------------------------------------------------------
+  // 6. Cold-Gas Thrusters: RCS Attitude Jets (Stage 2) & 4 Underbody Retro Columns (Stage 3)
+  // ---------------------------------------------------------------------------
+  function createPlumeJet(radiusTop, radiusBottom, length, coreColor, outerColor) {
+    const group = new THREE.Group();
+
+    // Outer high-velocity gas sheath
+    const outerGeo = new THREE.ConeGeometry(radiusBottom, length, 18, 1, true);
+    outerGeo.translate(0, -length * 0.5, 0);
+    const outerMat = new THREE.MeshBasicMaterial({
+      color: outerColor,
+      transparent: true,
+      opacity: 0.48,
+      side: THREE.DoubleSide,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false
+    });
+    const outerMesh = new THREE.Mesh(outerGeo, outerMat);
+    group.add(outerMesh);
+
+    // Inner bright supersonic core
+    const coreGeo = new THREE.CylinderGeometry(radiusTop, radiusBottom * 0.42, length * 0.82, 14, 1, true);
+    coreGeo.translate(0, -length * 0.41, 0);
+    const coreMat = new THREE.MeshBasicMaterial({
+      color: coreColor,
+      transparent: true,
+      opacity: 0.92,
+      side: THREE.DoubleSide,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false
+    });
+    const coreMesh = new THREE.Mesh(coreGeo, coreMat);
+    group.add(coreMesh);
+
+    // Nozzle flash sprite
+    const nozzleSprite = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: glowWhiteBlueTex,
+      color: 0xffffff,
+      transparent: true,
+      opacity: 0.95,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false
+    }));
+    nozzleSprite.scale.set(radiusBottom * 3.8, radiusBottom * 3.8, 1);
+    group.add(nozzleSprite);
+
+    group.visible = false;
+    return { group, outerMesh, coreMesh, outerMat, coreMat, nozzleSprite };
+  }
+
+  // Stage 2 RCS Attitude Control Thrusters (Fine blue-white supersonic cold-gas jets)
+  // Nose-upper RCS fires along +Y (roof-ward) to pitch the vertical nose DOWN toward horizontal;
+  // Rear-lower RCS fires along -Y (belly-ward) to assist rapid pitch leveling;
+  // Left & Right nose side RCS jets fire lateral stabilizing bursts.
+  const rcsNoseTop = createPlumeJet(0.04, 0.18, 2.6, 0xf2fcff, 0x45b8ff);
+  rcsNoseTop.group.position.set(1.92, 0.56, 0);
+  rcsNoseTop.group.rotation.z = Math.PI; // Shoots out +Y (upward from nose hood) to push nose down
+  carBodyGroup.add(rcsNoseTop.group);
+
+  const rcsNoseLeft = createPlumeJet(0.03, 0.13, 1.75, 0xf2fcff, 0x45b8ff);
+  rcsNoseLeft.group.position.set(1.82, 0.44, 0.94);
+  rcsNoseLeft.group.rotation.x = -Math.PI / 2; // Shoots +Z
+  carBodyGroup.add(rcsNoseLeft.group);
+
+  const rcsNoseRight = createPlumeJet(0.03, 0.13, 1.75, 0xf2fcff, 0x45b8ff);
+  rcsNoseRight.group.position.set(1.82, 0.44, -0.94);
+  rcsNoseRight.group.rotation.x = Math.PI / 2; // Shoots -Z
+  carBodyGroup.add(rcsNoseRight.group);
+
+  const rcsTailBottom = createPlumeJet(0.04, 0.17, 2.3, 0xf2fcff, 0x45b8ff);
+  rcsTailBottom.group.position.set(-2.06, 0.25, 0);
+  // Default Cone points along -Y (downward from rear diffuser), lifting tail / pitching nose down
+  carBodyGroup.add(rcsTailBottom.group);
+
+  const rcsLight = new THREE.PointLight(0x68ccff, 0, 14, 1.5);
+  rcsLight.position.set(1.9, 1.0, 0);
+  carBodyGroup.add(rcsLight);
+
+  // Stage 3 Four Underbody Corner Cold-Gas Retro-Thrusters (Thick white high-pressure gas columns)
+  const mainThrusters = [];
+  const cornerThrusterCoords = [
+    [ 1.48, 0.22,  0.72], // Front-Left
+    [ 1.48, 0.22, -0.72], // Front-Right
+    [-1.48, 0.22,  0.74], // Rear-Left
+    [-1.48, 0.22, -0.74]  // Rear-Right
+  ];
+  for (const [tx, ty, tz] of cornerThrusterCoords) {
+    const jet = createPlumeJet(0.14, 0.56, 6.2, 0xffffff, 0xcceeff);
+    jet.group.position.set(tx, ty, tz);
+    carBodyGroup.add(jet.group);
+    mainThrusters.push(jet);
+  }
+
+  // Intense underbody white-blue illumination when the 4 main cold-gas thrusters fire
+  const retroUnderLight = new THREE.PointLight(0xdaf2ff, 0, 32, 1.3);
+  retroUnderLight.position.set(0, -0.4, 0);
+  carBodyGroup.add(retroUnderLight);
+
+  // Ground Impingement Shock Halo where the 4 gas columns slam into the tarmac
+  const groundBlastHalo = new THREE.Mesh(
+    new THREE.PlaneGeometry(11, 8.5),
+    new THREE.MeshBasicMaterial({
+      map: glowWhiteBlueTex,
+      color: 0xe6f6ff,
+      transparent: true,
+      opacity: 0,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false
+    })
+  );
+  groundBlastHalo.rotation.x = -Math.PI / 2;
+  groundBlastHalo.position.set(24, 0.03, 0);
+  scene.add(groundBlastHalo);
+
+  // ---------------------------------------------------------------------------
+  // 7. Billowing White Ground Smoke / Vapor Particle System
+  // ---------------------------------------------------------------------------
+  const SMOKE_COUNT = 260;
+  const smokeParticles = [];
+  const smokeGroup = new THREE.Group();
+  scene.add(smokeGroup);
+
+  for (let i = 0; i < SMOKE_COUNT; i++) {
+    const mat = new THREE.SpriteMaterial({
+      map: smokeTex,
+      color: 0xeef5ff,
+      transparent: true,
+      opacity: 0,
+      depthWrite: false
+    });
+    const sprite = new THREE.Sprite(mat);
+    sprite.visible = false;
+    smokeGroup.add(sprite);
+    smokeParticles.push({
+      sprite,
+      mat,
+      active: false,
+      age: 0,
+      life: 1,
+      pos: new THREE.Vector3(),
+      vel: new THREE.Vector3(),
+      sizeStart: 1,
+      sizeEnd: 5,
+      maxOpacity: 0.5,
+      rotSpeed: 0
+    });
+  }
+
+  let smokeCursor = 0;
+  function spawnSmokePuff(x, y, z, vx, vy, vz, sizeStart, sizeEnd, life, maxOpacity) {
+    const p = smokeParticles[smokeCursor];
+    smokeCursor = (smokeCursor + 1) % SMOKE_COUNT;
+    p.active = true;
+    p.age = 0;
+    p.life = life;
+    p.pos.set(x, y, z);
+    p.vel.set(vx, vy, vz);
+    p.sizeStart = sizeStart;
+    p.sizeEnd = sizeEnd;
+    p.maxOpacity = maxOpacity;
+    p.rotSpeed = (Math.random() - 0.5) * 2.4;
+    p.mat.rotation = Math.random() * Math.PI * 2;
+    p.mat.opacity = 0;
+    p.sprite.position.copy(p.pos);
+    p.sprite.scale.set(sizeStart, sizeStart, 1);
+    p.sprite.visible = true;
+  }
+
+  function resetAllSmoke() {
+    for (const p of smokeParticles) {
+      p.active = false;
+      p.sprite.visible = false;
+      p.mat.opacity = 0;
+    }
+  }
+
+  function updateSmokeParticles(dt) {
+    for (const p of smokeParticles) {
+      if (!p.active) continue;
+      p.age += dt;
+      if (p.age >= p.life) {
+        p.active = false;
+        p.sprite.visible = false;
+        continue;
+      }
+      const u = p.age / p.life;
+      // Radial drag + turbulent upward roll
+      p.vel.x *= Math.pow(0.42, dt);
+      p.vel.z *= Math.pow(0.42, dt);
+      p.vel.y += 0.55 * dt;
+
+      p.pos.addScaledVector(p.vel, dt);
+      if (p.pos.y < 0.25) p.pos.y = 0.25;
+
+      p.sprite.position.copy(p.pos);
+      const s = p.sizeStart + (p.sizeEnd - p.sizeStart) * Math.pow(u, 0.65);
+      p.sprite.scale.set(s, s * 0.86, 1);
+      p.mat.rotation += p.rotSpeed * dt;
+
+      // Smooth fade-in then billowing fade-out
+      const fadeIn = Math.min(1, u / 0.14);
+      const fadeOut = Math.pow(1 - u, 1.55);
+      p.mat.opacity = p.maxOpacity * fadeIn * fadeOut;
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // 8. 4-Stage Trajectory, Thruster Choreography & Telemetry Calculation
+  // ---------------------------------------------------------------------------
+  const LOOP_DURATION = 16.5; // Seconds per full seamless cycle
+  const FEET_PER_METER = 3.28084;
+  const APOGEE_FT = 67.5;
+  const APOGEE_M = APOGEE_FT / FEET_PER_METER; // 20.574m
+
+  function smoothstep(edge0, edge1, x) {
+    const t = Math.max(0, Math.min(1, (x - edge0) / (edge1 - edge0)));
+    return t * t * (3 - 2 * t);
+  }
+
+  function quinticStep(edge0, edge1, x) {
+    const t = Math.max(0, Math.min(1, (x - edge0) / (edge1 - edge0)));
+    return t * t * t * (t * (t * 6 - 15) + 10);
+  }
+
+  // Evaluate exact vehicle state at cycle time t in [0, LOOP_DURATION]
+  function evaluateFlightState(t) {
+    let x = 0;
+    let y = 0;
+    let pitch = 0; // Radians (0 = horizontal facing +X; +85 deg = nose pointing up +Y)
+    let gForce = 1.0;
+    let speedMph = 0;
+    let vsFtSec = 0;
+    let suctionPower = 0;
+    let rcsPower = 0;
+    let mainThrustPower = 0;
+    let suspOffset = 0;
+    let stageText = 'STAGE 01 // VERTICAL RAMP ASCENT';
+    let thrusterLabel = 'SUCTION';
+
+    const lipSample = sampleRampAtU(1.0);
+    const lipX = lipSample.p.x; // 0.0
+    const lipY = lipSample.p.y; // ~19.35m
+    const lipPitch = lipSample.pitch; // ~84.5 deg in radians
+
+    if (t < 4.2) {
+      // -----------------------------------------------------------------------
+      // STAGE 1: Accelerate from ramp base & climb near-90° vertical curved wall
+      // -----------------------------------------------------------------------
+      stageText = 'STAGE 01 // VERTICAL RAMP ASCENT';
+      thrusterLabel = 'DOWNFORCE';
+
+      // Standstill spool-up 0..0.45s, then aggressive acceleration up the ramp 0.45..4.2s
+      let u = 0;
+      if (t > 0.35) {
+        const p = (t - 0.35) / (4.2 - 0.35);
+        u = Math.pow(p, 1.85);
+      }
+      const samp = sampleRampAtU(u);
+      x = samp.p.x;
+      y = Math.max(0, samp.p.y);
+      pitch = samp.pitch;
+
+      suctionPower = smoothstep(0.2, 0.9, t) * (1.0 - 0.2 * smoothstep(3.9, 4.2, t));
+      // G-force rises from 1.0G at launch to 1.40G during maximum centripetal + vertical wall climb
+      gForce = 1.0 + 0.40 * smoothstep(0.35, 2.6, t);
+      speedMph = Math.round(98 * Math.pow(Math.max(0, (t - 0.3) / 3.9), 1.15));
+      vsFtSec = (speedMph * 1.4667) * Math.sin(pitch);
+
+    } else if (t < 7.4) {
+      // -----------------------------------------------------------------------
+      // STAGE 2: Fly off 20m ramp crest to 67.5 FT apogee & RCS Mid-Air Leveling
+      // -----------------------------------------------------------------------
+      stageText = 'STAGE 02 // RCS ATTITUDE LEVELING';
+      thrusterLabel = 'RCS ACTIVE';
+
+      const u = (t - 4.2) / (7.4 - 4.2); // 0..1
+      // Forward drift X from lip (0.0m) out over the runway to X = 15.5m
+      x = lipX + 15.5 * Math.pow(u, 0.92);
+
+      // Vertical arc: rises from lipY (19.35m) to exact APOGEE_M (20.574m = 67.5 FT) at u = 0.38 (t = 5.42s),
+      // then begins descending to y = 13.8m at t = 7.4s
+      if (u <= 0.38) {
+        const ua = u / 0.38;
+        y = lipY + (APOGEE_M - lipY) * (1 - Math.pow(1 - ua, 2.0));
+        vsFtSec = 26 * (1 - ua);
+      } else {
+        const ud = (u - 0.38) / 0.62;
+        y = APOGEE_M - (APOGEE_M - 13.8) * Math.pow(ud, 1.85);
+        vsFtSec = -38 * ud;
+      }
+
+      // RCS Cold-Gas Attitude Control jets fire strongly between t = 4.42s and t = 6.95s,
+      // pressing the near-vertical nose (84.5°) smoothly down to horizontal (0.0°)
+      const pitchProgress = quinticStep(4.40, 7.05, t);
+      pitch = lipPitch * (1.0 - pitchProgress);
+
+      rcsPower = smoothstep(4.35, 4.62, t) * (1.0 - smoothstep(6.75, 7.18, t));
+
+      // G-Force drops from 1.4G at ramp exit down to 0.40G low-G ballistic apex at t = 5.45s,
+      // then settles around 0.55G during RCS leveling
+      const apexDip = Math.exp(-Math.pow((t - 5.45) / 0.95, 2));
+      gForce = 0.40 + (1.0 - apexDip) * (t < 5.45 ? 0.95 * (1 - (t - 4.2) / 1.25) : 0.22);
+      gForce = Math.max(0.40, Math.min(1.40, gForce));
+      speedMph = Math.round(98 - 54 * smoothstep(4.2, 7.4, t));
+
+    } else if (t < 11.6) {
+      // -----------------------------------------------------------------------
+      // STAGE 3: 4-Corner Underbody Cold-Gas Retro-Thrust Hover & Soft Touchdown
+      // -----------------------------------------------------------------------
+      stageText = 'STAGE 03 // RETRO HOVER & LANDING';
+      thrusterLabel = 'MAIN 4X JET';
+
+      // X drifts gently forward from 15.5m to touchdown point at 24.5m
+      const u = (t - 7.4) / (11.6 - 7.4);
+      x = 15.5 + 9.2 * (1 - Math.pow(1 - u, 1.45));
+
+      // Altitude profile with mid-air hover deceleration:
+      // 7.4s..8.9s: drops from 13.8m down to 3.4m as 4 massive cold-gas columns arrest descent
+      // 8.9s..10.3s: dramatic low-altitude hover deceleration (3.4m -> 0.85m)
+      // 10.3s..11.0s: feather-soft touchdown to 0.0m inside billowing white smoke
+      // 11.0s..11.6s: settled on tarmac (0.0m) with suspension compression
+      if (t < 8.9) {
+        const p = (t - 7.4) / 1.5;
+        y = 13.8 - (13.8 - 3.4) * (1 - Math.pow(1 - p, 2.1));
+        vsFtSec = -38 * (1 - 0.72 * p);
+      } else if (t < 10.35) {
+        const p = (t - 8.9) / 1.45;
+        y = 3.4 - (3.4 - 0.75) * smoothstep(0, 1, p);
+        vsFtSec = -10.5 * (1 - 0.65 * p);
+      } else if (t < 11.0) {
+        const p = (t - 10.35) / 0.65;
+        y = 0.75 * Math.pow(1 - p, 1.8);
+        vsFtSec = -3.5 * (1 - p);
+      } else {
+        y = 0.0;
+        vsFtSec = 0.0;
+      }
+
+      // Subtle micro-stabilization pitch (stays virtually flat at 0°)
+      pitch = 0.015 * Math.sin((t - 7.4) * 4.2) * (1.0 - smoothstep(10.2, 11.0, t));
+
+      // 4 Underbody Cold-Gas Thrusters roar at full power 7.45s..10.95s, then ramp down on touchdown
+      mainThrustPower = smoothstep(7.40, 7.68, t) * (1.0 - smoothstep(10.75, 11.22, t));
+
+      // Suspension compression upon touchdown at t = 10.95s..11.55s
+      if (t > 10.85) {
+        const st = (t - 10.85) / 0.75;
+        suspOffset = -0.085 * Math.sin(Math.min(1, st) * Math.PI);
+      }
+
+      // G-Force surges to 1.34G during peak retro-thrust braking, then settles to 1.00G on touchdown
+      if (t < 10.85) {
+        gForce = 0.62 + 0.72 * Math.sin(smoothstep(7.4, 10.85, t) * Math.PI * 0.85);
+      } else {
+        gForce = 1.00 + 0.08 * Math.sin((t - 10.85) * 8.0) * Math.exp(-(t - 10.85) * 3.0);
+      }
+      speedMph = Math.round(44 * (1 - smoothstep(7.4, 10.9, t)) + 8 * smoothstep(11.0, 11.6, t));
+
+    } else {
+      // -----------------------------------------------------------------------
+      // STAGE 4: Emerge from Billowing White Smoke & Cruise Down Night Runway
+      // -----------------------------------------------------------------------
+      stageText = 'STAGE 04 // RUNWAY CRUISE';
+      thrusterLabel = 'CRUISE';
+
+      const u = (t - 11.6) / (LOOP_DURATION - 11.6); // 0..1
+      // Accelerates smoothly out of the smoke cloud from X = 24.7m to X = 182m
+      x = 24.7 + 158.0 * Math.pow(u, 1.68);
+      y = 0.0;
+      pitch = -0.012 * Math.sin(Math.min(1, u * 2.5) * Math.PI); // Slight squat under acceleration
+      vsFtSec = 0.0;
+
+      // G-Force climbs to 1.24G during launch out of the smoke, then eases to 0.98G cruise
+      gForce = 1.00 + 0.24 * Math.sin(Math.min(1, u * 1.4) * Math.PI);
+      speedMph = Math.round(8 + 134 * Math.pow(u, 0.85));
+    }
+
+    return {
+      x,
+      y,
+      pitch,
+      gForce,
+      speedMph,
+      vsFtSec,
+      suctionPower,
+      rcsPower,
+      mainThrustPower,
+      suspOffset,
+      stageText,
+      thrusterLabel
+    };
+  }
+
+  // ---------------------------------------------------------------------------
+  // 9. Multi-Camera Choreography (Close-up Launch -> Side Master Track -> Overhead Cruise)
+  // ---------------------------------------------------------------------------
+  const camPos = new THREE.Vector3();
+  const camTarget = new THREE.Vector3();
+  let camLabel = 'CAM 01 // LAUNCH';
+
+  function updateCamera(t, state) {
+    if (t < 2.25) {
+      // CAM 01: Low-Angle Rear Quarter Close-up (车尾起步近景)
+      camLabel = 'CAM 01 // REAR LAUNCH';
+      const u = t / 2.25;
+      // Track closely behind & slightly right of the Roadster's glowing red taillight bar
+      const shakeY = 0.025 * Math.sin(t * 42) * smoothstep(0.35, 1.5, t);
+      const shakeZ = 0.020 * Math.cos(t * 37) * smoothstep(0.35, 1.5, t);
+
+      camPos.set(
+        state.x - 6.2 + u * 1.4,
+        Math.max(1.05, state.y * 0.45 + 1.15) + shakeY,
+        3.4 + u * 2.8 + shakeZ
+      );
+      camTarget.set(
+        state.x + 2.2,
+        state.y + 0.85,
+        0.0
+      );
+      camera.fov = 46;
+      camera.updateProjectionMatrix();
+
+    } else if (t < 11.45) {
+      // CAM 02: Wide Side-Profile Panning/Tracking Master Shot (侧面全景追踪)
+      // Captures the full vertical ramp climb, 67.5 FT apogee, RCS pitch leveling,
+      // 4 underbody white gas columns, and billowing smoke landing
+      camLabel = 'CAM 02 // SIDE TRACKING';
+      const hoverZoom = smoothstep(7.5, 10.8, t);
+      camPos.set(
+        state.x * 0.65 + 4.5 + hoverZoom * 4.2,
+        6.8 + state.y * 0.34 - hoverZoom * 2.4,
+        29.5 - hoverZoom * 6.5
+      );
+      camTarget.set(
+        state.x + 1.2,
+        Math.max(1.8, state.y * 0.82 + 0.6),
+        0.0
+      );
+      camera.fov = 42;
+      camera.updateProjectionMatrix();
+
+    } else {
+      // CAM 03: High-Altitude Ramp-Top / Overhead Runway Cruise Shot (高空俯视巡航 / 坡顶俯拍)
+      camLabel = 'CAM 03 // OVERHEAD CRUISE';
+      const u = (t - 11.45) / (LOOP_DURATION - 11.45);
+      camPos.set(
+        6.0 + (state.x - 24.7) * 0.58,
+        19.5 - u * 4.5,
+        -11.5 - u * 3.0
+      );
+      camTarget.set(
+        state.x + 12.0,
+        0.6,
+        0.0
+      );
+      camera.fov = 44;
+      camera.updateProjectionMatrix();
+    }
+
+    camera.position.copy(camPos);
+    camera.lookAt(camTarget);
+  }
+
+  // ---------------------------------------------------------------------------
+  // 10. DOM Telemetry HUD References & Real-Time Update
+  // ---------------------------------------------------------------------------
+  const elGForce = document.getElementById('hud-gforce');
+  const elGBar = document.getElementById('hud-gbar');
+  const elSpeed = document.getElementById('hud-speed');
+  const elThrusterState = document.getElementById('hud-thruster-state');
+  const elCamLabel = document.getElementById('hud-cam-label');
+  const elRcsBadge = document.getElementById('hud-rcs-badge');
+  const elPitch = document.getElementById('hud-pitch');
+  const elCarSchematic = document.getElementById('hud-car-schematic');
+  const elRcsNose = document.getElementById('hud-rcs-nose');
+  const elRcsTail = document.getElementById('hud-rcs-tail');
+  const elMainFront = document.getElementById('hud-main-front');
+  const elMainRear = document.getElementById('hud-main-rear');
+  const elAltitude = document.getElementById('hud-altitude');
+  const elVs = document.getElementById('hud-vs');
+  const elStage = document.getElementById('hud-stage');
+  const elAltBar = document.getElementById('hud-alt-bar');
+
+  function updateHUD(state) {
+    const gClamped = Math.max(0.4, Math.min(1.4, state.gForce));
+    elGForce.textContent = gClamped.toFixed(2);
+    const gPct = ((gClamped - 0.4) / 1.0) * 100;
+    elGBar.style.width = `${ Math.max(6, Math.min(100, gPct)).toFixed(1) }%`;
+
+    elSpeed.textContent = String(state.speedMph).padStart(3, '0');
+    elThrusterState.textContent = state.thrusterLabel;
+    elCamLabel.textContent = camLabel;
+
+    const pitchDeg = Math.round((state.pitch * 180) / Math.PI);
+    elPitch.textContent = (pitchDeg >= 0 ? '+' : '') + String(pitchDeg).padStart(2, '0');
+
+    // In SVG coordinates, +Y is down, so negative rotation pitches the nose (+X) up
+    elCarSchematic.setAttribute('transform', `rotate(${-pitchDeg})`);
+    elRcsNose.setAttribute('opacity', state.rcsPower.toFixed(2));
+    elRcsTail.setAttribute('opacity', state.rcsPower.toFixed(2));
+    elMainFront.setAttribute('opacity', state.mainThrustPower.toFixed(2));
+    elMainRear.setAttribute('opacity', state.mainThrustPower.toFixed(2));
+
+    if (state.rcsPower > 0.1) {
+      elRcsBadge.textContent = 'RCS PITCH ACTIVE';
+      elRcsBadge.style.color = '#6ce2ff';
+    } else if (state.mainThrustPower > 0.1) {
+      elRcsBadge.textContent = '4X RETRO THRUST';
+      elRcsBadge.style.color = '#ff8593';
+    } else {
+      elRcsBadge.textContent = 'RCS STANDBY';
+      elRcsBadge.style.color = 'rgba(140, 195, 245, 0.72)';
+    }
+
+    const altFt = Math.max(0.0, Math.min(APOGEE_FT, state.y * FEET_PER_METER));
+    elAltitude.textContent = altFt.toFixed(1);
+    const altPct = (altFt / APOGEE_FT) * 100;
+    elAltBar.style.height = `${ Math.max(0, Math.min(100, altPct)).toFixed(1) }%`;
+
+    const vsSign = state.vsFtSec >= 0 ? '+' : '';
+    elVs.textContent = `${vsSign}${state.vsFtSec.toFixed(1)}`;
+    elStage.textContent = state.stageText;
+  }
+
+  // ---------------------------------------------------------------------------
+  // 11. Main Animation Loop
+  // ---------------------------------------------------------------------------
+  let prevTime = performance.now() * 0.001;
+  let prevCycleTime = 0;
+  let prevCarPos = new THREE.Vector3(-18.2, 0.02, 0);
+  let wheelAngle = 0;
+  let smokeSpawnAccum = 0;
+
+  function animate(nowMs) {
+    requestAnimationFrame(animate);
+
+    const now = nowMs * 0.001;
+    const dt = Math.min(0.05, Math.max(0.001, now - prevTime));
+    prevTime = now;
+
+    const cycleTime = now % LOOP_DURATION;
+    if (cycleTime < prevCycleTime) {
+      // Seamless cycle wrap
+      resetAllSmoke();
+      prevCarPos.set(-18.2, 0.02, 0);
+    }
+    prevCycleTime = cycleTime;
+
+    const state = evaluateFlightState(cycleTime);
+
+    // Position & orient Roadster along surface normal / pitch angle
+    const nx = -Math.sin(state.pitch);
+    const ny = Math.cos(state.pitch);
+    // Offset slightly along surface normal when on the curved ramp so tires sit flush on the deck
+    const surfaceClearance = cycleTime < 4.2 ? 0.02 : 0.0;
+    carRoot.position.set(
+      state.x + nx * surfaceClearance,
+      state.y + ny * surfaceClearance,
+      0
+    );
+    carRoot.rotation.set(0, 0, state.pitch);
+    carBodyGroup.position.set(0, state.suspOffset, 0);
+
+    // Spin wheels proportionally to distance traveled
+    const distMoved = carRoot.position.distanceTo(prevCarPos);
+    prevCarPos.copy(carRoot.position);
+    if (cycleTime < 4.3 || cycleTime > 10.8) {
+      wheelAngle -= (distMoved / 0.36);
+    } else {
+      wheelAngle -= dt * 8.0; // Free-spinning inertia in mid-air
+    }
+    for (const w of wheelMeshes) {
+      w.rotation.z = wheelAngle;
+    }
+
+    // Stage 1: Underbody Suction / Ground-Effect Glow & Launch Tire Mist
+    suctionGlowMesh.material.opacity = state.suctionPower * (0.45 + 0.12 * Math.sin(now * 38));
+    if (cycleTime > 0.35 && cycleTime < 1.35 && Math.random() < 0.65) {
+      spawnSmokePuff(
+        carRoot.position.x - 2.1,
+        carRoot.position.y + 0.25,
+        (Math.random() - 0.5) * 1.6,
+        -4.5 - Math.random() * 3.0,
+        0.4 + Math.random() * 0.6,
+        (Math.random() - 0.5) * 2.2,
+        0.65,
+        2.6,
+        0.85,
+        0.24
+      );
+    }
+
+    // Stage 2: RCS Attitude Control Jets (Fine Blue-White Supersonic Plumes)
+    const rcsActive = state.rcsPower > 0.02;
+    rcsNoseTop.group.visible = rcsActive;
+    rcsTailBottom.group.visible = rcsActive;
+    rcsNoseLeft.group.visible = rcsActive;
+    rcsNoseRight.group.visible = rcsActive;
+    if (rcsActive) {
+      const flicker = 0.84 + 0.28 * Math.sin(now * 75);
+      const scaleLen = state.rcsPower * flicker;
+      rcsNoseTop.group.scale.set(1, scaleLen, 1);
+      rcsTailBottom.group.scale.set(1, scaleLen * 0.9, 1);
+      const sidePulse = Math.max(0, Math.sin(now * 28)) * state.rcsPower;
+      rcsNoseLeft.group.scale.set(1, 0.4 + 0.6 * sidePulse, 1);
+      rcsNoseRight.group.scale.set(1, 0.4 + 0.6 * sidePulse, 1);
+      rcsLight.intensity = 26 * state.rcsPower * flicker;
+    } else {
+      rcsLight.intensity = 0;
+    }
+
+    // Stage 3: 4 Underbody Corner Cold-Gas Retro-Thrusters & Billowing White Ground Smoke
+    const mainActive = state.mainThrustPower > 0.02;
+    for (let i = 0; i < mainThrusters.length; i++) {
+      const jet = mainThrusters[i];
+      jet.group.visible = mainActive;
+      if (mainActive) {
+        const flicker = 0.88 + 0.22 * Math.sin(now * 68 + i * 1.7);
+        // Clip plume length slightly against ground height so columns terminate realistically on tarmac
+        const maxPlumeLen = Math.max(0.32, Math.min(1.15, (state.y + 0.45) / 5.2));
+        jet.group.scale.set(
+          0.92 + 0.16 * flicker,
+          state.mainThrustPower * maxPlumeLen * flicker,
+          0.92 + 0.16 * flicker
+        );
+      }
+    }
+
+    if (mainActive) {
+      retroUnderLight.intensity = 165 * state.mainThrustPower * (0.9 + 0.2 * Math.sin(now * 60));
+      const groundProximity = Math.max(0, 1.0 - state.y / 14.5);
+      groundBlastHalo.position.x = state.x;
+      groundBlastHalo.material.opacity = state.mainThrustPower * groundProximity * 0.72;
+      const haloScale = 0.8 + groundProximity * 0.95;
+      groundBlastHalo.scale.set(haloScale, haloScale, 1);
+
+      // Spawn turbulent billowing white smoke clouds where the 4 high-pressure gas columns hit the runway
+      smokeSpawnAccum += dt * (45 + 75 * groundProximity) * state.mainThrustPower;
+      while (smokeSpawnAccum >= 1.0) {
+        smokeSpawnAccum -= 1.0;
+        const cornerIdx = Math.floor(Math.random() * 4);
+        const [cx, , cz] = cornerThrusterCoords[cornerIdx];
+        const angle = Math.random() * Math.PI * 2;
+        const radialSpeed = 4.2 + Math.random() * 8.5 * (0.4 + groundProximity);
+        const spawnX = state.x + cx + Math.cos(angle) * 0.55;
+        const spawnZ = cz + Math.sin(angle) * 0.55;
+        const spawnY = Math.max(0.25, Math.min(2.2, state.y * 0.25));
+
+        spawnSmokePuff(
+          spawnX,
+          spawnY,
+          spawnZ,
+          Math.cos(angle) * radialSpeed,
+          0.8 + Math.random() * 2.4,
+          Math.sin(angle) * radialSpeed,
+          1.35 + Math.random() * 0.8,
+          5.2 + Math.random() * 3.8,
+          1.45 + Math.random() * 1.15,
+          0.42 + 0.18 * groundProximity
+        );
+      }
+    } else {
+      retroUnderLight.intensity = 0;
+      groundBlastHalo.material.opacity = 0;
+    }
+
+    // Stage 4: Trailing wake turbulence as the Roadster blasts out of the white smoke cloud
+    if (cycleTime >= 11.2 && cycleTime < 13.4 && Math.random() < 0.75) {
+      spawnSmokePuff(
+        state.x - 2.4 + (Math.random() - 0.5) * 1.5,
+        0.38 + Math.random() * 0.5,
+        (Math.random() - 0.5) * 2.8,
+        2.5 + Math.random() * 3.5,
+        0.5 + Math.random() * 1.1,
+        (Math.random() - 0.5) * 3.2,
+        1.4,
+        4.6,
+        1.35,
+        0.32 * (1 - (cycleTime - 11.2) / 2.2)
+      );
+    }
+
+    updateSmokeParticles(dt);
+    updateCamera(cycleTime, state);
+    updateHUD(state);
+
+    renderer.render(scene, camera);
+  }
+
+  window.addEventListener('resize', () => {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+  });
+
+  requestAnimationFrame(animate);
+})();
+</script>
+<!--zc-home:start--><style>.zc-home-btn{position:fixed;top:16px;left:16px;z-index:2147483647;display:inline-flex;align-items:center;gap:6px;padding:8px 14px;font:500 13px/1.1 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Noto Sans SC",sans-serif;color:#111;background:rgba(255,255,255,.86);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);border:1px solid rgba(0,0,0,.08);border-radius:999px;text-decoration:none;box-shadow:0 2px 12px rgba(0,0,0,.2);transition:background .2s ease,transform .2s ease,box-shadow .2s ease}.zc-home-btn:hover{background:#fff;transform:translateY(-1px);box-shadow:0 4px 18px rgba(0,0,0,.26)}</style><a class="zc-home-btn" href="../">← 返回首页</a><script>(function(){try{if(window.self!==window.top||/[?&]embed=1(?:&|$)/.test(location.search)){var b=document.querySelector(".zc-home-btn");if(b&&b.parentNode)b.parentNode.removeChild(b);}}catch(e){}})();</script><!--zc-home:end-->
+</body>
+</html>

@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>太空飞车 · Agent Test</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500&family=Noto+Sans+SC:wght@200;300;400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/site.css">
+</head>
+<body>
+  <nav class="nav">
+    <a class="brand" href="../"><span class="mark">A</span>Agent Test</a>
+    <a class="repo" href="https://github.com/zhoushimiaov/agent-test" target="_blank" rel="noopener">GitHub ↗</a>
+  </nav>
+
+  <section class="hero sub">
+    <div class="crumb"><a href="../">首页</a> &nbsp;/&nbsp; 太空飞车</div>
+    <h1>太空飞车</h1>
+    <p class="lede">2018 年 Falcon Heavy 把一台樱桃红的特斯拉 Roadster 和穿着宇航服的 Starman 送入太空 —— 车在真空里缓缓翻滚,地球与太阳在身后转动。这一题让模型做出这个场景(或它的近亲:冷气推进的垂直起飞、飞跃与软着陆),考的是整车造型还原、Starman 的坐姿与手臂、真实感的太空光影(单侧阳光、地球曲率、星空),以及推进与轨迹的物理说服力。下面按模型版本归档,缩略图为真实渲染效果,点击卡片查看可交互的在线页面。</p>
+  </section>
+
+  <div class="label"><span>Jev 排行</span><b>Leaderboard</b><i></i></div>
+  <div class="note">
+    <span class="tag">TypeSafe Jev 评分</span>
+    <span class="k">由 System One 判定模型 <b>jev-1.14.0</b> 根据每个版本的真实渲染结果打分(满分 100)</span>
+    <span class="k"><b>整车还原</b> 30 · <b>Starman 姿态</b> 25 · <b>太空场景</b> 20 · <b>飞行动力学</b> 25</span>
+  </div>
+
+  <div class="grid">
+    <a class="ver" href="../viewer/?category=roadster&amp;model=glm-5.3">
+      <div class="shot"><span class="rk g1">#1</span><span class="score lo"><b>33</b><span class="j">Jev</span></span><img src="thumbs/glm-5.3.webp" alt="GLM 5.3 Three.js 3D 预览" loading="lazy" decoding="async" onload="this.classList.add('loaded')"></div>
+      <div class="meta">
+        <div class="txt"><h3>GLM 5.3</h3><p>Three.js 3D</p></div>
+        <span class="arr2">↗</span>
+      </div>
+      <div class="dims"><div class="d"><div class="dh"><span>整车还原</span><em class="mid">60</em></div><div class="tr"><div class="fl mid" style="width:60%"></div></div></div><div class="d"><div class="dh"><span>Starman 姿态</span><em class="lo">8</em></div><div class="tr"><div class="fl lo" style="width:8%"></div></div></div><div class="d"><div class="dh"><span>太空场景</span><em class="lo">21</em></div><div class="tr"><div class="fl lo" style="width:21%"></div></div></div><div class="d"><div class="dh"><span>飞行动力学</span><em class="lo">36</em></div><div class="tr"><div class="fl lo" style="width:36%"></div></div></div></div>
+    </a>
+    <a class="ver" href="../viewer/?category=roadster&amp;model=kimi-k3">
+      <div class="shot"><span class="rk">#2</span><span class="score lo"><b>26</b><span class="j">Jev</span></span><img src="thumbs/kimi-k3.webp" alt="Kimi K3 Three.js 3D 预览" loading="lazy" decoding="async" onload="this.classList.add('loaded')"></div>
+      <div class="meta">
+        <div class="txt"><h3>Kimi K3</h3><p>Three.js 3D</p></div>
+        <span class="arr2">↗</span>
+      </div>
+      <div class="dims"><div class="d"><div class="dh"><span>整车还原</span><em class="lo">33</em></div><div class="tr"><div class="fl lo" style="width:33%"></div></div></div><div class="d"><div class="dh"><span>Starman 姿态</span><em class="lo">28</em></div><div class="tr"><div class="fl lo" style="width:28%"></div></div></div><div class="d"><div class="dh"><span>太空场景</span><em class="lo">34</em></div><div class="tr"><div class="fl lo" style="width:34%"></div></div></div><div class="d"><div class="dh"><span>飞行动力学</span><em class="lo">9</em></div><div class="tr"><div class="fl lo" style="width:9%"></div></div></div></div>
+    </a>
+    <a class="ver" href="../viewer/?category=roadster&amp;model=opus-5.5">
+      <div class="shot"><span class="rk">#3</span><span class="score lo"><b>25</b><span class="j">Jev</span></span><img src="thumbs/opus-5.5.webp" alt="Claude Opus 5.5 Three.js 3D 预览" loading="lazy" decoding="async" onload="this.classList.add('loaded')"></div>
+      <div class="meta">
+        <div class="txt"><h3>Claude Opus 5.5</h3><p>Three.js 3D</p></div>
+        <span class="arr2">↗</span>
+      </div>
+      <div class="dims"><div class="d"><div class="dh"><span>整车还原</span><em class="lo">25</em></div><div class="tr"><div class="fl lo" style="width:25%"></div></div></div><div class="d"><div class="dh"><span>Starman 姿态</span><em class="lo">14</em></div><div class="tr"><div class="fl lo" style="width:14%"></div></div></div><div class="d"><div class="dh"><span>太空场景</span><em class="mid">68</em></div><div class="tr"><div class="fl mid" style="width:68%"></div></div></div><div class="d"><div class="dh"><span>飞行动力学</span><em class="lo">3</em></div><div class="tr"><div class="fl lo" style="width:3%"></div></div></div></div>
+    </a>
+    <a class="ver" href="../viewer/?category=roadster&amp;model=step-5-preview">
+      <div class="shot"><span class="rk">#4</span><span class="score lo"><b>19</b><span class="j">Jev</span></span><img src="thumbs/step-5-preview.webp" alt="Step 5 Preview Three.js 3D 预览" loading="lazy" decoding="async" onload="this.classList.add('loaded')"></div>
+      <div class="meta">
+        <div class="txt"><h3>Step 5 Preview</h3><p>Three.js 3D</p></div>
+        <span class="arr2">↗</span>
+      </div>
+      <div class="dims"><div class="d"><div class="dh"><span>整车还原</span><em class="lo">8</em></div><div class="tr"><div class="fl lo" style="width:8%"></div></div></div><div class="d"><div class="dh"><span>Starman 姿态</span><em class="lo">19</em></div><div class="tr"><div class="fl lo" style="width:19%"></div></div></div><div class="d"><div class="dh"><span>太空场景</span><em class="mid">57</em></div><div class="tr"><div class="fl mid" style="width:57%"></div></div></div><div class="d"><div class="dh"><span>飞行动力学</span><em class="lo">1</em></div><div class="tr"><div class="fl lo" style="width:1%"></div></div></div></div>
+    </a>
+    <a class="ver" href="../viewer/?category=roadster&amp;model=mercury-3">
+      <div class="shot"><span class="rk">#5</span><span class="score lo"><b>10</b><span class="j">Jev</span></span><img src="thumbs/mercury-3.webp" alt="Inception Mercury 3 Three.js 3D 预览" loading="lazy" decoding="async" onload="this.classList.add('loaded')"></div>
+      <div class="meta">
+        <div class="txt"><h3>Inception Mercury 3</h3><p>Three.js 3D</p></div>
+        <span class="arr2">↗</span>
+      </div>
+      <div class="dims"><div class="d"><div class="dh"><span>整车还原</span><em class="lo">2</em></div><div class="tr"><div class="fl lo" style="width:2%"></div></div></div><div class="d"><div class="dh"><span>Starman 姿态</span><em class="lo">14</em></div><div class="tr"><div class="fl lo" style="width:14%"></div></div></div><div class="d"><div class="dh"><span>太空场景</span><em class="lo">25</em></div><div class="tr"><div class="fl lo" style="width:25%"></div></div></div><div class="d"><div class="dh"><span>飞行动力学</span><em class="lo">4</em></div><div class="tr"><div class="fl lo" style="width:4%"></div></div></div></div>
+    </a>
+    <a class="ver" href="../viewer/?category=roadster&amp;model=deepseek-v4.1-flash">
+      <div class="shot"><span class="rk">#6</span><span class="score lo"><b>9</b><span class="j">Jev</span></span><img src="thumbs/deepseek-v4.1-flash.webp" alt="DeepSeek V4.1 Flash Three.js 3D 预览" loading="lazy" decoding="async" onload="this.classList.add('loaded')"></div>
+      <div class="meta">
+        <div class="txt"><h3>DeepSeek V4.1 Flash</h3><p>Three.js 3D</p></div>
+        <span class="arr2">↗</span>
+      </div>
+      <div class="dims"><div class="d"><div class="dh"><span>整车还原</span><em class="lo">1</em></div><div class="tr"><div class="fl lo" style="width:1%"></div></div></div><div class="d"><div class="dh"><span>Starman 姿态</span><em class="lo">23</em></div><div class="tr"><div class="fl lo" style="width:23%"></div></div></div><div class="d"><div class="dh"><span>太空场景</span><em class="lo">11</em></div><div class="tr"><div class="fl lo" style="width:11%"></div></div></div><div class="d"><div class="dh"><span>飞行动力学</span><em class="lo">2</em></div><div class="tr"><div class="fl lo" style="width:2%"></div></div></div></div>
+    </a>
+    <a class="ver" href="../viewer/?category=roadster&amp;model=glm-5.3-flash">
+      <div class="shot"><span class="rk">#7</span><span class="score lo"><b>9</b><span class="j">Jev</span></span><img src="thumbs/glm-5.3-flash.webp" alt="GLM 5.3 Flash Three.js 3D 预览" loading="lazy" decoding="async" onload="this.classList.add('loaded')"></div>
+      <div class="meta">
+        <div class="txt"><h3>GLM 5.3 Flash</h3><p>Three.js 3D</p></div>
+        <span class="arr2">↗</span>
+      </div>
+      <div class="dims"><div class="d"><div class="dh"><span>整车还原</span><em class="lo">2</em></div><div class="tr"><div class="fl lo" style="width:2%"></div></div></div><div class="d"><div class="dh"><span>Starman 姿态</span><em class="lo">0</em></div><div class="tr"><div class="fl lo" style="width:0%"></div></div></div><div class="d"><div class="dh"><span>太空场景</span><em class="lo">11</em></div><div class="tr"><div class="fl lo" style="width:11%"></div></div></div><div class="d"><div class="dh"><span>飞行动力学</span><em class="lo">25</em></div><div class="tr"><div class="fl lo" style="width:25%"></div></div></div></div>
+    </a>
+    <a class="ver" href="../viewer/?category=roadster&amp;model=gemini-4-argon-high">
+      <div class="shot"><span class="rk">#8</span><span class="score lo"><b>5</b><span class="j">Jev</span></span><img src="thumbs/gemini-4-argon-high.webp" alt="Gemini 4 Argon High Three.js 3D 预览" loading="lazy" decoding="async" onload="this.classList.add('loaded')"></div>
+      <div class="meta">
+        <div class="txt"><h3>Gemini 4 Argon High</h3><p>Three.js 3D</p></div>
+        <span class="arr2">↗</span>
+      </div>
+      <div class="dims"><div class="d"><div class="dh"><span>整车还原</span><em class="lo">0</em></div><div class="tr"><div class="fl lo" style="width:0%"></div></div></div><div class="d"><div class="dh"><span>Starman 姿态</span><em class="lo">4</em></div><div class="tr"><div class="fl lo" style="width:4%"></div></div></div><div class="d"><div class="dh"><span>太空场景</span><em class="lo">11</em></div><div class="tr"><div class="fl lo" style="width:11%"></div></div></div><div class="d"><div class="dh"><span>飞行动力学</span><em class="lo">6</em></div><div class="tr"><div class="fl lo" style="width:6%"></div></div></div></div>
+    </a>
+    <a class="ver" href="../viewer/?category=roadster&amp;model=hy4-preview">
+      <div class="shot"><span class="rk">#9</span><span class="score lo"><b>1</b><span class="j">Jev</span></span><img src="thumbs/hy4-preview.webp" alt="HY4 Preview Canvas 2D 预览" loading="lazy" decoding="async" onload="this.classList.add('loaded')"></div>
+      <div class="meta">
+        <div class="txt"><h3>HY4 Preview</h3><p>Canvas 2D</p></div>
+        <span class="arr2">↗</span>
+      </div>
+      <div class="dims"><div class="d"><div class="dh"><span>整车还原</span><em class="lo">0</em></div><div class="tr"><div class="fl lo" style="width:0%"></div></div></div><div class="d"><div class="dh"><span>Starman 姿态</span><em class="lo">1</em></div><div class="tr"><div class="fl lo" style="width:1%"></div></div></div><div class="d"><div class="dh"><span>太空场景</span><em class="lo">1</em></div><div class="tr"><div class="fl lo" style="width:1%"></div></div></div><div class="d"><div class="dh"><span>飞行动力学</span><em class="lo">0</em></div><div class="tr"><div class="fl lo" style="width:0%"></div></div></div></div>
+    </a>
+  </div>
+
+  <footer>
+    <div class="wrap">
+      <span><a href="../">← 返回首页</a></span>
+      <span>Hosted on GitHub Pages · agentest.shimiao.work</span>
+    </div>
+  </footer>
+</body>
+</html>

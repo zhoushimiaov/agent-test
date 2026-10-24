@@ -1,0 +1,965 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Tesla Roadster · SpaceX Cold-Gas Launch &amp; Soft Landing</title>
+<!--
+  ============================================================
+  Tesla Roadster (SpaceX 冷气推进版) — 垂直高台飞跃与反推软着陆
+  单文件 Three.js 自动循环动画 (HTML/CSS/JS 全部内联)
+  ------------------------------------------------------------
+  Model        : inception/mercury-3 (完整版本: v1.0.0)
+  完成时间      : 2026-10-23 20:32 CST (创建) / 21:50 CST (可见性修复+最终打磨)
+  渠道 Token    : 约 20,500 (输出 ~19,000 / 输入 ~1,500) — 估算值
+  Notes        : 双击运行；需要联网加载 Three.js CDN (jsdelivr)
+                 URL 带 #t=秒数 / #sim=秒数 可停在指定时间做单帧调试
+  ============================================================
+-->
+<style>
+  html,body{margin:0;padding:0;overflow:hidden;background:#020308;height:100%;}
+  body{font-family:"Consolas","Courier New",monospace;-webkit-user-select:none;user-select:none;cursor:none;}
+  #app{position:fixed;inset:0;}
+  canvas{display:block;}
+
+  /* ---------- 电影遮幅 / 暗角 / 扫描线 ---------- */
+  #letterbox{position:fixed;left:0;right:0;height:7vh;background:linear-gradient(#000, rgba(0,0,0,0));z-index:5;pointer-events:none;}
+  #letterbox.top{top:0;} #letterbox.bottom{bottom:0;background:linear-gradient(rgba(0,0,0,0),#000);}
+  #vignette{position:fixed;inset:0;z-index:4;pointer-events:none;
+    background:radial-gradient(ellipse at 50% 45%, transparent 55%, rgba(0,0,0,.5) 100%);}
+  #scanlines{position:fixed;inset:0;z-index:4;pointer-events:none;opacity:.06;
+    background:repeating-linear-gradient(0deg, rgba(255,255,255,.35) 0 1px, transparent 1px 3px);}
+  #fade{position:fixed;inset:0;background:#000;opacity:0;z-index:6;pointer-events:none;}
+
+  /* ---------- 遥测 HUD ---------- */
+  .hud{position:fixed;bottom:30px;z-index:8;min-width:218px;
+    background:linear-gradient(160deg, rgba(5,16,18,.78), rgba(2,8,12,.62));
+    border:1px solid rgba(140,255,220,.30);border-radius:6px;
+    box-shadow:0 0 22px rgba(0,0,0,.55), inset 0 0 24px rgba(0,140,120,.12);
+    padding:11px 14px 12px;letter-spacing:1.5px;color:#9fe8cd;}
+  #hudL{left:26px;} #hudR{right:26px;}
+  .hud .lbl{font-size:10px;color:#57c8a0;opacity:.82;letter-spacing:3px;margin-bottom:2px;}
+  .hud .val{font-size:29px;font-weight:700;color:#c8ffe9;line-height:1.15;
+    text-shadow:0 0 14px rgba(90,255,210,.75);}
+  .hud .unit{font-size:12px;color:#7fe0ba;margin-left:5px;letter-spacing:1px;}
+  .hud .sub{font-size:10px;color:#3fa88a;letter-spacing:2px;margin-top:5px;}
+  .hud .bar{height:7px;margin-top:8px;border-radius:3px;position:relative;
+    background:rgba(255,255,255,.07);overflow:hidden;}
+  .hud .bar i{position:absolute;inset:0;transform-origin:left;border-radius:3px;}
+  #barG i{background:linear-gradient(90deg,#2ee6a0,#7dffb8 72%,#ffd23e 88%,#ff5a3c);}
+  #barAlt{position:absolute;left:0;top:0;bottom:0;width:5px;border-radius:2px;
+    background:linear-gradient(180deg,#3ce8ff,#39e8a8);box-shadow:0 0 10px rgba(60,240,255,.8);}
+  #ticks{position:absolute;left:10px;top:2px;bottom:2px;width:40px;opacity:.35;
+    background:repeating-linear-gradient(180deg, rgba(160,255,225,0) 0 10px, rgba(160,255,225,.7) 10px 11px);}
+  .attWrap{margin-top:9px;}
+  .attWrap svg{display:block;}
+  .hud .stat{font-size:11px;color:#ffe9a8;letter-spacing:3px;margin-top:9px;
+    text-shadow:0 0 10px rgba(255,200,80,.5);}
+  .hud .dot{display:inline-block;width:7px;height:7px;border-radius:50%;
+    background:#ff5a4c;margin-right:6px;box-shadow:0 0 8px #ff5a4c;
+    animation:blink 1.2s steps(1) infinite;}
+  @keyframes blink{50%{opacity:.15}}
+  #statusLine{position:fixed;left:50%;transform:translateX(-50%);bottom:26px;z-index:8;
+    font-size:10px;letter-spacing:5px;color:rgba(140,255,220,.5);}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div id="letterbox" class="top"></div><div id="letterbox" class="bottom"></div>
+<div id="vignette"></div><div id="scanlines"></div>
+<div id="fade"></div>
+
+<!-- ================= 右下角 HUD ================= -->
+<div class="hud" id="hudL">
+  <div class="lbl">G-FORCE · STRAPDOWN</div>
+  <div><span class="val" id="hudG">0.00</span><span class="unit">G</span></div>
+  <div class="bar"><i id="barG" style="transform:scaleX(0.1)"></i></div>
+  <div class="sub">COLD GAS THRUSTER ×4 · ACTIVE</div>
+  <div class="stat" id="hudStat"><span class="dot"></span>LAUNCH</div>
+</div>
+
+<!-- ================= 右下角 HUD ================= -->
+<div class="hud" id="hudR">
+  <div class="lbl">ALTITUDE</div>
+  <div><span class="val" id="hudAlt">0.0</span><span class="unit">FT</span></div>
+  <div class="bar" style="height:64px;margin-top:6px">
+    <div id="ticks"></div>
+    <div id="barAlt" style="height:2%"></div>
+  </div>
+  <div class="attWrap">
+    <svg width="150" height="58" viewBox="0 0 150 58">
+      <line x1="8" y1="44" x2="142" y2="44" stroke="rgba(120,255,215,.35)" stroke-width="1"/>
+      <g id="attIcon" transform="translate(75,44)">
+        <rect x="-34" y="-9" width="60" height="13" rx="4" fill="rgba(190,255,235,.85)"/>
+        <rect x="-34" y="-2" width="60" height="5" rx="2.5" fill="rgba(230,255,247,.9)"/>
+        <rect x="26" y="-5" width="8" height="7" rx="2" fill="rgba(255,120,110,.95)"/>
+        <rect x="-44" y="-3" width="10" height="5" rx="2" fill="rgba(190,255,235,.6)"/>
+      </g>
+    </svg>
+  </div>
+  <div class="sub">ATTITUDE <span id="hudPitch" style="color:#c8ffe9">PITCH 0°</span></div>
+  <div class="sub">SPEED <span id="hudSpd" style="color:#c8ffe9">0 MPH</span></div>
+</div>
+<div id="statusLine">TESLA ROADSTER · SPACEX COLD-GAS · NIGHT FLIGHT TEST</div>
+<div id="probeout" style="display:none"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+<script>
+(function(){
+'use strict';
+if(!window.THREE){document.body.innerHTML='<div style="color:#0f0;font-family:monospace;padding:2em">Three.js CDN 加载失败，请联网后重试</div>';return;}
+
+/* ============================================================
+   配置 & 常量
+   ============================================================ */
+const T_LOOP  = 26.0;                 // 整条动画循环总长 (秒)
+const THETA   = 68 * Math.PI / 180;   // 坡道顶端倾角
+const TOPY    = 16.5;                 // 坡道顶高程 (m)
+const REL     = 5.6;                  // 离坡时刻 t
+const V_EXIT  = 9.7;                  // 离坡速度 (m/s)
+const G0      = 10.0;                 // 坡道起点 z
+
+const SEEK = (location.hash.match(/t=([\d.]+)/)||[])[1];
+const SEEKT = SEEK !== undefined ? parseFloat(SEEK) : null;
+const SIM = (location.hash.match(/sim=([\d.]+)/)||[])[1];
+const SIMT = SIM !== undefined ? parseFloat(SIM) : null;
+let RUNSIM=false;
+window.__probe = location.hash.indexOf('probe')>=0;
+
+/* 随机 / 数学辅助 */
+const R = Math.random;
+function clamp(x,a,b){return Math.max(a,Math.min(b,x));}
+function smooth(a,b,w){w=clamp(w,0,1);return a+(b-a)*w*w*(3-2*w);}
+function lerp(a,b,w){return a+(b-a)*w;}
+function hermite(p0,v0,p1,v1,u){
+  const u2=u*u,u3=u2*u;
+  const h00=2*u3-3*u2+1, h10=u3-2*u2+u, h01=-2*u3+3*u2, h11=u3-u2;
+  return p0.clone().multiplyScalar(h00).add(v0.clone().multiplyScalar(h10*u))
+         .add(p1.clone().multiplyScalar(h01)).add(v1.clone().multiplyScalar(h11*u));
+}
+
+/* ============================================================
+   场景 / 渲染器
+   ============================================================ */
+const renderer = new THREE.WebGLRenderer({antialias:true, preserveDrawingBuffer:true});
+renderer.setPixelRatio(Math.min(window.devicePixelRatio,1.75));
+renderer.setSize(innerWidth,innerHeight);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.30;
+document.getElementById('app').appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x03050b);
+scene.fog = new THREE.FogExp2(0x03050b, 0.0036);
+
+const camera = new THREE.PerspectiveCamera(58, innerWidth/innerHeight, 0.1, 2200);
+camera.position.set(-10,2,6);
+
+/* 环境光 + 月光方向光（夜间基调） */
+scene.add(new THREE.HemisphereLight(0x223a5e, 0x0a0a0c, 0.85));
+const moonDir=new THREE.DirectionalLight(0x8fb4ff, 0.45);
+moonDir.position.set(-320,420,-500);
+scene.add(moonDir);
+
+addEventListener('resize',()=>{
+  camera.aspect=innerWidth/innerHeight; camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth,innerHeight);
+});
+
+/* ---------- 纹理工厂 ---------- */
+function canvasTex(w,h,draw){
+  const c=document.createElement('canvas');c.width=w;c.height=h;
+  draw(c.getContext('2d'),w,h);
+  const t=new THREE.CanvasTexture(c);
+  t.wrapS=t.wrapT=THREE.RepeatWrapping; return t;
+}
+const texAsphalt = canvasTex(512,512,(g,w,h)=>{
+  g.fillStyle='#0a0c10';g.fillRect(0,0,w,h);
+  for(let i=0;i<9000;i++){g.fillStyle=R()<.5?'rgba(255,255,255,.025)':'rgba(0,0,0,.10)';
+    g.fillRect(R()*w,R()*h,2,2);}
+});
+const texRunway = canvasTex(1024,256,(g,w,h)=>{
+  g.fillStyle='#14181e';g.fillRect(0,0,w,h);
+  for(let i=0;i<7000;i++){g.fillStyle=R()<.5?'rgba(255,255,255,.03)':'rgba(0,0,0,.12)';
+    g.fillRect(R()*w,R()*h,2,2);}
+  g.fillStyle='rgba(210,215,222,.9)';
+  for(let x=0;x<w;x+=160){g.fillRect(x+20, h/2-5, 120, 10);}   // 白色虚线中线
+});
+const texDome = canvasTex(256,256,(g)=>{
+  const gr=g.createRadialGradient(128,128,0,128,128,128);
+  gr.addColorStop(0,'rgba(255,255,255,1)');
+  gr.addColorStop(.35,'rgba(255,255,255,.55)');
+  gr.addColorStop(1,'rgba(255,255,255,0)');
+  g.fillStyle=gr;g.fillRect(0,0,256,256);
+});
+
+/* ---------- 环境反射贴图（金属车漆可见性的关键） ---------- */
+(function makeEnv(){
+  const c=document.createElement('canvas'); c.width=512; c.height=256;
+  const g=c.getContext('2d');
+  const gr=g.createLinearGradient(0,0,0,256);
+  gr.addColorStop(0,'#070a12'); gr.addColorStop(.55,'#0d1626'); gr.addColorStop(1,'#101c2c');
+  g.fillStyle=gr; g.fillRect(0,0,512,256);
+  const moon=g.createRadialGradient(96,58,0,96,58,90);
+  moon.addColorStop(0,'rgba(226,238,255,.95)'); moon.addColorStop(1,'rgba(226,238,255,0)');
+  g.fillStyle=moon; g.fillRect(0,0,512,256);
+  g.fillStyle='rgba(12,14,18,.92)'; g.fillRect(0,210,512,46);
+  const tex=new THREE.CanvasTexture(c);
+  tex.mapping=THREE.EquirectangularReflectionMapping;
+  const pmrem=new THREE.PMREMGenerator(renderer);
+  scene.environment=pmrem.fromEquirectangular(tex).texture;
+})();
+
+/* ============================================================
+   环境：天空穹顶 / 星星 / 月亮
+   ============================================================ */
+(function sky(){
+  const mat=new THREE.ShaderMaterial({
+    side:THREE.BackSide, depthWrite:false, fog:false,
+    uniforms:{},
+    vertexShader:`varying vec3 vP; void main(){vP=position; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}`,
+    fragmentShader:`varying vec3 vP;
+      void main(){ float h=normalize(vP).y;
+        vec3 lo=vec3(0.012,0.018,0.04);
+        vec3 hi=vec3(0.05,0.09,0.16);
+        vec3 c=mix(lo,hi,smoothstep(-0.05,0.75,h));
+        c+=vec3(0.02,0.03,0.05)*pow(max(h,0.0),4.0);
+        gl_FragColor=vec4(c,1.0);}`
+  });
+  const dome=new THREE.Mesh(new THREE.SphereGeometry(1800,32,18),mat);
+  scene.add(dome);
+})();
+(function stars(){
+  const N=700, pos=new Float32Array(N*3);
+  for(let i=0;i<N;i++){
+    const th=R()*Math.PI*2, ph=Math.acos(R()*0.9+0.05);
+    const r=1750;
+    pos[i*3]  =r*Math.sin(ph)*Math.cos(th);
+    pos[i*3+1]=r*Math.cos(ph)+60;
+    pos[i*3+2]=r*Math.sin(ph)*Math.sin(th);
+  }
+  const g=new THREE.BufferGeometry();
+  g.setAttribute('position',new THREE.BufferAttribute(pos,3));
+  scene.add(new THREE.Points(g,new THREE.PointsMaterial({
+    color:0xaab8d8,size:1.6,sizeAttenuation:true,transparent:true,opacity:.85,fog:false})));
+})();
+(function moon(){
+  const m=new THREE.Sprite(new THREE.SpriteMaterial({map:texDome,color:0xc9d6ee,transparent:true,opacity:.95,fog:false}));
+  m.scale.set(130,130,1); m.position.set(-620,430,-820); scene.add(m);
+  const g=new THREE.Sprite(new THREE.SpriteMaterial({map:texDome,color:0x8fb4ff,transparent:true,opacity:.22,fog:false}));
+  g.scale.set(340,340,1); g.position.copy(m.position); scene.add(g);
+})();
+
+/* ============================================================
+   地面 & 跑道
+   ============================================================ */
+(function ground(){
+  const plane=new THREE.Mesh(new THREE.PlaneGeometry(2600,2600),
+    new THREE.MeshStandardMaterial({map:texAsphalt,roughness:.96,metalness:.08}));
+  plane.rotation.x=-Math.PI/2; scene.add(plane);
+
+  const rw=new THREE.Mesh(new THREE.PlaneGeometry(15,900),
+    new THREE.MeshStandardMaterial({map:texRunway,roughness:.9,metalness:.15}));
+  rw.rotation.x=-Math.PI/2; rw.position.set(0,0.02,180); scene.add(rw);
+})();
+
+/* ---------- 跑道两侧红色警示灯带 ---------- */
+const lamps=[];
+(function edgeLamps(){
+  const geo=new THREE.SphereGeometry(0.22,8,8);
+  const mat=new THREE.MeshBasicMaterial({color:0xff2a1c});
+  const nz=130;
+  for(const side of [-1,1]){
+    const im=new THREE.InstancedMesh(geo,mat,nz);
+    const m4=new THREE.Matrix4();
+    for(let i=0;i<nz;i++){
+      m4.setPosition(side*7.5,0.22,-250+i*4.2);
+      im.setMatrixAt(i,m4);
+    }
+    im.instanceMatrix.needsUpdate=true; scene.add(im);
+    lamps.push(im);
+  }
+})();
+
+/* ---------- 探照灯塔 ---------- */
+const searchBeams=[];
+(function towers(){
+  const lampMat=new THREE.MeshBasicMaterial({color:0xdff0ff});
+  for(const [x,z] of [[-26,-26],[26,-26],[0,-58]]){
+    const grp=new THREE.Group();
+    const pole=new THREE.Mesh(new THREE.CylinderGeometry(0.16,0.3,16,8),
+      new THREE.MeshStandardMaterial({color:0x1c2026,roughness:.7,metalness:.6}));
+    pole.position.y=8; grp.add(pole);
+    const head=new THREE.Mesh(new THREE.BoxGeometry(1.2,0.55,0.8),lampMat);
+    head.position.set(0,16.3,0); grp.add(head);
+
+    const beam=new THREE.Mesh(new THREE.ConeGeometry(3.4,110,24,1,true),
+      new THREE.MeshBasicMaterial({color:0xafcdff,transparent:true,opacity:.09,
+        side:THREE.DoubleSide,blending:THREE.AdditiveBlending,depthWrite:false,fog:false}));
+    beam.position.set(0,16,0); beam.rotation.x=Math.PI/2+0.12; grp.add(beam);
+    const gl=new THREE.Sprite(new THREE.SpriteMaterial({map:texDome,color:0xcfe4ff,transparent:true,opacity:.35,fog:false}));
+    gl.scale.set(7,7,1); gl.position.set(0,16.3,0.2); grp.add(gl);
+
+    grp.position.set(x,0,z);
+    grp.rotation.y= x<0? 0.35 : x>0? -0.35 : 0.15;
+    scene.add(grp);
+    searchBeams.push({beam,grp});
+    const sl=new THREE.SpotLight(0xbfd9ff,6,320,0.34,0.7,1.6);
+    sl.position.set(x,17,z);
+    sl.target.position.set(x+ (x<0?30:-30), 3, z+60);
+    scene.add(sl); scene.add(sl.target);
+  }
+})();
+
+/* ============================================================
+   巨型垂直弧形高台坡道（金属桁架 + 红边灯 + 中央白线）
+   ============================================================ */
+const RAMP = {pts:[], tans:[], len:0};
+(function buildRamp(){
+  const flat=8, bend=10, ds=0.04;
+  let z=G0, y=0, th=0, s=0;
+  while(true){
+    if(s>=flat && s<flat+bend){
+      const k=(s-flat)/bend; th=THETA*(k*k*(3-2*k));
+    } else if(s>=flat+bend){ th=THETA; }
+    RAMP.pts.push(new THREE.Vector3(0,y,z));
+    RAMP.tans.push(new THREE.Vector3(0,Math.sin(th),Math.cos(th)));
+    if(y>=TOPY) break;
+    z+=Math.cos(th)*ds; y+=Math.sin(th)*ds; s+=ds;
+  }
+  RAMP.len=s;
+})();
+const TOP = (()=>{ const p=RAMP.pts[RAMP.pts.length-1]; return {p:p.clone(), d:RAMP.tans[RAMP.tans.length-1].clone()}; })();
+const TOP_Z = TOP.p.z;
+
+function rampPos(s){
+  if(s<=0) return {p:new THREE.Vector3(0,0.02,G0+s), d:new THREE.Vector3(0,0,1)};
+  const i=Math.min(RAMP.pts.length-2, Math.floor(s/0.04));
+  const f=(s-i*0.04)/0.04;
+  const P=RAMP.pts[i], Q=RAMP.pts[i+1];
+  return {p:P.clone().lerp(Q,f), d:RAMP.tans[i].clone().lerp(RAMP.tans[i+1],f).normalize()};
+}
+
+const rampLamps=[];
+(function rampMesh(){
+  const W=3.3, HW=W/2;
+  const N=RAMP.pts.length;
+  const deckCol=0x23262b;
+
+  /* 桥面 Ribbon（横向水平） */
+  {
+    const verts=[], idx=[];
+    for(let i=0;i<N;i++){
+      const p=RAMP.pts[i];
+      verts.push(-HW,p.y,p.z, HW,p.y,p.z);
+      if(i<N-1){
+        const a=i*2, b=a+1, c=a+2, d=a+3;
+        idx.push(a,c,b, b,c,d);
+      }
+    }
+    const g=new THREE.BufferGeometry();
+    g.setAttribute('position',new THREE.Float32BufferAttribute(verts,3));
+    g.setIndex(idx); g.computeVertexNormals();
+    const m=new THREE.Mesh(g,new THREE.MeshStandardMaterial({
+      color:deckCol,roughness:.55,metalness:.78}));
+    scene.add(m);
+  }
+  /* 中央白线窄带 */
+  {
+    const pts=RAMP.pts.map(p=>new THREE.Vector3(0,p.y,p.z));
+    const path=new THREE.CatmullRomCurve3(pts);
+    const tube=new THREE.Mesh(new THREE.TubeGeometry(path,Math.max(48,N),0.11,6,false),
+      new THREE.MeshStandardMaterial({color:0xdde4ea,roughness:.5,metalness:.3,emissive:0x101820,emissiveIntensity:.4}));
+    scene.add(tube);
+  }
+  /* 两侧主弦管 */
+  for(const sx of [-1,1]){
+    const pts=RAMP.pts.map(p=>new THREE.Vector3(sx*HW,p.y,p.z));
+    const path=new THREE.CatmullRomCurve3(pts);
+    const tube=new THREE.Mesh(new THREE.TubeGeometry(path,Math.max(72,N),0.085,8,false),
+      new THREE.MeshStandardMaterial({color:0x3a3f48,roughness:.45,metalness:.85}));
+    scene.add(tube);
+  }
+  /* 桁架斜撑 / 横梁 / 立柱 */
+  const colMat=new THREE.MeshStandardMaterial({color:0x2c313a,roughness:.5,metalness:.8});
+  const step=2.0;
+  for(let s=3;s<RAMP.len-0.5;s+=step){
+    const i=Math.min(N-2,Math.floor(s/0.04)), f=(s-i*0.04)/0.04;
+    const p=RAMP.pts[i].clone().lerp(RAMP.pts[i+1],f);
+    const q=RAMP.pts[Math.min(N-1,i+Math.floor(step/0.04))];
+    // 横梁
+    const tie=new THREE.Mesh(new THREE.CylinderGeometry(0.04,0.04,W,6),colMat);
+    tie.position.set(0,p.y,p.z); tie.rotation.x=Math.PI/2; scene.add(tie);
+    // 交叉斜撑
+    for(const sx of [-1,1]){
+      const a=new THREE.Vector3(sx*HW,p.y,p.z);
+      const b=new THREE.Vector3(-sx*HW,q.y,q.z);
+      const mid=a.clone().add(b).multiplyScalar(.5);
+      const len=a.distanceTo(b);
+      const diag=new THREE.Mesh(new THREE.CylinderGeometry(0.032,0.032,len,6),colMat);
+      diag.position.copy(mid); diag.lookAt(b); diag.rotateX(Math.PI/2); scene.add(diag);
+    }
+    // 竖向立柱（到地面）
+    const post=new THREE.Mesh(new THREE.CylinderGeometry(0.05,0.07,p.y,6),colMat);
+    post.position.set(0,p.y/2,p.z); scene.add(post);
+  }
+  /* 坡道边缘红色灯带（LED 点列） */
+  {
+    const geo=new THREE.SphereGeometry(0.12,6,6);
+    const mat=new THREE.MeshBasicMaterial({color:0xff2418});
+    const stepL=0.65, count=Math.floor(RAMP.len/stepL);
+    for(const sx of [-1,1]){
+      const im=new THREE.InstancedMesh(geo,mat,count);
+      const m4=new THREE.Matrix4();
+      for(let i=0;i<count;i++){
+        const r=rampPos(i*stepL);
+        m4.setPosition(sx*HW*0.92, r.p.y+0.16, r.p.z);
+        im.setMatrixAt(i,m4);
+      }
+      im.instanceMatrix.needsUpdate=true; scene.add(im);
+      rampLamps.push(im);
+    }
+  }
+  /* 坡底蓝白照明 */
+  const fl=new THREE.SpotLight(0x9db8ff,10,140,0.5,0.8,1.7);
+  fl.position.set(0,6,G0-10); fl.target.position.set(0,14,G0+4);
+  scene.add(fl); scene.add(fl.target);
+})();
+
+/* ============================================================
+   跑车（楔形超跑 + 黑色车顶 + 贯穿尾灯 + 车底四喷口）
+   ============================================================ */
+const carRoot = new THREE.Group(); scene.add(carRoot);
+const carBody = new THREE.Group(); carRoot.add(carBody);
+
+/* 主角追光灯（跟随跑车，保证夜景下金属车身清晰可见） */
+const carSpot=new THREE.SpotLight(0xfff0da,40,52,0.85,0.75,1.6);
+scene.add(carSpot); scene.add(carSpot.target);
+const carFill=new THREE.PointLight(0xbfd9ff,28,36,2);
+scene.add(carFill);
+let wheels=[], tailLight, drl, underGlow, susOffset=0, wheelSpin=0;
+
+(function car(){
+  const metal = new THREE.MeshStandardMaterial({color:0xc9ced6,roughness:.30,metalness:.78,
+    emissive:0x15171b, emissiveIntensity:.40, envMapIntensity:1.1});
+  const dark  = new THREE.MeshStandardMaterial({color:0x101216,roughness:.35,metalness:.65});
+  const gloss = new THREE.MeshStandardMaterial({color:0x0b0d10,roughness:.28,metalness:.55});
+  const red   = new THREE.MeshStandardMaterial({color:0x1a0b0d,roughness:.4,
+    emissive:0xff2418, emissiveIntensity:2.4, metalness:.3});
+
+  /* 主单体（楔形） */
+  const body=new THREE.Mesh(new THREE.BoxGeometry(1.95,0.5,4.55),metal);
+  body.position.y=0.47; carBody.add(body);
+  const nose=new THREE.Mesh(new THREE.BoxGeometry(1.7,0.3,1.15),metal);
+  nose.position.set(0,0.3,2.65); nose.rotation.x=-0.16; carBody.add(nose);
+  const wedge=new THREE.Mesh(new THREE.BoxGeometry(1.78,0.34,1.2),metal);
+  wedge.position.set(0,0.75,2.1); wedge.rotation.x=0.26; carBody.add(wedge);
+  /* 前唇 / 扩散器 */
+  const lip=new THREE.Mesh(new THREE.BoxGeometry(1.62,0.12,0.4),dark);
+  lip.position.set(0,0.16,3.35); carBody.add(lip);
+  const diff=new THREE.Mesh(new THREE.BoxGeometry(1.8,0.2,0.55),dark);
+  diff.position.set(0,0.28,-2.42); diff.rotation.x=0.22; carBody.add(diff);
+  /* 黑色驾驶舱（泪滴） */
+  const cab=new THREE.Mesh(new THREE.BoxGeometry(1.28,0.34,2.1),gloss);
+  cab.position.set(0,0.95,-0.25); cab.rotation.x=-0.06; carBody.add(cab);
+  const cab2=new THREE.Mesh(new THREE.BoxGeometry(1.1,0.22,1.05),gloss);
+  cab2.position.set(0,1.12,0.85); cab2.rotation.x=0.2; carBody.add(cab2);
+  /* 尾灯贯穿一字灯条 */
+  tailLight=new THREE.Mesh(new THREE.BoxGeometry(1.78,0.09,0.06),red);
+  tailLight.position.set(0,0.62,-2.29); carBody.add(tailLight);
+  const tailGlow=new THREE.Sprite(new THREE.SpriteMaterial({map:texDome,color:0xff2a1c,transparent:true,opacity:.5,blending:THREE.AdditiveBlending,fog:false}));
+  tailGlow.scale.set(4.5,1.1,1); tailGlow.position.set(0,0.62,-2.42); carBody.add(tailGlow);
+  /* 前贯穿日行灯带 */
+  drl=new THREE.Mesh(new THREE.BoxGeometry(1.55,0.05,0.05),
+    new THREE.MeshStandardMaterial({color:0x0c1416,emissive:0xeaf6ff,emissiveIntensity:2.6}));
+  drl.position.set(0,0.52,3.42); carBody.add(drl);
+  const drlGlow=new THREE.Sprite(new THREE.SpriteMaterial({map:texDome,color:0xbfe4ff,transparent:true,opacity:.35,blending:THREE.AdditiveBlending,fog:false}));
+  drlGlow.scale.set(4.2,0.8,1); drlGlow.position.set(0,0.52,3.55); carBody.add(drlGlow);
+  /* 后视镜 / 天线 / 后扩散鳍 */
+  for(const sx of [-1,1]){
+    const mir=new THREE.Mesh(new THREE.BoxGeometry(0.06,0.08,0.22),dark);
+    mir.position.set(sx*0.95,0.95,1.55); carBody.add(mir);
+  }
+  const fin=new THREE.Mesh(new THREE.BoxGeometry(0.02,0.3,0.7),dark);
+  fin.position.set(0,1.25,-1.15); carBody.add(fin);
+  /* 车轮（黑色运动轮毂） */
+  for(const [x,z] of [[-0.86,1.5],[0.86,1.5],[-0.9,-1.55],[0.9,-1.55]]){
+    const grp=new THREE.Group();
+    const tire=new THREE.Mesh(new THREE.CylinderGeometry(0.34,0.34,0.28,20),gloss);
+    tire.rotation.z=Math.PI/2; grp.add(tire);
+    const rim=new THREE.Mesh(new THREE.CylinderGeometry(0.21,0.21,0.29,10),
+      new THREE.MeshStandardMaterial({color:0x16181c,roughness:.4,metalness:.7}));
+    rim.rotation.z=Math.PI/2; grp.add(rim);
+    grp.position.set(x,0.34,z);
+    carBody.add(grp); wheels.push({grp,axis:new THREE.Vector3(1,0,0)});
+  }
+  /* 车底冷气推进四喷口（炮铜色圆筒） */
+  for(const [x,z] of [[-0.78,1.5],[0.78,1.5],[-0.82,-1.55],[0.82,-1.55]]){
+    const nz=new THREE.Mesh(new THREE.CylinderGeometry(0.11,0.16,0.28,10),
+      new THREE.MeshStandardMaterial({color:0x20242a,roughness:.4,metalness:.85}));
+    nz.position.set(x,-0.3,z); carBody.add(nz);
+  }
+  /* 底部吸地蓝光 */
+  underGlow=new THREE.Sprite(new THREE.SpriteMaterial({map:texDome,color:0x2aa9ff,transparent:true,opacity:.5,blending:THREE.AdditiveBlending,fog:false}));
+  underGlow.scale.set(2.6,2.6,1); underGlow.position.set(0,-0.42,0); carBody.add(underGlow);
+})();
+
+/* ---------- 喷流锥体（RCS 与反推） ---------- */
+function makeCone(r,len,color,opacity){
+  const g=new THREE.ConeGeometry(r,len,14,1,true);
+  const m=new THREE.MeshBasicMaterial({color,transparent:true,opacity,side:THREE.DoubleSide,
+    blending:THREE.AdditiveBlending,depthWrite:false,fog:false});
+  const mesh=new THREE.Mesh(g,m);
+  mesh.rotation.x=Math.PI;  // 默认朝 +Y，翻转为朝 -Y（向下）
+  return mesh;
+}
+/* 四喷口反推粗气柱 */
+const retroJets=[];
+(function(){
+  for(const [x,z] of [[-0.78,1.5],[0.78,1.5],[-0.82,-1.55],[0.82,-1.55]]){
+    const g=new THREE.Group();
+    const out=makeCone(0.5,7.5,0xddeeff,0.38);
+    const mid=makeCone(0.3,6.2,0xffffff,0.42);
+    const core=makeCone(0.16,5.4,0xfff6e0,0.55);
+    g.add(out);g.add(mid);g.add(core);
+    g.position.set(x,-0.36,z);
+    g.visible=false;
+    carBody.add(g);
+    retroJets.push({g,out,mid,core,phase:R()*Math.PI*2});
+  }
+})();
+/* RCS 冷气细喷流（车头 ×1 + 车侧 ×2） */
+const rcsJets=[];
+(function(){
+  const mk=(pos,dir)=>{
+    const g=new THREE.Group();
+    const c=makeCone(0.06,1.9,0xbfe4ff,0.8);
+    c.rotation.x=0; c.position.y=0.4;
+    g.add(c); g.position.copy(pos); g.rotation.set(dir.x,dir.y,dir.z);
+    g.visible=false; carBody.add(g); rcsJets.push(g);
+  };
+  mk(new THREE.Vector3(0,0.72,3.55), new THREE.Vector3(0,Math.PI,0));     // 车头向前
+  mk(new THREE.Vector3(1.0,0.78,0.3), new THREE.Vector3(0,0,Math.PI/2)); // 右侧向外
+  mk(new THREE.Vector3(-1.0,0.78,0.3), new THREE.Vector3(0,0,-Math.PI/2));// 左侧向外
+})();
+/* 悬浮/刹车时的尾灯增强 & 尘 */
+const dust=[];
+function spawnDust(pos,vel,life,size,alpha){
+  if(dust.length>800) return;
+  dust.push({pos:pos.clone(),vel:vel.clone(),life:0,max:life,size0:size*0.4,size1:size,
+    alpha:alpha,seed:R()*6.28});
+}
+function spawnBurst(pos,n,spread,life,size,alpha,dir){
+  for(let i=0;i<n;i++){
+    const v=new THREE.Vector3((R()-.5)*spread, R()*spread*0.6+0.3, (R()-.5)*spread);
+    if(dir) v.add(dir);
+    spawnDust(pos,v.multiplyScalar(1+R()*0.8),life*(0.7+R()*0.6),size*(0.6+R()*0.9),alpha*(0.6+R()*0.6));
+  }
+}
+
+/* 尘埃粒子几何（Points + 自定义 shader） */
+const DUST_MAX=1600;
+const dustGeo=new THREE.BufferGeometry();
+const dPos=new Float32Array(DUST_MAX*3);
+const dSize=new Float32Array(DUST_MAX);
+const dAlpha=new Float32Array(DUST_MAX);
+const dCol=new Float32Array(DUST_MAX*3);
+dustGeo.setAttribute('position',new THREE.BufferAttribute(dPos,3));
+dustGeo.setAttribute('aSize',new THREE.BufferAttribute(dSize,1));
+dustGeo.setAttribute('aAlpha',new THREE.BufferAttribute(dAlpha,1));
+dustGeo.setAttribute('aColor',new THREE.BufferAttribute(dCol,3));
+const dustMat=new THREE.ShaderMaterial({
+  transparent:true, depthWrite:false, fog:false,
+  vertexShader:`
+    attribute float aSize; attribute float aAlpha; attribute vec3 aColor;
+    varying float vA; varying vec3 vC;
+    void main(){
+      vA=aAlpha; vC=aColor;
+      vec4 mv=modelViewMatrix*vec4(position,1.0);
+      gl_PointSize=aSize*(300.0/-mv.z);
+      gl_Position=projectionMatrix*mv;
+    }`,
+  fragmentShader:`
+    uniform sampler2D uTex; varying float vA; varying vec3 vC;
+    void main(){
+      vec4 t=texture2D(uTex,gl_PointCoord);
+      if(t.a<0.05) discard;
+      gl_FragColor=vec4(vC,t.a*vA);
+    }`,
+  uniforms:{uTex:{value:texDome}}
+});
+const dustPts=new THREE.Points(dustGeo,dustMat);
+scene.add(dustPts);
+
+/* ============================================================
+   动画时间线（运动学）
+   ============================================================ */
+const A_LN=0.839, V0=5.0;
+const RUNIN = V0*REL + 0.5*A_LN*REL*REL - RAMP.len;   // 起点距坡道
+const CAR_START_Z = G0 - RUNIN;
+
+const A1=new THREE.Vector3(0,20.6,TOP_Z+3.8);   // 最高点 67.5FT
+const HH =new THREE.Vector3(0,1.35,TOP_Z+6.4);
+const TD =new THREE.Vector3(0,0.04,TOP_Z+7.2);
+const vR =new THREE.Vector3(0,TOP.d.y,TOP.d.z).multiplyScalar(V_EXIT);
+const vZ =new THREE.Vector3(0,0,0);
+const vH =new THREE.Vector3(0,-0.7,0.55);
+const vTD=new THREE.Vector3(0,-0.12,0.35);
+
+function simState(t){
+  const st={pos:new THREE.Vector3(), vel:new THREE.Vector3(), pitch:0, roll:0,
+    phase:'LAUNCH', retro:0, rcs:0};
+  if(t<REL){
+    const sCar = -RUNIN + V0*t + 0.5*A_LN*t*t;
+    const r=sCar<0 ? {p:new THREE.Vector3(0,0.02,G0+sCar), d:new THREE.Vector3(0,0,1)} : rampPos(sCar);
+    st.pos.copy(r.p);
+    const v=V0+A_LN*t;
+    st.vel.set(0,v*r.d.y,v*r.d.z);
+    st.pitch=Math.atan2(r.d.y, r.d.z);
+    st.phase='LAUNCH';
+    st.retro=0; st.rcs=0;
+    return st;
+  }
+  const tt=t-REL;
+  if(tt<4.45){  // 飞行段
+    const R0=TOP.p.clone();
+    let p;
+    if(tt<0.55){ p=hermite(R0,vR,A1,vZ,tt/0.55); }
+    else if(tt<3.15){ p=hermite(A1,vZ,HH,vH,(tt-0.55)/2.6); }
+    else { p=hermite(HH,vH,TD,vTD,(tt-3.15)/1.3); }
+    st.pos.copy(p);
+    // 速度（用于姿态）
+    const vSeg = tt<0.55? vR : tt<3.15? (tt-0.55)<2.6? vH : vH : vTD;
+    st.vel.copy(vSeg);
+    // 姿态：RCS 快速压平 → 轻微收敛摆动 → 悬停完全水平
+    let pitchTgt=THETA*Math.exp(-3.4*tt);
+    st.pitch=pitchTgt*(1-Math.min(1,tt/1.05));
+    if(tt>=1.05 && tt<1.9) st.pitch=Math.sin((tt-1.05)*4.2)*0.06;
+    if(tt>=1.9) st.pitch=0;
+    st.roll=Math.sin(tt*2.1)*0.07*Math.max(0,1-tt/3);
+    if(tt>0.4 && tt<2.1) st.rcs=1;
+    if(tt>2.45) st.retro=clamp((tt-2.45)/0.55,0,1);
+    st.phase = tt<1.7? 'FLIGHT · RCS' : 'RETRO THRUST';
+    return st;
+  }
+  // 落地后巡航
+  const tG=t-REL-4.45;
+  const aC=1.6, vMax=22;
+  const vG=Math.min(vMax, 3.2+aC*tG);
+  const zG=TD.z + 3.2*tG + 0.5*aC*tG*tG;
+  st.pos.set(0,0.04,zG);
+  st.vel.set(0,0,vG);
+  st.pitch=0; st.roll=0;
+  st.phase='CRUISE';
+  return st;
+}
+
+/* ============================================================
+   相机运镜（多机位 softmax 平滑切换）
+   ============================================================ */
+const CAM=[];
+function camKey(pk,posFn,tarFn,fov){
+  CAM.push({pk,posFn,tarFn,fov});
+}
+camKey(0.8,
+  ()=>{ const s=simState(animT).pos; return new THREE.Vector3(s.x-7.2,1.6,s.z+5.6); },
+  ()=>{ const s=simState(animT).pos; return new THREE.Vector3(s.x,1.0,s.z); }, 55);
+camKey(3.2,
+  ()=>{ const s=simState(animT).pos; return new THREE.Vector3(s.x-2.4,1.25,s.z-6.4); },
+  ()=>{ const s=simState(animT).pos; return new THREE.Vector3(s.x,0.8,s.z+1); }, 62);
+camKey(7.0,
+  ()=>{ const s=simState(animT).pos; const wig=Math.sin(animT*0.7)*0.5;
+    return new THREE.Vector3(-15.5,9.5+wig+Math.max(0,s.y-8)*0.55,s.z+0.5); },
+  ()=>{ const s=simState(animT).pos; return new THREE.Vector3(0,Math.min(18,Math.max(2.5,s.y*0.85)),s.z); }, 57);
+camKey(11.6,
+  ()=>{ const s=simState(animT).pos; return new THREE.Vector3(-6.6,2.5,s.z+6.6); },
+  ()=>{ const s=simState(animT).pos; return new THREE.Vector3(0,0.9,s.z-1); }, 58);
+camKey(14.2,
+  ()=>{ const s=simState(animT).pos; return new THREE.Vector3(-3.4,17.2,s.z+6.4); },
+  ()=>{ const s=simState(animT).pos; return new THREE.Vector3(0,0.5,s.z+2); }, 56);
+camKey(19.5,
+  ()=>{ const s=simState(animT).pos; return new THREE.Vector3(0.6,25.5,s.z+11); },
+  ()=>{ const s=simState(animT).pos; return new THREE.Vector3(0,0.4,s.z+8); }, 58);
+camKey(24.6,
+  ()=>{ const s=simState(animT).pos; return new THREE.Vector3(0,42,s.z+46); },
+  ()=>{ const s=simState(animT).pos; return new THREE.Vector3(0,0.3,s.z+14); }, 60);
+
+function cameraAt(t){
+  /* softmax 权重：随播放时间在机位之间连续切换，避免双机位叠加 */
+  let px=0,py=0,pz=0,tx=0,ty=0,tz=0,fw=0,sum=0;
+  for(const k of CAM){
+    const d=Math.abs(t-k.pk);
+    const w=Math.exp(-1.6*d);
+    if(w<=0.0001) continue;
+    const p=k.posFn(), g=k.tarFn();
+    px+=p.x*w; py+=p.y*w; pz+=p.z*w;
+    tx+=g.x*w; ty+=g.y*w; tz+=g.z*w;
+    fw+=k.fov*w; sum+=w;
+  }
+  if(sum<=0){ const s=simState(t).pos; return {pos:new THREE.Vector3(s.x-14,10,s.z+8),tar:new THREE.Vector3(0,2,s.z),fov:55}; }
+  return {pos:new THREE.Vector3(px/sum,py/sum,pz/sum),
+          tar:new THREE.Vector3(tx/sum,ty/sum,tz/sum), fov:fw/sum};
+}
+
+/* ============================================================
+   渲染循环
+   ============================================================ */
+const clock=new THREE.Clock();
+let animT=SEEKT!==null? SEEKT : 0;
+let shakeAmp=0, lastTouch=-99;
+window.__ok=false;
+const hudG=document.getElementById('hudG');
+const hudAlt=document.getElementById('hudAlt');
+const hudStat=document.getElementById('hudStat');
+const hudPitch=document.getElementById('hudPitch');
+const hudSpd=document.getElementById('hudSpd');
+const barG=document.getElementById('barG');
+const barAlt=document.getElementById('barAlt');
+const attIcon=document.getElementById('attIcon');
+const fadeEl=document.getElementById('fade');
+let gDisp=0.4;
+
+function frame(){
+  if(!(SEEKT!==null && window.__probe)) requestAnimationFrame(frame);  // 探针模式单帧
+  const dt=Math.min(clock.getDelta(),0.05);
+  try{
+  frameInner(dt);
+  window.__ok=true;
+  }catch(e){ window.__ok=false; if(!window.__reported){window.__reported=true; console.error('FRAME_ERROR',e&&e.stack||e);} }
+}
+function frameInner(dt){
+  if(SEEKT===null && !RUNSIM){
+    animT+=dt;
+    if(animT>=T_LOOP){ animT-=T_LOOP; lastTouch=-99; shakeAmp=0; }
+  }
+  const t=animT;
+  const st=simState(t);
+
+  /* ---- 车体放置 ---- */
+  carRoot.position.copy(st.pos);
+  carRoot.rotation.set(-st.pitch,0,st.roll);
+  /* 追光灯跟随 */
+  carSpot.position.set(st.pos.x-7, st.pos.y+10, st.pos.z-6);
+  carSpot.target.position.copy(st.pos);
+  carFill.position.set(st.pos.x+6, st.pos.y+2.5, st.pos.z+8);
+  /* 悬挂（落地压缩 + 恢复） */
+  if(t>=REL+4.45){
+    const tg=t-(REL+4.45);
+    const squash=(1-Math.exp(-tg*6))*0.085;
+    susOffset=-squash;
+  } else {
+    susOffset=0;
+  }
+  carBody.position.y=susOffset;
+
+  /* ---- 车轮旋转 ---- */
+  const dist=dt*st.vel.length();
+  wheelSpin+=dist/0.34;
+  for(const w of wheels) w.grp.rotation.x=wheelSpin;
+
+  /* ---- 喷流可见性与动画 ---- */
+  const retroOn=st.retro>0;
+  for(let i=0;i<4;i++){
+    const j=retroJets[i];
+    j.g.visible=retroOn;
+    if(retroOn){
+      const f=0.85+0.30*Math.sin(t*31+j.phase)+0.10*Math.sin(t*57+j.phase*2);
+      for(const c of [j.out,j.mid,j.core]){
+        c.scale.set(f,0.8+0.3*Math.sin(t*23+j.phase),f);
+        c.material.opacity=c.material.opacity>0.45? 0.26+0.18*Math.sin(t*17+j.phase):0.42;
+      }
+      j.out.scale.set(f*1.1,0.9+0.3*Math.sin(t*21+j.phase),f*1.1);
+    }
+  }
+  const rcsOn=st.rcs>0;
+  for(const j of rcsJets){
+    j.visible=rcsOn;
+    if(rcsOn){
+      const f=0.8+0.35*Math.sin(t*41+Math.random()*0.5);
+      j.children[0].scale.set(f,f,0.7+0.4*Math.sin(t*29));
+    }
+  }
+  /* 底部蓝光：爬坡吸地时增强，飞行关闭 */
+  const ugl=underGlow.material;
+  ugl.opacity= t<REL? 0.45+0.1*Math.sin(t*9): (t<REL+4.5?0.08:0.3);
+
+  /* 尾灯：反推阶段变亮 */
+  tailLight.material.emissiveIntensity= st.retro>0? 3.6 : 2.2;
+
+  /* ---- 尘埃 / 浓烟粒子 ---- */
+  if(t<REL+4.45 && st.retro>0){
+    const baseSt=st.pos;
+    for(const [x,z] of [[-0.78,1.5],[0.78,1.5],[-0.82,-1.55],[0.82,-1.55]]){
+      const p=new THREE.Vector3(x,-0.3,z).applyEuler(new THREE.Euler(-st.pitch,0,st.roll)).add(baseSt);
+      const v=new THREE.Vector3((R()-.5)*1.6,-0.25-R()*0.8,(R()-.5)*1.6+R()*0.5);
+      spawnDust(p,v,2.2+R()*1.6,2.2+R()*2.4,0.5);
+    }
+  }
+  if(t>=REL+4.45){
+    /* 触地瞬间大爆发 */
+    if(t>lastTouch+0.2 && t>=REL+4.45 && lastTouch<REL+4.45){
+      spawnBurst(st.pos.clone().add(new THREE.Vector3(0,0.4,0)),150,9,3.4,6.2,0.62,
+        new THREE.Vector3(0,1.4,0.9));
+      spawnBurst(st.pos.clone().add(new THREE.Vector3(0,0.2,1)),80,8,4.4,8,0.5,
+        new THREE.Vector3(0,1.1,2));
+      shakeAmp=0.55;
+      lastTouch=t;
+    }
+    /* 巡航尘土 */
+    if(R()<0.25){
+      const p=st.pos.clone().add(new THREE.Vector3((R()-.5)*1.2,0.12,-2.2));
+      const v=new THREE.Vector3((R()-.5)*1.2,0.7,-st.vel.z*0.05);
+      spawnDust(p,v,1.1+R()*0.8,1.4+R()*1,0.22);
+    }
+  }
+  /* 更新粒子 */
+  const wind=new THREE.Vector3(0.3,0.03,0.45);
+  for(let i=dust.length-1;i>=0;i--){
+    const d=dust[i];
+    d.life+=dt;
+    if(d.life>=d.max){ dust.splice(i,1); continue; }
+    d.vel.multiplyScalar(0.96).addScaledVector(wind,dt*0.8);
+    d.vel.y+=dt*0.55;
+    d.pos.addScaledVector(d.vel,dt);
+  }
+  for(let i=0;i<DUST_MAX;i++){
+    dAlpha[i]=0; dSize[i]=1;
+  }
+  for(let i=0;i<dust.length;i++){
+    const d=dust[i], u=d.life/d.max;
+    dPos[i*3]=d.pos.x; dPos[i*3+1]=d.pos.y; dPos[i*3+2]=d.pos.z;
+    dSize[i]=smooth(d.size0,d.size1,u);
+    const a=d.alpha*(1-u)*(1-u);
+    dAlpha[i]=a;
+    const c=0.86+0.10*Math.sin(d.seed);
+    dCol[i*3]=c; dCol[i*3+1]=c; dCol[i*3+2]=c;
+  }
+  dustGeo.attributes.position.needsUpdate=true;
+  dustGeo.attributes.aSize.needsUpdate=true;
+  dustGeo.attributes.aAlpha.needsUpdate=true;
+  dustGeo.attributes.aColor.needsUpdate=true;
+
+  /* ---- 探照灯摆动 ---- */
+  for(let i=0;i<searchBeams.length;i++){
+    const b=searchBeams[i];
+    b.grp.rotation.z=Math.sin(t*0.18+i*2.1)*0.10;
+    b.beam.material.opacity=0.07+0.035*Math.sin(t*1.7+i*2.4);
+  }
+  /* 警示灯闪烁 */
+  const blink=0.55+0.45*Math.sin(t*4.4);
+  for(const im of lamps){ im.material.color.setRGB(1,0.16*blink,0.11*blink); }
+  const rampBlink=0.5+0.5*Math.sin(t*7.1);
+  for(const im of rampLamps){
+    for(let i=0;i<im.count;i++){
+      const m4=new THREE.Matrix4();
+      im.getMatrixAt(i,m4);
+      const fl=m4.elements[13];
+      const b=0.35+0.65*Math.max(0,Math.sin(fl*9.2-t*7.4));
+      im.setColorAt(i,new THREE.Color(1,0.20*b,0.13*b));
+    }
+    im.instanceColor.needsUpdate=true;
+  }
+
+  /* ---- 相机 ---- */
+  const cam=cameraAt(t);
+  if(SEEKT!==null && window.__probe){
+    camera.position.copy(cam.pos);
+    camera.fov=cam.fov;
+    camera.updateProjectionMatrix();
+  } else {
+    camera.fov+= (cam.fov-camera.fov)*Math.min(1,dt*5);
+    camera.updateProjectionMatrix();
+    camera.position.lerp(cam.pos,Math.min(1,dt*4.2));
+  }
+  const targetV=new THREE.Vector3();
+  targetV.copy(cam.tar);
+  /* 落地震动 */
+  if(shakeAmp>0.001){
+    camera.position.add(new THREE.Vector3(
+      (R()-.5)*shakeAmp,(R()-.5)*shakeAmp,(R()-.5)*shakeAmp));
+    shakeAmp*=Math.exp(-dt*5);
+  }
+  camera.lookAt(targetV);
+
+  /* ---- HUD ---- */
+  let gVal;
+  if(t<REL){
+    const u=t/REL;
+    gVal=1.34-0.3*smooth(0,1,u)+0.06*Math.sin(t*9);
+  } else if(t<REL+1.7){
+    gVal=0.4+0.12*Math.sin(t*5);
+  } else if(t<REL+4.45){
+    const u=(t-(REL+1.7))/(4.45-1.7);
+    gVal=0.45+0.78*Math.min(1,u);
+  } else {
+    const u=Math.min(1,(t-(REL+4.45))/4);
+    gVal=1.25-0.7*smooth(0,1,u)+0.05*Math.sin(t*3);
+  }
+  gVal=clamp(gVal,0.4,1.4);
+  gDisp+= (gVal-gDisp)*Math.min(1,dt*4);
+  hudG.textContent=gDisp.toFixed(2);
+  barG.style.transform='scaleX('+((gDisp-0.3)/1.1)+')';
+  const altFt=clamp(st.pos.y*3.28084,0,67.5);
+  hudAlt.textContent=altFt.toFixed(1);
+  barAlt.style.height=(altFt/67.5*100)+'%';
+  const pitchDeg=st.pitch*180/Math.PI;
+  attIcon.setAttribute('transform','translate(75,44) rotate('+(-pitchDeg)+')');
+  hudPitch.textContent='PITCH '+Math.round(pitchDeg)+'°';
+  const mph=st.vel.length()*2.237;
+  hudSpd.textContent=Math.round(mph)+' MPH';
+  hudStat.innerHTML='<span class="dot"></span>'+st.phase;
+
+  /* ---- 淡出 / 循环过渡 ---- */
+  let fade=0;
+  if(t>22.3){ fade=smooth(0,1,(t-22.3)/1.2); }
+  if(t>24.1){ fade=1-smooth(0,1,(t-24.1)/0.9); }
+  fadeEl.style.opacity=fade;
+
+  /* ---- 渲染 ---- */
+  renderer.render(scene,camera);
+
+  /* ---- 调试探针：页内图像采样车体/背景像素 ---- */
+  if(SEEKT!==null && window.__probe){
+    const url=renderer.domElement.toDataURL('image/png');
+    const img=new Image();
+    img.onload=function(){
+      const cv=document.createElement('canvas'); cv.width=img.width; cv.height=img.height;
+      const ctx=cv.getContext('2d'); ctx.drawImage(img,0,0);
+      const pts={
+        body:[0,0.55,0], nose:[0,0.5,2.2], tail:[0,0.55,-2.25],
+        wheel:[0.9,0.34,-1.55], bg:[9,3.5,2]
+      };
+      let out='PROBE t='+t.toFixed(2)+' cam='+camera.position.toArray().map(x=>x.toFixed(1)).join(',');
+      for(const k in pts){
+        const v=new THREE.Vector3(...pts[k]).applyMatrix4(carRoot.matrixWorld);
+        const p=v.clone().project(camera);
+        const px=Math.round((p.x*0.5+0.5)*img.width);
+        const py=Math.round((-p.y*0.5+0.5)*img.height);
+        if(px>=0&&py>=0&&px<img.width&&py<img.height){
+          const d=ctx.getImageData(px,py,1,1).data;
+          out+=' '+k+'@'+px+','+py+'=('+d[0]+','+d[1]+','+d[2]+')';
+        } else out+=' '+k+'=OFFSCREEN';
+      }
+      document.title=out;
+      document.getElementById('probeout').textContent=out;
+    };
+    img.src=url;
+  }
+}
+
+/* 初始起步场景（用于 #t= 单帧调试） */
+if(SIMT!==null){
+  RUNSIM=true;
+  const step=0.033;
+  while(animT<SIMT-1e-9){ frameInner(step); animT+=step; }
+  frameInner(step);
+  window.__dbgDone=true;
+  renderer.render(scene,camera);
+} else {
+  frame();
+}
+})();
+</script>
+<!--zc-home:start--><style>.zc-home-btn{position:fixed;top:16px;left:16px;z-index:2147483647;display:inline-flex;align-items:center;gap:6px;padding:8px 14px;font:500 13px/1.1 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Noto Sans SC",sans-serif;color:#111;background:rgba(255,255,255,.86);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);border:1px solid rgba(0,0,0,.08);border-radius:999px;text-decoration:none;box-shadow:0 2px 12px rgba(0,0,0,.2);transition:background .2s ease,transform .2s ease,box-shadow .2s ease}.zc-home-btn:hover{background:#fff;transform:translateY(-1px);box-shadow:0 4px 18px rgba(0,0,0,.26)}</style><a class="zc-home-btn" href="../">← 返回首页</a><script>(function(){try{if(window.self!==window.top||/[?&]embed=1(?:&|$)/.test(location.search)){var b=document.querySelector(".zc-home-btn");if(b&&b.parentNode)b.parentNode.removeChild(b);}}catch(e){}})();</script><!--zc-home:end-->
+</body>
+</html>

@@ -1,0 +1,270 @@
+{
+  "generatedAt": "2026-10-24T19:24:21.419Z",
+  "model": "jev-1.14.0",
+  "weights": {
+    "vehicle": 30,
+    "starman": 25,
+    "space": 20,
+    "flight": 25
+  },
+  "dimLabels": {
+    "vehicle": "整车还原",
+    "starman": "Starman 姿态",
+    "space": "太空场景",
+    "flight": "飞行动力学"
+  },
+  "results": [
+    {
+      "slug": "glm-5.3",
+      "total": 33,
+      "dims": {
+        "vehicle": {
+          "score": 1.79,
+          "confidence": 0.73,
+          "frac": 0.597
+        },
+        "starman": {
+          "score": 0.23,
+          "confidence": 0.78,
+          "frac": 0.077
+        },
+        "space": {
+          "score": 0.62,
+          "confidence": 0.55,
+          "frac": 0.207
+        },
+        "flight": {
+          "score": 1.08,
+          "confidence": 0.43,
+          "frac": 0.36
+        }
+      },
+      "jev": "jev-1.14.0",
+      "rank": 1
+    },
+    {
+      "slug": "kimi-k3",
+      "total": 26,
+      "dims": {
+        "vehicle": {
+          "score": 1,
+          "confidence": 0.73,
+          "frac": 0.333
+        },
+        "starman": {
+          "score": 0.83,
+          "confidence": 0.71,
+          "frac": 0.277
+        },
+        "space": {
+          "score": 1.03,
+          "confidence": 0.56,
+          "frac": 0.343
+        },
+        "flight": {
+          "score": 0.26,
+          "confidence": 0.74,
+          "frac": 0.087
+        }
+      },
+      "jev": "jev-1.14.0",
+      "rank": 2
+    },
+    {
+      "slug": "opus-5.5",
+      "total": 25,
+      "dims": {
+        "vehicle": {
+          "score": 0.74,
+          "confidence": 0.74,
+          "frac": 0.247
+        },
+        "starman": {
+          "score": 0.41,
+          "confidence": 0.6,
+          "frac": 0.137
+        },
+        "space": {
+          "score": 2.05,
+          "confidence": 0.62,
+          "frac": 0.683
+        },
+        "flight": {
+          "score": 0.08,
+          "confidence": 0.93,
+          "frac": 0.027
+        }
+      },
+      "jev": "jev-1.14.0",
+      "rank": 3
+    },
+    {
+      "slug": "step-5-preview",
+      "total": 19,
+      "dims": {
+        "vehicle": {
+          "score": 0.24,
+          "confidence": 0.77,
+          "frac": 0.08
+        },
+        "starman": {
+          "score": 0.56,
+          "confidence": 0.56,
+          "frac": 0.187
+        },
+        "space": {
+          "score": 1.7,
+          "confidence": 0.55,
+          "frac": 0.567
+        },
+        "flight": {
+          "score": 0.04,
+          "confidence": 0.95,
+          "frac": 0.013
+        }
+      },
+      "jev": "jev-1.14.0",
+      "rank": 4
+    },
+    {
+      "slug": "mercury-3",
+      "total": 10,
+      "dims": {
+        "vehicle": {
+          "score": 0.07,
+          "confidence": 0.94,
+          "frac": 0.023
+        },
+        "starman": {
+          "score": 0.43,
+          "confidence": 0.58,
+          "frac": 0.143
+        },
+        "space": {
+          "score": 0.74,
+          "confidence": 0.72,
+          "frac": 0.247
+        },
+        "flight": {
+          "score": 0.13,
+          "confidence": 0.86,
+          "frac": 0.043
+        }
+      },
+      "jev": "jev-1.14.0",
+      "rank": 5
+    },
+    {
+      "slug": "deepseek-v4.1-flash",
+      "total": 9,
+      "dims": {
+        "vehicle": {
+          "score": 0.04,
+          "confidence": 0.97,
+          "frac": 0.013
+        },
+        "starman": {
+          "score": 0.7,
+          "confidence": 0.7,
+          "frac": 0.233
+        },
+        "space": {
+          "score": 0.33,
+          "confidence": 0.67,
+          "frac": 0.11
+        },
+        "flight": {
+          "score": 0.05,
+          "confidence": 0.96,
+          "frac": 0.017
+        }
+      },
+      "jev": "jev-1.14.0",
+      "rank": 6
+    },
+    {
+      "slug": "glm-5.3-flash",
+      "total": 9,
+      "dims": {
+        "vehicle": {
+          "score": 0.06,
+          "confidence": 0.94,
+          "frac": 0.02
+        },
+        "starman": {
+          "score": 0.01,
+          "confidence": 0.99,
+          "frac": 0.003
+        },
+        "space": {
+          "score": 0.32,
+          "confidence": 0.68,
+          "frac": 0.107
+        },
+        "flight": {
+          "score": 0.74,
+          "confidence": 0.28,
+          "frac": 0.247
+        }
+      },
+      "jev": "jev-1.14.0",
+      "rank": 7
+    },
+    {
+      "slug": "gemini-4-argon-high",
+      "total": 5,
+      "dims": {
+        "vehicle": {
+          "score": 0.01,
+          "confidence": 1,
+          "frac": 0.003
+        },
+        "starman": {
+          "score": 0.12,
+          "confidence": 0.89,
+          "frac": 0.04
+        },
+        "space": {
+          "score": 0.34,
+          "confidence": 0.67,
+          "frac": 0.113
+        },
+        "flight": {
+          "score": 0.17,
+          "confidence": 0.81,
+          "frac": 0.057
+        }
+      },
+      "jev": "jev-1.14.0",
+      "rank": 8
+    },
+    {
+      "slug": "hy4-preview",
+      "total": 1,
+      "dims": {
+        "vehicle": {
+          "score": 0.01,
+          "confidence": 1,
+          "frac": 0.003
+        },
+        "starman": {
+          "score": 0.02,
+          "confidence": 0.99,
+          "frac": 0.007
+        },
+        "space": {
+          "score": 0.04,
+          "confidence": 0.96,
+          "frac": 0.013
+        },
+        "flight": {
+          "score": 0.01,
+          "confidence": 1,
+          "frac": 0.003
+        }
+      },
+      "jev": "jev-1.14.0",
+      "rank": 9
+    }
+  ]
+}

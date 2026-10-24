@@ -214,6 +214,45 @@ const categories = [
       ["sn-deepseek-v4.1-flash", "DeepSeek V4.1 Flash (SN)", "Canvas 2D"],
     ].map(([slug, name, sub]) => ({ slug, name, sub })),
   },
+  {
+    // Engineering group: non-animal tasks with a harder factual/physics bar.
+    group: "eng",
+    slug: "roadster",
+    title: "太空飞车",
+    emoji: "🚗",
+    blurb: "SpaceX 把特斯拉 Roadster 与 Starman 送入太空,考整车还原、太空人姿态与轨道光影。",
+    exam: "Roadster 车身还原、Starman 坐姿、地球与星空的光影,以及冷气推进/起降的物理表现。",
+    lede: "2018 年 Falcon Heavy 把一台樱桃红的特斯拉 Roadster 和穿着宇航服的 Starman 送入太空 —— 车在真空里缓缓翻滚,地球与太阳在身后转动。这一题让模型做出这个场景(或它的近亲:冷气推进的垂直起飞、飞跃与软着陆),考的是整车造型还原、Starman 的坐姿与手臂、真实感的太空光影(单侧阳光、地球曲率、星空),以及推进与轨迹的物理说服力。下面按模型版本归档,缩略图为真实渲染效果,点击卡片查看可交互的在线页面。",
+    versions: [
+      ["kimi-k3", "Kimi K3", "Three.js 3D"],
+      ["deepseek-v4.1-flash", "DeepSeek V4.1 Flash", "Three.js 3D"],
+      ["gemini-4-argon-high", "Gemini 4 Argon High", "Three.js 3D"],
+      ["opus-5.5", "Claude Opus 5.5", "Three.js 3D"],
+      ["glm-5.3", "GLM 5.3", "Three.js 3D"],
+      ["glm-5.3-flash", "GLM 5.3 Flash", "Three.js 3D"],
+      ["mercury-3", "Inception Mercury 3", "Three.js 3D"],
+      ["step-5-preview", "Step 5 Preview", "Three.js 3D"],
+      ["hy4-preview", "HY4 Preview", "Canvas 2D"],
+    ].map(([slug, name, sub]) => ({ slug, name, sub })),
+  },
+  {
+    group: "eng",
+    slug: "sht-tmd",
+    title: "上海中心阻尼器",
+    emoji: "🌀",
+    blurb: "台风过境时,632m 上海中心顶部的千吨摆式 TMD 反相摆动,为大厦吸能减振。",
+    exam: "阻尼器构造按图纸还原(吊索/门架/斜撑/慧眼雕塑)、塔楼 120° 扭转,与摆振减振的工程物理。",
+    lede: "上海中心大厦 632 米的塔冠里挂着一台 1000 吨的电涡流摆式调谐质量阻尼器。台风过境时塔楼扭转弯曲振动,质量块反向复摆,摆杆在磁场中耗能,把能量吸走 —— 参数一旦失谐,减振立刻失效。这一题给模型真实的图纸资料,考照图还原的功力(红色质量块、12 根吊索、金色门架、随摆伸缩的斜撑、叠片式「上海慧眼」雕塑、圆角三角形 120° 扭转的双层幕墙、黄浦江与陆家嘴三大地标),也考工程物理的说服力(共振、反相、行程限位、减振率)。下面按模型版本归档,缩略图为真实渲染效果,点击卡片查看可交互的在线页面。",
+    versions: [
+      ["gemini-4-argon", "Gemini 4 Argon", "Three.js 3D"],
+      ["glm", "GLM", "Three.js 3D"],
+      ["glm-5.3", "GLM 5.3", "Three.js 3D"],
+      ["deepseek-v4.1-flash-1017", "DeepSeek V4.1 Flash 1017", "Three.js 3D"],
+      ["kimi-k3", "Kimi K3", "Three.js 3D"],
+      ["kimi-work-1.1", "Kimi Work 1.1", "Three.js 3D"],
+      ["grokbot", "GrokBot Builder", "Three.js 3D"],
+    ].map(([slug, name, sub]) => ({ slug, name, sub })),
+  },
 ];
 
 // ---- project grouping (logical, for now) ----
@@ -325,7 +364,8 @@ const soonCard = `    <div class="cat soon">
     </div>`;
 
 function renderHub() {
-  const cards = categories.map(hubCard).join("\n\n") + "\n\n" + soonCard;
+  const zooCards = categories.filter((c) => !c.group).map(hubCard).join("\n\n");
+  const engCards = categories.filter((c) => c.group === "eng").map(hubCard).join("\n\n");
   return `<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -354,7 +394,15 @@ ${FONTS}
   <div class="label"><span>Zoo Test</span><b>动物创意基准 · Categories</b><i></i></div>
 
   <div class="grid">
-${cards}
+${zooCards}
+  </div>
+
+  <div class="label"><span>Engineering</span><b>工程与物理仿真 · Categories</b><i></i></div>
+
+  <div class="grid">
+${engCards}
+
+${soonCard}
   </div>
 
   <footer>

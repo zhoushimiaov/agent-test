@@ -1,0 +1,903 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<title>Roadster — Liftoff</title>
+<style>
+  html,body{margin:0;padding:0;height:100%;background:#000;overflow:hidden;cursor:none}
+  canvas{display:block;width:100vw;height:100vh}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+(function(){
+'use strict';
+
+/* ============================================================
+   Roadster — Liftoff
+   单文件 Canvas 2D 电影片段 / 26s 自动循环
+   Act1 荒漠夜路疾驰 → Act2 点火抬升 → Act3 穿出大气层
+   → Act4 近地轨道环绕地球 → Act5 飞向火星 → 黑场回环
+   ============================================================ */
+
+var cvs = document.getElementById('c');
+var ctx = cvs.getContext('2d', { alpha: false });
+var W = 0, H = 0, DPR = 1;
+
+function resize(){
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  W = window.innerWidth; H = window.innerHeight;
+  cvs.width = Math.max(2, Math.floor(W * DPR));
+  cvs.height = Math.max(2, Math.floor(H * DPR));
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+}
+window.addEventListener('resize', resize);
+resize();
+
+/* ---------- 小工具 ---------- */
+function clamp(v,a,b){ return v<a?a:(v>b?b:v); }
+function lerp(a,b,t){ return a+(b-a)*t; }
+function ss(e0,e1,x){ var t=clamp((x-e0)/(e1-e0),0,1); return t*t*(3-2*t); }
+function h1(i){ var x=Math.sin(i*127.1+11.7)*43758.5453; return x-Math.floor(x); }
+function rnd(a,b){ return a+Math.random()*(b-a); }
+var TAU = Math.PI*2;
+
+/* ---------- 光斑精灵（比每帧建渐变快得多） ---------- */
+function makeGlow(r,g,b){
+  var s=128, c=document.createElement('canvas'); c.width=c.height=s;
+  var x=c.getContext('2d');
+  var gr=x.createRadialGradient(s/2,s/2,0,s/2,s/2,s/2);
+  gr.addColorStop(0.00,'rgba('+r+','+g+','+b+',0.95)');
+  gr.addColorStop(0.18,'rgba('+r+','+g+','+b+',0.55)');
+  gr.addColorStop(0.45,'rgba('+r+','+g+','+b+',0.18)');
+  gr.addColorStop(1.00,'rgba('+r+','+g+','+b+',0)');
+  x.fillStyle=gr; x.fillRect(0,0,s,s);
+  return c;
+}
+var GLOW_ORANGE = makeGlow(255,168,72);
+var GLOW_WHITE  = makeGlow(255,242,220);
+var GLOW_BLUE   = makeGlow(130,190,255);
+var GLOW_RED    = makeGlow(255,70,48);
+var GLOW_DUST   = makeGlow(196,182,158);
+var GLOW_SUN    = makeGlow(255,236,200);
+
+function glow(img,x,y,r,a){
+  if(a<=0.004||r<=0) return;
+  var prev=ctx.globalAlpha;      // 与场景整体透明度相乘，避免破坏转场
+  ctx.globalAlpha=prev*a;
+  ctx.drawImage(img,x-r,y-r,r*2,r*2);
+  ctx.globalAlpha=prev;
+}
+
+/* ---------- 胶片颗粒 ---------- */
+var grainTile=document.createElement('canvas'); grainTile.width=grainTile.height=200;
+(function(){
+  var g=grainTile.getContext('2d');
+  var id=g.createImageData(200,200), d=id.data;
+  for(var i=0;i<d.length;i+=4){
+    var v=Math.random(), c=v>0.5?255:0;
+    d[i]=c; d[i+1]=c; d[i+2]=c; d[i+3]=Math.random()*46;
+  }
+  g.putImageData(id,0,0);
+})();
+var grainPat=ctx.createPattern(grainTile,'repeat');
+
+/* ---------- 星空 ---------- */
+var STARS=[];
+(function(){
+  for(var i=0;i<620;i++){
+    STARS.push({ x:Math.random(), y:Math.random(), z:0.30+Math.random()*0.70,
+                 r:0.28+Math.pow(Math.random(),2.4)*1.55, p:Math.random()*TAU,
+                 w:Math.random()<0.10 });
+  }
+})();
+function drawStars(alpha, bottom, dx, dy, tw){
+  if(alpha<=0.005) return;
+  ctx.save();
+  ctx.beginPath(); ctx.rect(0,0,W,bottom); ctx.clip();
+  ctx.globalCompositeOperation='lighter';
+  for(var i=0;i<STARS.length;i++){
+    var s=STARS[i];
+    var px=((s.x+dx*s.z*0.05)%1+1)%1;
+    var py=((s.y+dy*s.z*0.05)%1+1)%1;
+    var sx=px*W, sy=py*bottom;
+    var a=alpha*s.z*(0.55+0.45*Math.sin(tw*1.7+s.p));
+    if(a<=0.01) continue;
+    var rr=s.r*(0.55+s.z*0.85);
+    ctx.globalAlpha=clamp(a,0,1);
+    glow(s.w?GLOW_BLUE:GLOW_WHITE, sx, sy, rr*3.2, 0.55);
+    ctx.globalAlpha=clamp(a,0,1)*0.9;
+    ctx.fillStyle='#fff';
+    ctx.beginPath(); ctx.arc(sx,sy,rr,0,TAU); ctx.fill();
+  }
+  ctx.restore();
+}
+
+/* ---------- 粒子 ---------- */
+var PARTS=[];
+function spawn(x,y,vx,vy,r,life,img){
+  if(PARTS.length>320) PARTS.shift();
+  PARTS.push({x:x,y:y,vx:vx,vy:vy,r:r,life:life,max:life,img:img});
+}
+function updateParts(dt){
+  for(var i=PARTS.length-1;i>=0;i--){
+    var p=PARTS[i]; p.life-=dt;
+    if(p.life<=0){ PARTS.splice(i,1); continue; }
+    p.x+=p.vx*dt; p.y+=p.vy*dt;
+    p.vx*=0.988; p.vy=p.vy*0.988+7*dt;
+    p.r*=1.012;
+  }
+}
+function drawParts(){
+  ctx.save(); ctx.globalCompositeOperation='lighter';
+  for(var i=0;i<PARTS.length;i++){
+    var p=PARTS[i], k=p.life/p.max;
+    glow(p.img,p.x,p.y,p.r,Math.pow(k,1.5)*0.85);
+  }
+  ctx.restore();
+}
+
+/* ============================================================
+   车辆绘制（侧视，车头朝 +x，单位：米）
+   ============================================================ */
+function drawWheel(spin){
+  ctx.save(); ctx.rotate(spin);
+  ctx.beginPath(); ctx.arc(0,0,0.365,0,TAU);
+  var g=ctx.createRadialGradient(0,0,0.08,0,0,0.365);
+  g.addColorStop(0,'#191a1e'); g.addColorStop(0.72,'#0c0d10'); g.addColorStop(1,'#05060a');
+  ctx.fillStyle=g; ctx.fill();
+  ctx.beginPath(); ctx.arc(0,0,0.235,0,TAU);
+  var g2=ctx.createLinearGradient(-0.2,-0.2,0.2,0.2);
+  g2.addColorStop(0,'#eef2f8'); g2.addColorStop(0.45,'#7e8794'); g2.addColorStop(0.75,'#c9cfd8'); g2.addColorStop(1,'#5c646e');
+  ctx.fillStyle=g2; ctx.fill();
+  ctx.strokeStyle='rgba(24,28,34,0.75)'; ctx.lineWidth=0.032;
+  for(var i=0;i<5;i++){
+    var a=i/5*TAU;
+    ctx.beginPath(); ctx.moveTo(0,0);
+    ctx.lineTo(Math.cos(a)*0.222,Math.sin(a)*0.222); ctx.stroke();
+  }
+  ctx.beginPath(); ctx.arc(0,0,0.062,0,TAU);
+  ctx.fillStyle='#6b7280'; ctx.fill();
+  ctx.restore();
+  // 转动模糊弧
+  ctx.save(); ctx.globalCompositeOperation='lighter';
+  ctx.strokeStyle='rgba(220,232,248,0.16)'; ctx.lineWidth=0.05;
+  ctx.beginPath(); ctx.arc(0,0,0.19,spin*0.8,spin*0.8+2.1); ctx.stroke();
+  ctx.restore();
+}
+
+function drawFlame(amp, flick){
+  if(amp<=0.02) return;
+  var L=1.5+amp*8.0*flick;
+  ctx.save(); ctx.globalCompositeOperation='lighter';
+  var layers=[
+    {c:'rgba(255,140,30,0.55)', m:1.00, w:0.46},
+    {c:'rgba(255,200,90,0.55)', m:0.64, w:0.28},
+    {c:'rgba(255,250,232,0.80)',m:0.33, w:0.14}
+  ];
+  for(var i=0;i<layers.length;i++){
+    var Ly=layers[i], l=L*Ly.m, w=Ly.w*(0.55+0.45*amp);
+    ctx.beginPath();
+    ctx.moveTo(-1.98,-w);
+    ctx.quadraticCurveTo(-1.98-l*0.55,-w*0.75,-1.98-l,0);
+    ctx.quadraticCurveTo(-1.98-l*0.55, w*0.75,-1.98, w);
+    ctx.closePath();
+    var g=ctx.createLinearGradient(-1.98,0,-1.98-l,0);
+    g.addColorStop(0,Ly.c);
+    g.addColorStop(0.55,Ly.c.replace(/0\.\d+\)/,'0.22)'));
+    g.addColorStop(1,'rgba(255,60,0,0)');
+    ctx.fillStyle=g; ctx.fill();
+  }
+  // 激波钻石
+  for(var k=1;k<=4;k++){
+    var x=-1.98-L*k*0.17, ww=0.10*(1-k*0.17)*(0.6+0.4*amp);
+    ctx.globalAlpha=0.75*(1-k*0.16);
+    ctx.fillStyle='rgba(255,252,240,0.9)';
+    ctx.beginPath(); ctx.ellipse(x,0,0.13,ww,0,0,TAU); ctx.fill();
+  }
+  ctx.globalAlpha=1;
+  glow(GLOW_WHITE,-1.95,0,0.9*(0.6+0.4*amp),0.55*amp);
+  ctx.restore();
+}
+
+function bodyPath(){
+  ctx.beginPath();
+  ctx.moveTo(2.06,0.06);                       // 车头下沿
+  ctx.lineTo(2.02,0.30);                       // 车头
+  ctx.quadraticCurveTo(1.55,0.40,0.62,0.44);   // 发动机盖
+  ctx.quadraticCurveTo(0.30,0.60,0.06,0.74);   // 风挡
+  ctx.lineTo(-0.46,0.79);                      // 顶棚
+  ctx.quadraticCurveTo(-0.80,0.66,-1.04,0.53); // 后窗
+  ctx.quadraticCurveTo(-1.40,0.46,-1.66,0.43); // 尾部甲板
+  ctx.lineTo(-2.06,0.36);                      // 尾灯上沿
+  ctx.lineTo(-2.08,0.04);                      // 尾下沿
+  ctx.lineTo(-1.62,0.02);
+  ctx.quadraticCurveTo(-1.25,0.80,-0.88,0.02); // 后轮拱
+  ctx.lineTo(-0.32,-0.03);                     // 侧裙
+  ctx.lineTo(0.86,-0.03);
+  ctx.quadraticCurveTo(1.25,0.76,1.64,-0.01);  // 前轮拱
+  ctx.lineTo(1.96,0.02);
+  ctx.closePath();
+}
+
+function drawCar(opt){
+  var flameAmp=opt.flame||0, flick=opt.flick||1, spin=opt.spin||0;
+  var starman=opt.starman!==false, lit=opt.lit==null?1:opt.lit;
+
+  drawFlame(flameAmp, flick);
+
+  // 车身
+  bodyPath();
+  var bg=ctx.createLinearGradient(0,0.85,0,-0.12);
+  bg.addColorStop(0,'#d5363f');
+  bg.addColorStop(0.32,'#a3121c');
+  bg.addColorStop(0.62,'#6d0a12');
+  bg.addColorStop(1,'#32060a');
+  ctx.fillStyle=bg; ctx.fill();
+  ctx.strokeStyle='rgba(20,4,6,0.85)'; ctx.lineWidth=0.028; ctx.stroke();
+
+  // 肩线高光
+  ctx.save(); ctx.globalCompositeOperation='lighter';
+  ctx.strokeStyle='rgba(255,180,170,0.30)'; ctx.lineWidth=0.05;
+  ctx.beginPath();
+  ctx.moveTo(1.95,0.34); ctx.quadraticCurveTo(1.0,0.50,-0.10,0.72);
+  ctx.lineTo(-0.90,0.55); ctx.quadraticCurveTo(-1.5,0.47,-2.02,0.40);
+  ctx.stroke();
+  // 侧裙暗部反光
+  ctx.strokeStyle='rgba(120,150,200,0.16)'; ctx.lineWidth=0.035;
+  ctx.beginPath(); ctx.moveTo(-0.9,-0.01); ctx.lineTo(0.85,-0.01); ctx.stroke();
+  ctx.restore();
+
+  // Starman
+  if(starman){
+    ctx.save();
+    ctx.fillStyle='#e6ebf2';
+    ctx.beginPath(); ctx.ellipse(-0.34,0.42,0.24,0.14,-0.28,0,TAU); ctx.fill();
+    ctx.beginPath(); ctx.arc(-0.20,0.60,0.145,0,TAU); ctx.fill();
+    ctx.fillStyle='#0a1420';
+    ctx.beginPath(); ctx.ellipse(-0.14,0.60,0.095,0.072,-0.22,0,TAU); ctx.fill();
+    ctx.strokeStyle='rgba(255,255,255,0.5)'; ctx.lineWidth=0.02;
+    ctx.beginPath(); ctx.arc(-0.20,0.60,0.145,-2.4,-0.6); ctx.stroke();
+    ctx.restore();
+  }
+
+  // 座舱玻璃
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(0.60,0.45); ctx.quadraticCurveTo(0.30,0.60,0.08,0.72);
+  ctx.lineTo(-0.44,0.765); ctx.quadraticCurveTo(-0.78,0.64,-1.00,0.52);
+  ctx.lineTo(-0.20,0.465); ctx.closePath();
+  var gg=ctx.createLinearGradient(0.6,0.8,-1,0.4);
+  gg.addColorStop(0,'rgba(28,44,62,0.92)');
+  gg.addColorStop(0.5,'rgba(12,20,32,0.86)');
+  gg.addColorStop(1,'rgba(40,60,84,0.80)');
+  ctx.fillStyle=gg; ctx.fill();
+  ctx.save(); ctx.clip();
+  ctx.globalCompositeOperation='lighter';
+  ctx.fillStyle='rgba(200,230,255,0.18)';
+  ctx.beginPath();
+  ctx.moveTo(0.35,0.80); ctx.lineTo(0.05,0.30); ctx.lineTo(-0.25,0.30); ctx.lineTo(0.05,0.80);
+  ctx.closePath(); ctx.fill();
+  ctx.restore();
+  ctx.restore();
+
+  // 侧后视镜 / 进气口细节
+  ctx.fillStyle='#3a060b';
+  ctx.beginPath(); ctx.ellipse(0.52,0.50,0.09,0.045,-0.35,0,TAU); ctx.fill();
+  ctx.fillStyle='rgba(0,0,0,0.5)';
+  ctx.beginPath(); ctx.ellipse(-0.62,0.30,0.26,0.055,-0.12,0,TAU); ctx.fill();
+
+  // 车轮
+  drawWheelAt(-1.25, spin);
+  drawWheelAt( 1.25, spin);
+
+  // 尾灯
+  ctx.save(); ctx.globalCompositeOperation='lighter';
+  glow(GLOW_RED,-2.02,0.30,0.55,0.75*lit);
+  glow(GLOW_RED,-2.02,0.14,0.45,0.55*lit);
+  ctx.fillStyle='rgba(255,90,70,0.95)';
+  ctx.fillRect(-2.10,0.24,0.12,0.11);
+  ctx.fillRect(-2.10,0.09,0.12,0.09);
+  ctx.restore();
+  // 前灯微光（远处的路照）
+  ctx.save(); ctx.globalCompositeOperation='lighter';
+  glow(GLOW_WHITE,1.98,0.30,0.34,0.16*lit);
+  ctx.restore();
+}
+function drawWheelAt(x,spin){
+  ctx.save(); ctx.translate(x,0);
+  // 轮拱阴影
+  ctx.fillStyle='rgba(0,0,0,0.55)';
+  ctx.beginPath(); ctx.arc(0,0,0.42,Math.PI*0.06,Math.PI*0.94); ctx.fill();
+  drawWheel(spin);
+  ctx.restore();
+}
+
+/* 局部坐标 → 屏幕坐标 */
+function l2s(cx,cy,px,py,rot,s,sxs){
+  var X=px*s*sxs, Y=-py*s;
+  return [cx + Math.cos(rot)*X - Math.sin(rot)*Y,
+          cy + Math.sin(rot)*X + Math.cos(rot)*Y];
+}
+
+/* ============================================================
+   时间轴
+   ============================================================ */
+var LOOP = 26.0;
+var T_IGNITE = 5.2, T_LIFTOFF = 6.9, T_ASCEND = 8.4, T_SPACE = 12.6,
+    T_ORBIT_END = 18.4, T_MARS_END = 23.0, T_BLACK = 24.6;
+
+function carAlt(T){
+  if(T < T_LIFTOFF) return 0;
+  return 5.6*Math.pow(T-T_LIFTOFF, 2.12);
+}
+function flameAmp(T){
+  var a = ss(T_IGNITE, T_LIFTOFF+0.2, T);
+  var b = 1 - ss(T_ASCEND+2.6, T_SPACE+1.2, T);
+  return a*b;
+}
+
+/* ============================================================
+   地面场景（荒漠夜路 → 抬升）
+   ============================================================ */
+var roadScroll = 0, wheelSpin = 0;
+
+function drawGround(T, dt, alpha){
+  if(alpha<=0.004) return;
+  ctx.save(); ctx.globalAlpha=alpha;
+
+  var alt  = carAlt(T);
+  var dCar = 19 + 52*ss(7.4, 13.6, T);
+  var carXw= Math.sin(T*0.8)*0.35;
+  var camX = 6.5 + Math.sin(T*0.5)*0.45;   // 机位在公路右侧路肩，车头朝画面右前方
+  var yaw  = Math.atan2(carXw-camX, dCar);
+  var camY = 1.5 + 0.86*alt;
+  var horizonY = H*(0.545 + 0.255*ss(7.8, 12.9, T));
+  var f = H*1.38;
+
+  // 相机 yaw 后：cx = dx*cos - d*sin ，cz = dx*sin + d*cos
+  function proj(x,y,d){
+    var dx=x-camX, C=Math.cos(yaw), S=Math.sin(yaw);
+    var cz=Math.max(dx*S + d*C, 1.5);
+    var cx=dx*C - d*S;
+    var s=f/cz;
+    return [W/2+cx*s, horizonY+(camY-y)*s, s, cz];
+  }
+
+  /* --- 天空 --- */
+  var skyMix = ss(8.6, 12.8, T);
+  var sky=ctx.createLinearGradient(0,0,0,horizonY+2);
+  sky.addColorStop(0, skyMix>0.5?'#000106':'#03060f');
+  sky.addColorStop(0.55, 'rgb('+Math.round(lerp(7,2,skyMix))+','+Math.round(lerp(13,4,skyMix))+','+Math.round(lerp(28,12,skyMix))+')');
+  sky.addColorStop(1, 'rgb('+Math.round(lerp(22,8,skyMix))+','+Math.round(lerp(40,20,skyMix))+','+Math.round(lerp(66,44,skyMix))+')');
+  ctx.fillStyle=sky; ctx.fillRect(0,0,W,horizonY+2);
+
+  // 星空（越高越明显，地面段也有稀疏星点）
+  drawStars(0.34 + 0.62*ss(8.8,12.6,T), horizonY, T*0.01, 0, T);
+
+  // 地平线暖辉 / 城市远端
+  ctx.save(); ctx.globalCompositeOperation='lighter';
+  glow(GLOW_ORANGE, W*0.24, horizonY-2, H*0.20, 0.16*(1-skyMix));
+  glow(GLOW_BLUE,   W*0.80, horizonY-2, H*0.16, 0.10*(1-skyMix));
+  ctx.restore();
+
+  // 大气层光带（高空）
+  if(skyMix>0.02){
+    ctx.save(); ctx.globalCompositeOperation='lighter';
+    var band=ctx.createLinearGradient(0,horizonY-H*0.16,0,horizonY+H*0.02);
+    band.addColorStop(0,'rgba(60,140,255,0)');
+    band.addColorStop(0.62,'rgba(80,170,255,'+(0.30*skyMix)+')');
+    band.addColorStop(0.88,'rgba(150,210,255,'+(0.42*skyMix)+')');
+    band.addColorStop(1,'rgba(210,240,255,0)');
+    ctx.fillStyle=band;
+    ctx.fillRect(0,horizonY-H*0.16,W,H*0.18);
+    ctx.restore();
+  }
+
+  /* --- 地平线薄雾 --- */
+  ctx.save();
+  var fog=ctx.createLinearGradient(0,horizonY-H*0.045,0,horizonY+H*0.006);
+  fog.addColorStop(0,'rgba(60,90,150,0)');
+  fog.addColorStop(0.75,'rgba(64,94,152,0.055)');
+  fog.addColorStop(1,'rgba(70,100,158,0)');
+  ctx.fillStyle=fog; ctx.fillRect(0,horizonY-H*0.055,W,H*0.067);
+  ctx.restore();
+
+  /* --- 远山剪影 --- */
+  ctx.save();
+  ctx.fillStyle='rgba(8,13,24,'+(0.95*(1-skyMix*0.6))+')';
+  ctx.beginPath();
+  ctx.moveTo(-10,horizonY+2);
+  ctx.lineTo(-10,horizonY-H*0.022);
+  ctx.bezierCurveTo(W*0.10,horizonY-H*0.075, W*0.20,horizonY+H*0.004, W*0.32,horizonY-H*0.028);
+  ctx.bezierCurveTo(W*0.45,horizonY-H*0.095, W*0.56,horizonY-H*0.012, W*0.68,horizonY-H*0.040);
+  ctx.bezierCurveTo(W*0.80,horizonY-H*0.085, W*0.90,horizonY-H*0.010, W+10,horizonY-H*0.020);
+  ctx.lineTo(W+10,horizonY+2);
+  ctx.closePath(); ctx.fill();
+  ctx.restore();
+
+  /* --- 地面 --- */
+  var grd=ctx.createLinearGradient(0,horizonY,0,H);
+  grd.addColorStop(0,'#101a2b'); grd.addColorStop(0.35,'#0c1220'); grd.addColorStop(1,'#070a12');
+  ctx.fillStyle=grd; ctx.fillRect(0,horizonY,W,H-horizonY);
+
+  /* --- 路面 --- */
+  var samples=[];
+  for(var i=0;i<28;i++){ samples.push(1.4*Math.pow(1.40,i)); }
+  function edge(x,d){ return proj(x,0,d); }
+  ctx.beginPath();
+  var first=true;
+  for(var i=samples.length-1;i>=0;i--){ var p=edge(-5.7,samples[i]); if(first){ctx.moveTo(p[0],p[1]);first=false;} else ctx.lineTo(p[0],p[1]); }
+  for(var i=0;i<samples.length;i++){ var p=edge(5.7,samples[i]); ctx.lineTo(p[0],p[1]); }
+  ctx.closePath();
+  var rg=ctx.createLinearGradient(0,horizonY,0,H);
+  rg.addColorStop(0,'#1c212a'); rg.addColorStop(0.30,'#171b24'); rg.addColorStop(1,'#0e1118');
+  ctx.fillStyle=rg; ctx.fill();
+
+  // 路面湿润反光
+  ctx.save(); ctx.clip(); ctx.globalCompositeOperation='lighter';
+  var rf=ctx.createLinearGradient(0,horizonY,0,H*0.9);
+  rf.addColorStop(0,'rgba(90,130,190,0.10)'); rf.addColorStop(0.5,'rgba(40,70,120,0.02)'); rf.addColorStop(1,'rgba(0,0,0,0)');
+  ctx.fillStyle=rf; ctx.fillRect(0,horizonY,W,H);
+  ctx.restore();
+
+  // 边线
+  function edgeLine(x,w){
+    ctx.beginPath(); var first=true;
+    for(var i=samples.length-1;i>=0;i--){ var p=proj(x-w,0,samples[i]); if(first){ctx.moveTo(p[0],p[1]);first=false;} else ctx.lineTo(p[0],p[1]); }
+    for(var i=0;i<samples.length;i++){ var p=proj(x+w,0,samples[i]); ctx.lineTo(p[0],p[1]); }
+    ctx.closePath();
+    ctx.fillStyle='rgba(206,214,226,0.30)'; ctx.fill();
+  }
+  edgeLine(-5.25,0.075); edgeLine(5.25,0.075);
+
+  // 中央虚线
+  var DASH=13, N=30, TOTAL=DASH*N, off=roadScroll%TOTAL;
+  ctx.fillStyle='rgba(232,216,168,0.38)';
+  for(var i=0;i<N;i++){
+    var d0=((i*DASH-off)%TOTAL+TOTAL)%TOTAL + 3.0;
+    var a=proj(-0.17,0,d0), b=proj(0.17,0,d0), c=proj(0.17,0,d0+4.6), e=proj(-0.17,0,d0+4.6);
+    if(a[3]<1.4||c[3]<1.4) continue;
+    ctx.beginPath(); ctx.moveTo(a[0],a[1]); ctx.lineTo(b[0],b[1]); ctx.lineTo(c[0],c[1]); ctx.lineTo(e[0],e[1]); ctx.closePath(); ctx.fill();
+  }
+
+  // 路肩碎石带
+  function shoulder(xa,xb){
+    ctx.beginPath(); var first=true;
+    for(var j=samples.length-1;j>=0;j--){ var p=proj(xa,0,samples[j]); if(first){ctx.moveTo(p[0],p[1]);first=false;} else ctx.lineTo(p[0],p[1]); }
+    for(var j=0;j<samples.length;j++){ var p=proj(xb,0,samples[j]); ctx.lineTo(p[0],p[1]); }
+    ctx.closePath();
+    ctx.fillStyle='rgba(52,58,70,0.55)'; ctx.fill();
+  }
+  shoulder(5.7,8.4); shoulder(-5.7,-8.4);
+
+  // 荒原石块（确定性分布，随路同步滚动）
+  for(var i=0;i<30;i++){
+    var dr=((i*19-(roadScroll*0.999))%(19*30)+19*30)%(19*30)+6;
+    var sd=(i%2)?1:-1;
+    var lat=sd*(9.0+h1(i)*7.0);
+    var sz=0.35+h1(i+13)*0.85;
+    var rp2=proj(lat,0,dr);
+    if(rp2[3]<2.2) continue;
+    var rw=sz*rp2[2], rh=sz*0.42*rp2[2];
+    ctx.fillStyle='rgba(14,18,26,0.95)';
+    ctx.beginPath(); ctx.ellipse(rp2[0],rp2[1]-rh*0.35,rw,rh,0,0,TAU); ctx.fill();
+    ctx.fillStyle='rgba(126,146,180,0.13)';
+    ctx.beginPath(); ctx.ellipse(rp2[0]-rw*0.18,rp2[1]-rh*0.95,rw*0.62,rh*0.5,0,0,TAU); ctx.fill();
+  }
+
+  // 路肩护栏（立柱 + 连续横梁）
+  ctx.strokeStyle='rgba(186,194,206,0.26)';
+  var prevTop=null, prevD=-1;
+  for(var i=0;i<16;i++){
+    var d=((i*16-(roadScroll*0.999))%(16*16)+16*16)%(16*16)+6;
+    var p0=proj(-6.6,0,d), p1=proj(-6.6,0.9,d);
+    if(p0[3]<1.6 || d<prevD){ prevTop=null; prevD=d; continue; }
+    prevD=d;
+    ctx.lineWidth=Math.max(1,0.10*p0[2]);
+    ctx.beginPath(); ctx.moveTo(p0[0],p0[1]); ctx.lineTo(p1[0],p1[1]); ctx.stroke();
+    if(prevTop){
+      ctx.lineWidth=Math.max(1,0.055*p0[2]);
+      ctx.beginPath(); ctx.moveTo(prevTop[0],prevTop[1]); ctx.lineTo(p1[0],p1[1]); ctx.stroke();
+    }
+    prevTop=p1;
+  }
+
+  // 路灯（远侧）
+  for(var i=0;i<7;i++){
+    var d=((i*52-(roadScroll*0.999))%(52*7)+52*7)%(52*7)+8;
+    var b0=proj(-7.6,0,d), b1=proj(-7.6,6.2,d), b2=proj(-6.2,6.5,d);
+    if(b0[3]<2) continue;
+    ctx.strokeStyle='rgba(24,30,42,0.95)';
+    ctx.lineWidth=Math.max(1,0.20*b0[2]);
+    ctx.beginPath(); ctx.moveTo(b0[0],b0[1]); ctx.lineTo(b1[0],b1[1]); ctx.lineTo(b2[0],b2[1]); ctx.stroke();
+    ctx.save(); ctx.globalCompositeOperation='lighter';
+    glow(GLOW_ORANGE,b2[0],b2[1],2.0*b2[2],0.80);
+    glow(GLOW_WHITE,b2[0],b2[1],0.55*b2[2],0.45);
+    ctx.restore();
+    // 地面光斑（柔和衰减）
+    var gp=proj(-6.2,0,d);
+    ctx.save(); ctx.globalCompositeOperation='lighter';
+    ctx.translate(gp[0],gp[1]); ctx.scale(1,0.30);
+    glow(GLOW_ORANGE,0,0,3.4*gp[2],0.26);
+    ctx.restore();
+  }
+
+  /* --- 车 --- */
+  var pitch = -0.11*ss(5.4,7.4,T) - 0.62*ss(7.6,12.0,T);
+  var bob   = (T<T_LIFTOFF)? Math.sin(T*7.5)*0.012 : 0;
+  var cp    = proj(carXw, alt+0.36, dCar);
+  var s     = cp[2];
+  var rot   = pitch + bob;
+  var amp   = flameAmp(T);
+  var flick = 0.82+0.18*Math.sin(T*38)+0.10*Math.sin(T*61.3);
+
+  // 车下阴影（柔和接触阴影）
+  if(alt<3){
+    var sh=proj(carXw,0.01,dCar), sa=clamp(1-alt/3,0,1);
+    ctx.save(); ctx.globalCompositeOperation='multiply';
+    ctx.translate(sh[0], sh[1]+0.10*sh[2]); ctx.scale(1,0.34);
+    var sr=3.4*sh[2];
+    var sg=ctx.createRadialGradient(0,0,0,0,0,sr);
+    sg.addColorStop(0,'rgba(0,0,0,'+(0.52*sa)+')');
+    sg.addColorStop(0.42,'rgba(0,0,0,'+(0.26*sa)+')');
+    sg.addColorStop(1,'rgba(0,0,0,0)');
+    ctx.fillStyle=sg;
+    ctx.beginPath(); ctx.arc(0,0,sr,0,TAU); ctx.fill();
+    ctx.restore();
+  }
+  // 尾灯在路面上的红色溢光
+  if(alt<20){
+    var tp=proj(carXw,0.02,dCar-2.6);
+    ctx.save(); ctx.globalCompositeOperation='lighter';
+    ctx.translate(tp[0],tp[1]); ctx.scale(1,0.42);
+    glow(GLOW_RED,0,0,2.2*tp[2],0.35*clamp(1-alt/20,0,1));
+    ctx.restore();
+  }
+  // 尾焰在路面上的反光
+  if(amp>0.05 && alt<40){
+    var rp=proj(carXw,0.02,dCar-4.2);
+    ctx.save(); ctx.globalCompositeOperation='lighter';
+    glow(GLOW_ORANGE, rp[0], rp[1], (2.0+5*amp)*rp[2], 0.55*amp*clamp(1-alt/40,0,1));
+    ctx.restore();
+  }
+
+  ctx.save();
+  ctx.translate(cp[0],cp[1]); ctx.rotate(rot); ctx.scale(s,-s);
+  drawCar({ flame:amp, flick:flick, spin:wheelSpin, lit:1 });
+  ctx.restore();
+
+  // 车轮扬尘 / 尾焰粒子
+  var tail=l2s(cp[0],cp[1],-2.05,0.16,rot,s,1);
+  var speed = 62 + 46*ss(5.4,8.6,T);
+  if(T<T_LIFTOFF+0.3){
+    var wr=l2s(cp[0],cp[1],-1.25,-0.30,rot,s,1);
+    for(var k=0;k<2;k++)
+      spawn(wr[0]+rnd(-4,4), wr[1]+rnd(-2,2), rnd(-70,-20), rnd(-26,-4), rnd(4,11)*Math.min(1,s/22), rnd(0.35,0.85), GLOW_DUST);
+  }
+  if(amp>0.06){
+    var n = amp>0.5?5:2;
+    for(var k=0;k<n;k++){
+      var sp=rnd(60,220)*amp;
+      spawn(tail[0]+rnd(-3,3), tail[1]+rnd(-3,3),
+            -sp + Math.sin(rot)*-30, Math.sin(rot*0.5)*rnd(-20,20) + rnd(-14,14),
+            rnd(5,16)*(0.5+amp)*Math.min(1.2,s/16), rnd(0.4,1.1),
+            (k%2===0)?GLOW_ORANGE:GLOW_WHITE);
+    }
+  }
+
+  // 车尾灯在空气中的散射
+  if(alt<60){
+    ctx.save(); ctx.globalCompositeOperation='lighter';
+    glow(GLOW_RED, tail[0], tail[1], 1.1*s, 0.20);
+    ctx.restore();
+  }
+
+  ctx.restore();
+  return { cp:cp, rot:rot, s:s };
+}
+
+/* ============================================================
+   太空场景（地球轨道 → 火星）
+   ============================================================ */
+function drawPlanet(cx,cy,R,rot,alpha,o){
+  if(alpha<=0.004) return;
+  ctx.save(); ctx.globalAlpha=alpha;
+
+  // 大气 / 边缘辉光
+  ctx.save(); ctx.globalCompositeOperation='lighter';
+  var gl=ctx.createRadialGradient(cx,cy,R*0.95,cx,cy,R*(o.glowR||1.30));
+  gl.addColorStop(0,o.glow0); gl.addColorStop(0.35,o.glow1); gl.addColorStop(1,o.glow2);
+  ctx.fillStyle=gl; ctx.beginPath(); ctx.arc(cx,cy,R*(o.glowR||1.30),0,TAU); ctx.fill();
+  ctx.restore();
+
+  ctx.save();
+  ctx.beginPath(); ctx.arc(cx,cy,R,0,TAU); ctx.clip();
+
+  // 球体基础
+  var lg=ctx.createLinearGradient(cx-R*0.9,cy+R*0.8,cx+R*0.85,cy-R*0.7);
+  lg.addColorStop(0,o.c0); lg.addColorStop(0.35,o.c1); lg.addColorStop(0.65,o.c2); lg.addColorStop(1,o.c3);
+  ctx.fillStyle=lg; ctx.fillRect(cx-R,cy-R,R*2,R*2);
+
+  // 陆块 / 纹理（随自转平移）
+  var sh=o.shapes;
+  for(var pass=0;pass<2;pass++){
+    var ox=(rot%2)*R - pass*2*R;
+    ctx.save();
+    ctx.translate(cx+ox,cy);
+    ctx.fillStyle=o.land;
+    for(var i=0;i<sh.length;i++){
+      var s0=sh[i];
+      ctx.beginPath();
+      ctx.moveTo(s0[0]*R,s0[1]*R);
+      ctx.bezierCurveTo(s0[2]*R,s0[3]*R,s0[4]*R,s0[5]*R,s0[6]*R,s0[7]*R);
+      ctx.bezierCurveTo(s0[8]*R,s0[9]*R,s0[10]*R,s0[11]*R,s0[0]*R,s0[1]*R);
+      ctx.closePath(); ctx.fill();
+    }
+    if(o.caps){
+      // 柔和极冠，避免硬边白斑
+      ctx.save();
+      ctx.translate(-0.08*R,-0.83*R); ctx.scale(1,0.42);
+      var cg=ctx.createRadialGradient(0,0,0,0,0,0.24*R);
+      cg.addColorStop(0,'rgba(238,246,255,0.55)');
+      cg.addColorStop(0.55,'rgba(228,240,255,0.26)');
+      cg.addColorStop(1,'rgba(220,235,255,0)');
+      ctx.fillStyle=cg; ctx.beginPath(); ctx.arc(0,0,0.24*R,0,TAU); ctx.fill();
+      ctx.restore();
+      ctx.save();
+      ctx.translate(0.26*R,0.88*R); ctx.scale(1,0.40);
+      var cg2=ctx.createRadialGradient(0,0,0,0,0,0.20*R);
+      cg2.addColorStop(0,'rgba(238,246,255,0.45)');
+      cg2.addColorStop(1,'rgba(220,235,255,0)');
+      ctx.fillStyle=cg2; ctx.beginPath(); ctx.arc(0,0,0.20*R,0,TAU); ctx.fill();
+      ctx.restore();
+    }
+    // 云带
+    ctx.strokeStyle=o.cloud; ctx.lineWidth=0.055*R;
+    for(var i=0;i<4;i++){
+      var yy=(-0.6+i*0.42)*R, sw=Math.sin(i*2.1+1.0)*0.12*R;
+      ctx.beginPath();
+      ctx.moveTo(-1.1*R,yy);
+      ctx.bezierCurveTo(-0.4*R,yy+sw,0.3*R,yy-sw,1.1*R,yy+sw*0.5);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  // 晨昏线阴影
+  var term=ctx.createRadialGradient(cx+R*0.55,cy-R*0.52,0,cx+R*0.55,cy-R*0.52,R*1.5);
+  term.addColorStop(0,'rgba(0,0,0,0)');
+  term.addColorStop(0.48,'rgba(0,0,0,0.05)');
+  term.addColorStop(0.78,'rgba(0,0,0,0.62)');
+  term.addColorStop(1,'rgba(0,0,0,0.90)');
+  ctx.fillStyle=term; ctx.fillRect(cx-R,cy-R,R*2,R*2);
+
+  // 城市灯火（夜面，固定序列不闪烁）
+  ctx.save(); ctx.globalCompositeOperation='lighter';
+  for(var i=0;i<150;i++){
+    var ang=(i*2.399)%(TAU), rr=Math.sqrt((i%97)/97)*0.95*R;
+    var px=cx+Math.cos(ang)*rr, py=cy+Math.sin(ang)*rr;
+    var dist=Math.hypot(px-(cx+R*0.55),py-(cy-R*0.52))/R;
+    if(dist<0.85) continue;
+    glow(GLOW_ORANGE,px,py,R*0.012,0.5*((i*37%11)/11));
+  }
+  ctx.restore();
+
+  ctx.restore(); // clip
+
+  // 边缘高光（受光侧）
+  ctx.save(); ctx.globalCompositeOperation='lighter';
+  ctx.strokeStyle=o.rim; ctx.lineWidth=Math.max(1,R*0.012);
+  ctx.beginPath(); ctx.arc(cx,cy,R*0.997,-2.5,0.5); ctx.stroke();
+  ctx.restore();
+
+  ctx.restore();
+}
+
+var EARTH_LAND=[[-0.85,-0.30,-0.60,-0.58,-0.30,-0.62,-0.22,-0.30,-0.55,-0.10,-0.95,-0.14],
+                [-0.10,0.10,0.12,-0.16,0.34,-0.20,0.30,0.22,0.05,0.30,-0.14,0.18],
+                [0.42,-0.46,0.62,-0.62,0.80,-0.40,0.72,-0.20,0.58,-0.18,0.44,-0.34],
+                [-0.62,0.46,-0.44,0.30,-0.24,0.40,-0.30,0.62,-0.52,0.66,-0.66,0.58]];
+var EARTH_OPT={ c0:'#03081a', c1:'#0b3a72', c2:'#1d74c0', c3:'#8fd4ff',
+  land:'rgba(46,92,58,0.55)', cloud:'rgba(235,245,255,0.13)',
+  rim:'rgba(150,205,255,0.55)', glowR:1.26,
+  glow0:'rgba(120,185,255,0.50)', glow1:'rgba(55,125,255,0.18)', glow2:'rgba(30,80,220,0)',
+  shapes:EARTH_LAND, caps:true };
+
+var MARS_LAND=[[-0.70,-0.20,-0.40,-0.44,-0.10,-0.30,-0.18,-0.04,-0.52,0.02,-0.74,-0.08],
+               [0.10,0.20,0.40,0.02,0.62,0.14,0.50,0.44,0.18,0.42,0.06,0.34],
+               [-0.20,0.62,0.05,0.44,0.26,0.60,0.10,0.78,-0.14,0.76,-0.24,0.70]];
+var MARS_OPT={ c0:'#2a0d06', c1:'#7a2f14', c2:'#c2622c', c3:'#f0aa76',
+  land:'rgba(96,38,18,0.42)', cloud:'rgba(255,220,190,0.08)',
+  rim:'rgba(255,190,140,0.50)', glowR:1.16,
+  glow0:'rgba(255,150,90,0.30)', glow1:'rgba(220,110,60,0.10)', glow2:'rgba(180,70,40,0)',
+  shapes:MARS_LAND, caps:true };
+
+function drawSpace(T, dt, alpha){
+  if(alpha<=0.004) return null;
+  ctx.save(); ctx.globalAlpha=alpha;
+
+  var mMars = ss(18.0, 19.8, T);
+
+  /* 背景 */
+  ctx.fillStyle='#000106'; ctx.fillRect(0,0,W,H);
+  drawStars(0.95, H, -T*0.006, 0, T);
+
+  /* 太阳（运镜光源） */
+  var sunX=W*(0.80+0.12*mMars), sunY=H*(0.16-0.06*mMars);
+  ctx.save(); ctx.globalCompositeOperation='lighter';
+  glow(GLOW_SUN,sunX,sunY,H*0.20,0.55);
+  glow(GLOW_WHITE,sunX,sunY,H*0.035,0.95);
+  // 横向光条
+  var streak=ctx.createLinearGradient(0,sunY,W,sunY);
+  streak.addColorStop(0,'rgba(255,220,170,0)');
+  streak.addColorStop(0.42,'rgba(255,210,150,0.16)');
+  streak.addColorStop(0.52,'rgba(255,240,220,0.30)');
+  streak.addColorStop(0.62,'rgba(255,210,150,0.16)');
+  streak.addColorStop(1,'rgba(255,220,170,0)');
+  ctx.fillStyle=streak; ctx.fillRect(0,sunY-H*0.010,W,H*0.020);
+  // 鬼影
+  for(var i=1;i<=4;i++){
+    var gx=lerp(sunX,W*0.5,i/5), gy=lerp(sunY,H*0.5,i/5);
+    glow(i%2?GLOW_BLUE:GLOW_ORANGE,gx,gy,H*(0.012+0.006*i),0.10);
+  }
+  ctx.restore();
+
+  /* 地球 */
+  var eScale = lerp(1.0, 0.34, mMars);
+  var eR = H*1.14*eScale;
+  var eCx = lerp(W*0.5, W*0.18, mMars);
+  var eCy = lerp(H*1.50, H*1.26, mMars);
+  drawPlanet(eCx, eCy, eR, (T-12.6)*0.045, 1, EARTH_OPT);
+
+  /* 火星 */
+  if(mMars>0.001){
+    var mR = H*lerp(0.02,0.42,Math.pow(mMars,1.15));
+    var mCx = W*lerp(0.92,0.76,mMars), mCy = H*lerp(0.62,0.46,mMars);
+    drawPlanet(mCx, mCy, mR, 0.35+ (T-18.4)*0.03, mMars, MARS_OPT);
+  }
+
+  /* 车 */
+  var kOrbit = clamp((T-12.6)/(18.4-12.6),0,1);
+  var kMars  = mMars;
+  var carX = lerp(lerp(W*0.50, W*0.46, kOrbit), W*0.37, kMars);
+  var carY = lerp(lerp(H*0.21, H*0.34, kOrbit), H*0.40, kMars);
+  var s    = lerp(lerp(14.7, 11.0, kOrbit), 9.0, Math.pow(kMars,1.2));
+  var yaw  = (T-12.6)*0.20 + kMars*0.5;
+  var sxs  = 0.34+0.66*Math.abs(Math.cos(yaw));
+  var rot  = -0.10 + Math.sin(T*0.55)*0.045 - kMars*0.06;
+
+  // 尾迹喷流（离子推进感的冷焰）
+  var jet = 1 - ss(19.4, 22.4, T);
+  var tail = l2s(carX, carY, -2.05, 0.16, rot, s, sxs);
+  if(jet>0.02){
+    ctx.save(); ctx.globalCompositeOperation='lighter';
+    ctx.globalAlpha=0.7*jet;
+    var jl=(60+90*jet)*Math.min(1.6,s/8);
+    var jg=ctx.createLinearGradient(tail[0],tail[1],tail[0]-jl,tail[1]);
+    jg.addColorStop(0,'rgba(190,230,255,0.55)');
+    jg.addColorStop(0.5,'rgba(120,180,255,0.18)');
+    jg.addColorStop(1,'rgba(80,140,255,0)');
+    ctx.fillStyle=jg;
+    ctx.beginPath();
+    ctx.moveTo(tail[0],tail[1]-3*s*sxs);
+    ctx.lineTo(tail[0]-jl,tail[1]-1.2*s);
+    ctx.lineTo(tail[0]-jl,tail[1]+1.2*s);
+    ctx.lineTo(tail[0],tail[1]+3*s*sxs);
+    ctx.closePath(); ctx.fill();
+    ctx.restore();
+    if(Math.random()<0.7)
+      spawn(tail[0],tail[1], rnd(-90,-40), rnd(-8,8), rnd(2,6)*(0.6+s/9), rnd(0.5,1.2), GLOW_BLUE);
+  }
+
+  // 车本体
+  ctx.save();
+  ctx.translate(carX,carY); ctx.rotate(rot); ctx.scale(s*sxs,-s);
+  drawCar({ flame:0, spin:0, lit:0.85 });
+  ctx.restore();
+
+  // 受光侧边缘光
+  ctx.save(); ctx.globalCompositeOperation='lighter';
+  glow(GLOW_BLUE, carX+s*0.6, carY-s*0.5, s*1.9, 0.16);
+  glow(GLOW_ORANGE, carX+s*1.2, carY+s*0.3, s*1.4, 0.10*(0.3+0.7*mMars));
+  ctx.restore();
+
+  ctx.restore();
+  return { x:carX, y:carY, s:s, rot:rot, sxs:sxs };
+}
+
+/* ============================================================
+   主绘制
+   ============================================================ */
+var T=0, last=0;
+function noise(t){
+  return Math.sin(t*1.13)*0.55 + Math.sin(t*2.31+1.2)*0.30 + Math.sin(t*4.07+0.4)*0.15;
+}
+
+function draw(T, dt){
+  var spaceMix = ss(11.5, 13.6, T);
+  var fadeIn   = ss(0, 0.9, T);
+  var fadeOut  = 1 - ss(T_MARS_END, T_MARS_END+1.1, T);
+
+  // 抖动：点火期最强
+  var shakeAmp = 0;
+  if(T>T_IGNITE-0.2 && T<T_ASCEND+2.2) shakeAmp = 5.5*ss(T_IGNITE-0.2,T_LIFTOFF,T)*(1-ss(T_ASCEND,T_ASCEND+2.2,T));
+  var shx = noise(T*13)*shakeAmp + noise(T*0.7)*1.2;
+  var shy = noise(T*11+3)*shakeAmp*0.8 + noise(T*0.6+1)*1.0;
+
+  ctx.save();
+  ctx.translate(shx, shy);
+
+  drawGround(T, dt, (1-spaceMix)*fadeIn);
+  drawSpace(T, dt, spaceMix);
+
+  drawParts();
+
+  ctx.restore();
+
+  /* ---- 调色 ---- */
+  // 暗角
+  var vg=ctx.createRadialGradient(W*0.5,H*0.5,Math.min(W,H)*0.30,W*0.5,H*0.52,Math.max(W,H)*0.78);
+  vg.addColorStop(0,'rgba(0,0,0,0)');
+  vg.addColorStop(0.65,'rgba(0,0,0,0.18)');
+  vg.addColorStop(1,'rgba(0,0,0,0.72)');
+  ctx.fillStyle=vg; ctx.fillRect(0,0,W,H);
+
+  // 冷调罩
+  ctx.save(); ctx.globalCompositeOperation='soft-light';
+  ctx.fillStyle='rgba(70,110,190,0.16)'; ctx.fillRect(0,0,W,H);
+  ctx.restore();
+
+  // 颗粒
+  ctx.save();
+  ctx.globalCompositeOperation='overlay';
+  ctx.globalAlpha=0.055;
+  ctx.translate(-Math.random()*200,-Math.random()*200);
+  ctx.fillStyle=grainPat; ctx.fillRect(0,0,W+220,H+220);
+  ctx.restore();
+
+  // 黑边（2.35:1 观感）
+  var barH=H*0.045;
+  ctx.fillStyle='#000';
+  ctx.fillRect(0,0,W,barH); ctx.fillRect(0,H-barH,W,barH);
+
+  // 上下柔化
+  var soft=ctx.createLinearGradient(0,barH,0,barH+H*0.06);
+  soft.addColorStop(0,'rgba(0,0,0,0.55)'); soft.addColorStop(1,'rgba(0,0,0,0)');
+  ctx.fillStyle=soft; ctx.fillRect(0,barH,W,H*0.06);
+  var soft2=ctx.createLinearGradient(0,H-barH,0,H-barH-H*0.06);
+  soft2.addColorStop(0,'rgba(0,0,0,0.55)'); soft2.addColorStop(1,'rgba(0,0,0,0)');
+  ctx.fillStyle=soft2; ctx.fillRect(0,H-barH-H*0.06,W,H*0.06);
+
+  // 转场
+  if(fadeOut<1){ ctx.fillStyle='rgba(0,0,0,'+(1-fadeOut)+')'; ctx.fillRect(0,0,W,H); }
+  if(fadeIn<1){ ctx.fillStyle='rgba(0,0,0,'+(1-fadeIn)+')'; ctx.fillRect(0,0,W,H); }
+}
+
+/* ============================================================
+   循环
+   ============================================================ */
+var prev = 0;
+function frame(now){
+  var dt = prev ? Math.min(0.05, (now-prev)/1000) : 0.016;
+  prev = now;
+  T = (T + dt) % LOOP;
+
+  var speed = 62 + 46*ss(5.4, 8.6, T) + 120*ss(12.0, 18.0, T);
+  roadScroll += speed*dt;
+  wheelSpin += speed*dt*0.16;
+
+  updateParts(dt);
+  draw(T, dt);
+
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+})();
+</script>
+<!--zc-home:start--><style>.zc-home-btn{position:fixed;top:16px;left:16px;z-index:2147483647;display:inline-flex;align-items:center;gap:6px;padding:8px 14px;font:500 13px/1.1 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Noto Sans SC",sans-serif;color:#111;background:rgba(255,255,255,.86);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);border:1px solid rgba(0,0,0,.08);border-radius:999px;text-decoration:none;box-shadow:0 2px 12px rgba(0,0,0,.2);transition:background .2s ease,transform .2s ease,box-shadow .2s ease}.zc-home-btn:hover{background:#fff;transform:translateY(-1px);box-shadow:0 4px 18px rgba(0,0,0,.26)}</style><a class="zc-home-btn" href="../">← 返回首页</a><script>(function(){try{if(window.self!==window.top||/[?&]embed=1(?:&|$)/.test(location.search)){var b=document.querySelector(".zc-home-btn");if(b&&b.parentNode)b.parentNode.removeChild(b);}}catch(e){}})();</script><!--zc-home:end-->
+</body>
+</html>

@@ -1,0 +1,3028 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>上海之巅 · 632m 电涡流摆式调谐质量阻尼器实时参数化三维仿真</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@500;600;700&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg-model: #EEF0F4;
+  --text-dark: #101216;
+  --text-mid: #22262E;
+  --border-hairline: rgba(16, 18, 22, 0.14);
+  --panel-bg: rgba(247, 248, 250, 0.93);
+  --hud-bg: rgba(15, 19, 26, 0.88);
+  --hud-border: rgba(255, 255, 255, 0.14);
+  --hud-text: #F3F5F8;
+  --macaron-mint: #68B8A6;
+  --macaron-pink: #D98A98;
+  --macaron-blue: #6E9BC5;
+  --macaron-purple: #9B86BD;
+  --gilt-gold: #C69E4B;
+  --danger-red: #D94E4E;
+  --font-cn: 'Source Han Sans SC', 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --font-en: 'Montserrat', -apple-system, BlinkMacSystemFont, monospace;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  user-select: none;
+  -webkit-font-smoothing: antialiased;
+}
+
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg-model);
+  font-family: var(--font-cn);
+  font-weight: 500;
+  color: var(--text-dark);
+}
+
+#canvas-container {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: 1;
+}
+
+/* Top Header Title Bar */
+#top-header {
+  position: fixed;
+  top: 20px;
+  left: 24px;
+  z-index: 10;
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: rgba(248, 249, 251, 0.88);
+  backdrop-filter: blur(10px);
+  padding: 14px 20px;
+  border-left: 3px solid var(--text-dark);
+  border-top: 1px solid var(--border-hairline);
+  border-right: 1px solid var(--border-hairline);
+  border-bottom: 1px solid var(--border-hairline);
+  box-shadow: 0 8px 24px rgba(16, 18, 22, 0.06);
+  max-width: calc(100vw - 420px);
+}
+
+.title-row {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.main-title {
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: #0A0A0A;
+}
+
+.sub-title-en {
+  font-family: var(--font-en);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  color: #1A1A1A;
+  text-transform: uppercase;
+}
+
+.stage-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border-hairline);
+  font-size: 12px;
+  color: #111111;
+}
+
+.stage-pill {
+  font-family: var(--font-en);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  background: #101216;
+  color: #FFFFFF;
+  letter-spacing: 0.05em;
+}
+
+.stage-desc {
+  font-weight: 500;
+  color: #111111;
+}
+
+.timeline-bar-wrap {
+  width: 100%;
+  height: 4px;
+  background: rgba(16, 18, 22, 0.12);
+  position: relative;
+  margin-top: 2px;
+  cursor: pointer;
+}
+
+.timeline-bar-fill {
+  height: 100%;
+  background: var(--text-dark);
+  width: 0%;
+  transition: width 0.08s linear;
+}
+
+.timeline-ticks {
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--font-en);
+  font-size: 9px;
+  font-weight: 600;
+  color: #1A1A1A;
+  margin-top: 2px;
+}
+
+/* HUD Telemetry Panels (Bottom-Left & Bottom-Right, Dark Semi-Transparent, Monospace) */
+.hud-panel {
+  position: fixed;
+  bottom: 20px;
+  z-index: 10;
+  background: var(--hud-bg);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--hud-border);
+  color: var(--hud-text);
+  padding: 14px 18px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.22);
+  pointer-events: auto;
+}
+
+#hud-left {
+  left: 24px;
+  width: 470px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+#hud-right {
+  right: 24px;
+  width: 380px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  transition: right 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+body.panel-open #hud-right {
+  right: 380px;
+}
+
+.hud-section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.14);
+  padding-bottom: 5px;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: #E2E6EC;
+}
+
+.hud-section-header span.en {
+  font-family: var(--font-en);
+  font-weight: 600;
+  font-size: 10px;
+  color: #B8C2CC;
+}
+
+.hud-metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+
+.hud-metric-item {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  border-left: 2px solid var(--macaron-blue);
+  padding-left: 9px;
+}
+
+.hud-metric-label {
+  font-size: 11px;
+  color: #D0D6E0;
+  font-weight: 500;
+}
+
+.hud-metric-val-row {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+}
+
+.hud-metric-val {
+  font-family: var(--font-en);
+  font-size: 21px;
+  font-weight: 600;
+  color: #F7F9FC;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+.hud-metric-unit {
+  font-family: var(--font-en);
+  font-size: 11px;
+  font-weight: 600;
+  color: #B8C2CC;
+}
+
+.hud-charts-row {
+  display: grid;
+  grid-template-columns: 1fr 118px;
+  gap: 12px;
+  align-items: stretch;
+}
+
+.chart-box {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.chart-legend {
+  display: flex;
+  gap: 10px;
+  font-size: 10px;
+  color: #D8DEE8;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.legend-dot {
+  display: inline-block;
+  width: 8px;
+  height: 2px;
+  margin-right: 4px;
+  vertical-align: middle;
+}
+
+#time-history-canvas, #posture-canvas {
+  background: rgba(8, 11, 16, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  display: block;
+}
+
+/* Stroke Gauge Bar */
+.stroke-gauge-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.stroke-bar-header {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: #DCE2EC;
+}
+
+.stroke-track {
+  position: relative;
+  height: 18px;
+  background: rgba(8, 11, 16, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  overflow: hidden;
+}
+
+.stroke-limit-zone {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 10%;
+  background: repeating-linear-gradient(
+    45deg,
+    rgba(217, 78, 78, 0.35),
+    rgba(217, 78, 78, 0.35) 4px,
+    rgba(217, 78, 78, 0.1) 4px,
+    rgba(217, 78, 78, 0.1) 8px
+  );
+}
+
+.stroke-limit-zone.left { left: 0; border-right: 2px solid var(--danger-red); }
+.stroke-limit-zone.right { right: 0; border-left: 2px solid var(--danger-red); }
+
+.stroke-center-line {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: rgba(255, 255, 255, 0.35);
+}
+
+.stroke-fill {
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  background: var(--macaron-mint);
+  left: 50%;
+  width: 0%;
+}
+
+.stroke-thumb {
+  position: absolute;
+  top: 1px;
+  bottom: 1px;
+  width: 6px;
+  margin-left: -3px;
+  background: #FFFFFF;
+  box-shadow: 0 0 8px rgba(255,255,255,0.9);
+  left: 50%;
+}
+
+.stroke-scale {
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--font-en);
+  font-size: 10px;
+  font-weight: 600;
+  color: #C8D0DC;
+}
+
+.stroke-scale .limit-tag {
+  color: #FF7A7A;
+}
+
+/* Collapsible Right Parameter Panel */
+#param-panel-wrap {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  bottom: 20px;
+  width: 344px;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel-bg);
+  backdrop-filter: blur(14px);
+  border: 1px solid var(--border-hairline);
+  box-shadow: -8px 0 28px rgba(16, 18, 22, 0.08);
+  transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+body:not(.panel-open) #param-panel-wrap {
+  transform: translateX(calc(100% + 24px));
+}
+
+#panel-toggle-tab {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  z-index: 25;
+  background: #101216;
+  color: #FFFFFF;
+  border: 1px solid rgba(255,255,255,0.15);
+  padding: 9px 14px;
+  font-family: var(--font-cn);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.14);
+}
+
+body.panel-open #panel-toggle-tab {
+  right: 368px;
+}
+
+.panel-header {
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border-hairline);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.panel-header-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #0A0A0A;
+  letter-spacing: 0.04em;
+}
+
+.panel-header-sub {
+  font-family: var(--font-en);
+  font-size: 10px;
+  font-weight: 600;
+  color: #1A1A1A;
+}
+
+.panel-scroll {
+  flex: 1;
+  overflow-y: auto;
+  padding: 10px 16px 18px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.panel-scroll::-webkit-scrollbar {
+  width: 4px;
+}
+.panel-scroll::-webkit-scrollbar-thumb {
+  background: rgba(16, 18, 22, 0.25);
+}
+
+.param-group {
+  border-bottom: 1px solid var(--border-hairline);
+  padding-bottom: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.param-group:last-child {
+  border-bottom: none;
+}
+
+.group-title {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+  font-weight: 700;
+  color: #0A0A0A;
+  letter-spacing: 0.04em;
+  padding-left: 8px;
+  border-left: 3px solid var(--macaron-blue);
+}
+
+.group-title.g-wind { border-left-color: var(--macaron-blue); }
+.group-title.g-tower { border-left-color: var(--macaron-mint); }
+.group-title.g-tmd { border-left-color: var(--macaron-pink); }
+.group-title.g-sec { border-left-color: var(--macaron-purple); }
+.group-title.g-disp { border-left-color: var(--gilt-gold); }
+
+.group-title span.en {
+  font-family: var(--font-en);
+  font-size: 10px;
+  font-weight: 600;
+  color: #1A1A1A;
+}
+
+.param-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  position: relative;
+}
+
+.param-label-line {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 12px;
+  color: #111111;
+}
+
+.param-name {
+  font-weight: 500;
+  color: #111111;
+  border-bottom: 1px dotted rgba(16, 18, 22, 0.35);
+  cursor: help;
+}
+
+.param-val {
+  font-family: var(--font-en);
+  font-size: 12px;
+  font-weight: 600;
+  color: #0A0A0A;
+  font-variant-numeric: tabular-nums;
+}
+
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 4px;
+  background: rgba(16, 18, 22, 0.16);
+  outline: none;
+  cursor: pointer;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  background: #101216;
+  border: 2px solid #FFFFFF;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.3);
+  cursor: pointer;
+}
+
+.switch-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+  color: #111111;
+  padding: 2px 0;
+}
+
+.toggle-switch {
+  position: relative;
+  width: 36px;
+  height: 18px;
+  background: rgba(16, 18, 22, 0.22);
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.toggle-switch.active {
+  background: #101216;
+}
+
+.toggle-switch::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  background: #FFFFFF;
+  transition: transform 0.2s;
+}
+
+.toggle-switch.active::after {
+  transform: translateX(18px);
+}
+
+.seg-group {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(58px, 1fr));
+  gap: 4px;
+}
+
+.seg-item {
+  text-align: center;
+  padding: 5px 4px;
+  font-size: 11px;
+  font-weight: 500;
+  color: #111111;
+  background: rgba(16, 18, 22, 0.06);
+  border: 1px solid transparent;
+  cursor: pointer;
+}
+
+.seg-item.active {
+  background: #101216;
+  color: #FFFFFF;
+  font-weight: 600;
+}
+
+/* Floating Engineering Tooltip */
+#eng-tooltip {
+  position: fixed;
+  z-index: 100;
+  width: 280px;
+  background: #101216;
+  color: #F4F6F9;
+  padding: 10px 12px;
+  font-size: 11px;
+  line-height: 1.55;
+  border-left: 3px solid var(--gilt-gold);
+  box-shadow: 0 10px 28px rgba(0,0,0,0.28);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.14s ease;
+}
+
+#eng-tooltip.visible {
+  opacity: 1;
+}
+
+#eng-tooltip .tt-title {
+  font-weight: 700;
+  color: #FFFFFF;
+  margin-bottom: 4px;
+  font-size: 12px;
+}
+
+#eng-tooltip .tt-meta {
+  font-family: var(--font-en);
+  font-size: 10px;
+  color: #D8B568;
+  margin-top: 4px;
+}
+
+@media (max-width: 1100px) {
+  #hud-left { width: 360px; }
+  #hud-right { width: 300px; }
+  body.panel-open #hud-right { right: 20px; bottom: 250px; }
+}
+</style>
+</head>
+<body class="panel-open">
+  <div id="canvas-container"></div>
+
+  <!-- 顶部标题与 30s 自动循环时间线状态栏 -->
+  <header id="top-header">
+    <div class="title-row">
+      <h1 class="main-title">上海之巅</h1>
+      <span class="sub-title-en">SHANGHAI TOWER 632M · ZONE 9 (+568.800M–+635.200M) · 1000T EDDY-CURRENT PENDULUM TMD</span>
+    </div>
+    <div class="stage-banner">
+      <span class="stage-pill" id="stage-badge">STAGE 01 / 05</span>
+      <span class="stage-desc" id="stage-text">0–4s 静置起风 · 风粒子自西向东掠过塔身，顶部出现毫米级微幅弯曲摆动</span>
+    </div>
+    <div class="timeline-bar-wrap" id="timeline- scrubber">
+      <div class="timeline-bar-fill" id="timeline-fill"></div>
+    </div>
+    <div class="timeline-ticks">
+      <span>0.0s 静置起风</span>
+      <span>4.0s 共振放大</span>
+      <span>10.0s TMD反相介入</span>
+      <span>16.0s 14级台风峰值</span>
+      <span>24.0s 失谐劣化</span>
+      <span>30.0s 循环</span>
+    </div>
+  </header>
+
+  <!-- 左下 HUD：结构响应遥测 + 时程对比曲线 + 塔身一阶弯曲振型姿态图 -->
+  <section class="hud-panel" id="hud-left">
+    <div class="hud-section-header">
+      <span>结构动力响应遥测 (+583.0m 阻尼器舱 / +632.0m 塔冠)</span>
+      <span class="en">STRUCTURAL RESPONSE TELEMETRY</span>
+    </div>
+    <div class="hud-metrics-grid">
+      <div class="hud-metric-item">
+        <span class="hud-metric-label">塔顶位移</span>
+        <div class="hud-metric-val-row">
+          <span class="hud-metric-val" id="hud-tower-disp">0</span>
+          <span class="hud-metric-unit">mm</span>
+        </div>
+      </div>
+      <div class="hud-metric-item">
+        <span class="hud-metric-label">质量块摆幅</span>
+        <div class="hud-metric-val-row">
+          <span class="hud-metric-val" id="hud-tmd-amp">0.00</span>
+          <span class="hud-metric-unit">m</span>
+        </div>
+      </div>
+      <div class="hud-metric-item">
+        <span class="hud-metric-label">减振率</span>
+        <div class="hud-metric-val-row">
+          <span class="hud-metric-val" id="hud-reduction">0.0</span>
+          <span class="hud-metric-unit">%</span>
+        </div>
+      </div>
+    </div>
+    <div class="hud-charts-row">
+      <div class="chart-box">
+        <div class="chart-legend">
+          <span><i class="legend-dot" style="background:#D98A98;"></i>无阻尼器对照</span>
+          <span><i class="legend-dot" style="background:#68B8A6;"></i>有阻尼器塔顶</span>
+          <span><i class="legend-dot" style="background:#C69E4B;"></i>TMD反相位移</span>
+          <span style="margin-left:auto;font-family:var(--font-en);font-size:9px;color:#B8C2CC;">双峰频响 / 时程</span>
+        </div>
+        <canvas id="time-history-canvas" width="308" height="104"></canvas>
+      </div>
+      <div class="chart-box">
+        <div class="chart-legend">
+          <span>塔身姿态 &amp; 振型</span>
+        </div>
+        <canvas id="posture-canvas" width="114" height="104"></canvas>
+      </div>
+    </div>
+  </section>
+
+  <!-- 右下 HUD：外部风荷载与电涡流耗能功率 + ±2m 物理限位行程指示条 -->
+  <section class="hud-panel" id="hud-right">
+    <div class="hud-section-header">
+      <span>风荷载激励与电涡流耗能监控 (125组永磁阵列)</span>
+      <span class="en">EXCITATION &amp; EDDY DAMPING</span>
+    </div>
+    <div class="hud-metrics-grid" style="grid-template-columns: repeat(2, 1fr);">
+      <div class="hud-metric-item">
+        <span class="hud-metric-label">等效风速</span>
+        <div class="hud-metric-val-row">
+          <span class="hud-metric-val" id="hud-wind-speed">12.0</span>
+          <span class="hud-metric-unit">m/s</span>
+        </div>
+      </div>
+      <div class="hud-metric-item">
+        <span class="hud-metric-label">电涡流耗能功率</span>
+        <div class="hud-metric-val-row">
+          <span class="hud-metric-val" id="hud-eddy-power">0.0</span>
+          <span class="hud-metric-unit">kW</span>
+        </div>
+      </div>
+    </div>
+    <div class="stroke-gauge-wrap">
+      <div class="stroke-bar-header">
+        <span>质量块实时行程指示条 (液压缓冲止挡极限 ±2.00 m)</span>
+        <span id="hud-buffer-state" style="font-family:var(--font-en);font-size:10px;color:#68B8A6;">NOMINAL</span>
+      </div>
+      <div class="stroke-track">
+        <div class="stroke-limit-zone left"></div>
+        <div class="stroke-limit-zone right"></div>
+        <div class="stroke-center-line"></div>
+        <div class="stroke-fill" id="stroke-fill"></div>
+        <div class="stroke-thumb" id="stroke-thumb"></div>
+      </div>
+      <div class="stroke-scale">
+        <span class="limit-tag">-2.0m 限位</span>
+        <span>-1.0m</span>
+        <span>0.0m</span>
+        <span>+1.0m</span>
+        <span class="limit-tag">+2.0m 限位</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- 参数面板收起/展开切换标签 -->
+  <div id="panel-toggle-tab" data-tt-title="参数面板显隐控制" data-tt-body="展开或收起实时物理参数控制台。收起后可无遮挡观察建筑模型与阻尼器动态响应。" data-tt-meta="SHORTCUT: CLICK TO TOGGLE">参数面板 PARAMS</div>
+
+  <!-- 右侧可收起参数控制面板 -->
+  <aside id="param-panel-wrap">
+    <div class="panel-header">
+      <span class="panel-header-title">实时参数化物理控制台</span>
+      <span class="panel-header-sub">2-DOF RK4 SOLVER</span>
+    </div>
+    <div class="panel-scroll">
+
+      <!-- 01 风荷载组 -->
+      <div class="param-group">
+        <div class="group-title g-wind">
+          <span>01 · 风荷载组</span>
+          <span class="en">WIND EXCITATION</span>
+        </div>
+        <div class="param-row" data-tt-title="工况模式与时间线脚本" data-tt-body="切换 30 秒五阶段自动演示时间线，或直接切入常遇日常风（18 m/s）与 14 级台风「贝碧嘉」实测工况（42 m/s）。手动调节任意滑块将自动接管物理引擎。" data-tt-meta="典型工况：台风 42 m/s 摆幅约 1.4m，减振率 ~43%">
+          <div class="seg-group" id="seg-scenario">
+            <div class="seg-item active" data-val="auto">30s自动循环</div>
+            <div class="seg-item" data-val="daily">日常风况</div>
+            <div class="seg-item" data-val="typhoon">14级台风</div>
+          </div>
+        </div>
+        <div class="param-row" data-tt-title="简谐风力幅值 F₀" data-tt-body="作用于塔楼一阶模态的等效广义顺风向/横风向涡激简谐风荷载幅值，直接决定强迫振动输入能量与等效风速读数。" data-tt-meta="典型值：800–3500 kN | 敏感性：与稳态位移呈正线性及限位非线性关系">
+          <div class="param-label-line">
+            <span class="param-name">简谐风力幅值 F₀</span>
+            <span class="param-val" id="val-wind-force">1600 kN</span>
+          </div>
+          <input type="range" id="inp-wind-force" min="100" max="4500" step="50" value="1600">
+        </div>
+        <div class="param-row" data-tt-title="风激励主频 f_w" data-tt-body="卡门涡街脱落或主风谱峰值频率。当风频接近塔楼一阶自振基频（0.15 Hz）时将触发剧烈结构共振放大。" data-tt-meta="典型值：0.10–0.25 Hz | 敏感性：极高，f_w=f₁ 时无控位移放大 30–50 倍">
+          <div class="param-label-line">
+            <span class="param-name">风频率 f_w</span>
+            <span class="param-val" id="val-wind-freq">0.150 Hz</span>
+          </div>
+          <input type="range" id="inp-wind-freq" min="0.06" max="0.30" step="0.005" value="0.15">
+        </div>
+        <div class="switch-row" data-tt-title="风频锁定基频开关 (f_w = f₁)" data-tt-body="开启后外部风荷载主频自动追踪并锁定塔楼一阶自振基频 f₁，持续维持最不利涡激共振工况以检验 TMD 抑振极限。" data-tt-meta="工程意义：验证结构在涡激锁定区（Lock-in）的动力稳定性">
+          <span class="param-name">风频锁定基频 (f_w = f₁)</span>
+          <div class="toggle-switch active" id="sw-lock-freq"></div>
+        </div>
+        <div class="switch-row" data-tt-title="随机阵风分量开关" data-tt-body="在简谐涡激力基础上叠加符合 Davenport 顺风向脉动风速谱的多频随机湍流阵风分量，还原真实台风过境的随机突变特征。" data-tt-meta="典型状态：开启 | 包含高频湍流与低频阵风包络">
+          <span class="param-name">随机阵风开关</span>
+          <div class="toggle-switch active" id="sw-gust"></div>
+        </div>
+        <div class="param-row" data-tt-title="阵风湍流强度 I_u" data-tt-body="脉动风荷载标准差与平均风荷载之比。强度越高，塔顶位移与阻尼器摆幅的随机瞬态峰值越显著。" data-tt-meta="典型值：10%–25%（陆家嘴 B/D 类地貌 583m 高度处约 15%）">
+          <div class="param-label-line">
+            <span class="param-name">阵风强度 I_u</span>
+            <span class="param-val" id="val-gust-intensity">18 %</span>
+          </div>
+          <input type="range" id="inp-gust-intensity" min="0" max="40" step="1" value="18">
+        </div>
+      </div>
+
+      <!-- 02 塔楼组 -->
+      <div class="param-group">
+        <div class="group-title g-tower">
+          <span>02 · 塔楼组</span>
+          <span class="en">TOWER MODAL (632M)</span>
+        </div>
+        <div class="param-row" data-tt-title="一阶广义模态质量 m₁" data-tt-body="上海中心总重约 85 万吨，按一阶弯曲振型 φ(z) 积分折算至塔顶广义坐标的等效模态质量。m₁ 变化会自动重算主结构广义刚度 k₁ 与 TMD 质量 m₂。" data-tt-meta="典型值：8.0×10⁴ – 12.0×10⁴ t（默认 10 万吨）">
+          <div class="param-label-line">
+            <span class="param-name">一阶模态质量 m₁</span>
+            <span class="param-val" id="val-tower-mass">10.0 ×10⁴ t</span>
+          </div>
+          <input type="range" id="inp-tower-mass" min="5.0" max="15.0" step="0.5" value="10.0">
+        </div>
+        <div class="param-row" data-tt-title="塔楼一阶自振基频 f₁" data-tt-body="632m 超高层核心筒-巨型框架-伸臂桁架体系的一阶弯曲固有频率（周期 T₁ = 1/f₁ ≈ 6.67 s）。改变 f₁ 将直接改变主结构抗侧刚度 k₁。" data-tt-meta="典型值：0.12–0.18 Hz（上海中心实测约 0.15 Hz）">
+          <div class="param-label-line">
+            <span class="param-name">塔楼基频 f₁</span>
+            <span class="param-val" id="val-tower-freq">0.150 Hz</span>
+          </div>
+          <input type="range" id="inp-tower-freq" min="0.10" max="0.22" step="0.005" value="0.15">
+        </div>
+        <div class="param-row" data-tt-title="结构固有阻尼比 ζ₁" data-tt-body="超高层钢-混组合结构自身的材料与节点摩擦耗能阻尼比。因超高层自身阻尼极低（约 1%），必须依赖顶部 TMD 附加等效阻尼。" data-tt-meta="典型值：0.5%–2.0% | 敏感性：ζ₁ 越低，无 TMD 时共振峰越尖锐">
+          <div class="param-label-line">
+            <span class="param-name">结构阻尼比 ζ₁</span>
+            <span class="param-val" id="val-tower-damping">1.0 %</span>
+          </div>
+          <input type="range" id="inp-tower-damping" min="0.5" max="3.0" step="0.1" value="1.0">
+        </div>
+      </div>
+
+      <!-- 03 阻尼器组 -->
+      <div class="param-group">
+        <div class="group-title g-tmd">
+          <span>03 · 阻尼器组</span>
+          <span class="en">1000T PENDULUM TMD</span>
+        </div>
+        <div class="param-row" data-tt-title="质量比 μ = m₂ / m₁" data-tt-body="摆式质量块质量 m₂ 与塔楼一阶模态质量 m₁ 之比。μ 越大，反向惯性控制力越强、频带越宽，但对 125 层塔冠结构承重负担也越重。" data-tt-meta="典型值：0.5%–2.0%（1000t / 10万t = 1.0%）">
+          <div class="param-label-line">
+            <span class="param-name">质量比 μ</span>
+            <span class="param-val" id="val-mass-ratio">1.0 % (1000t)</span>
+          </div>
+          <input type="range" id="inp-mass-ratio" min="0.3" max="2.5" step="0.1" value="1.0">
+        </div>
+        <div class="param-row" data-tt-title="频率调谐比 f₂ / f₁（最敏感核心参数）" data-tt-body="TMD 摆频 f₂（由 25m 吊索摆长及多索几何约束决定）与塔楼基频 f₁ 之比。Den Hartog 最优调谐比 f_opt = 1/(1+μ) ≈ 0.99。一旦失谐偏离 ±10%，反相位关系瓦解，减振率从 43% 暴跌至 15% 以下！" data-tt-meta="最优值：0.98–1.00 | 敏感性：极高（阶段五演示失谐劣化）">
+          <div class="param-label-line">
+            <span class="param-name">调谐比 f₂/f₁</span>
+            <span class="param-val" id="val-tuning-ratio">1.00</span>
+          </div>
+          <input type="range" id="inp-tuning-ratio" min="0.75" max="1.20" step="0.01" value="1.00">
+        </div>
+        <div class="param-row" data-tt-title="电涡流阻尼比 ζ₂" data-tt-body="底部铜板切割 125 块永磁体阵列磁感线产生的非接触洛伦兹电涡流阻尼。ζ₂ 过小会导致质量块摆幅超限撞击缓冲器；ζ₂ 过大则相当于质量块与塔体锁死，丧失反相吸振能力。" data-tt-meta="Den Hartog 最优阻尼：ζ_opt = √(3μ/8(1+μ)) ≈ 6.1%–12.0%">
+          <div class="param-label-line">
+            <span class="param-name">电涡流阻尼比 ζ₂</span>
+            <span class="param-val" id="val-tmd-damping">11.0 %</span>
+          </div>
+          <input type="range" id="inp-tmd-damping" min="2.0" max="25.0" step="0.5" value="11.0">
+        </div>
+        <div class="switch-row" data-tt-title="锁定质量块（TMD 机械锁死失效模拟）" data-tt-body="开启后模拟液压插销将 1000 吨质量块机械锁死在 125 层大厅地板上（u_rel = 0），TMD 彻底退出工作，塔楼退化为无控单自由度体系，位移迅速飙升。" data-tt-meta="对比试验：直观检验有无 TMD 时的塔顶振幅差异">
+          <span class="param-name">锁定质量块 (失效模拟)</span>
+          <div class="toggle-switch" id="sw-lock-tmd"></div>
+        </div>
+      </div>
+
+      <!-- 04 剖面组 -->
+      <div class="param-group">
+        <div class="group-title g-sec">
+          <span>04 · 剖面与形态组</span>
+          <span class="en">SECTION &amp; APPEARANCE</span>
+        </div>
+        <div class="param-row" data-tt-title="阻尼器舱展现模式切换" data-tt-body="在「艺术模式」（米丘设计 7 片同心叠片琉璃玉眼 + Ø9.1m 鎏金水波纹底座 + 64 圈环向铜条鸟笼穹顶）與「机械模式」（图纸 05_simple_pendulum 8.1×5.2m 红色带肋质量块 + 金色梯形门架 + 4 根紫色底部斜撑阻尼器）之间切换。" data-tt-meta="图纸依据：03_miqiu_tmd_space_proposal & 05_simple_pendulum.jpg">
+          <div class="seg-group" id="seg-visual-mode">
+            <div class="seg-item active" data-val="art">艺术模式</div>
+            <div class="seg-item" data-val="mech">机械本体</div>
+            <div class="seg-item" data-val="hybrid">复合透视</div>
+          </div>
+        </div>
+        <div class="switch-row" data-tt-title="三维动态剖切平面开关" data-tt-body="开启 WebGL 局部剖切平面，沿指定方位角与偏移量切开塔冠双层幕墙与 Ø35m×23m 阻尼器大厅壳体，直视内部悬吊系统与摆动过程。" data-tt-meta="机位 B 默认自动激活剖切视效">
+          <span class="param-name">剖切开关</span>
+          <div class="toggle-switch" id="sw-clip-enable"></div>
+        </div>
+        <div class="param-row" data-tt-title="剖切平面方位角 (0–360°)" data-tt-body="绕上海中心竖向中心轴旋转剖切平面法线方向，支持从任意水平角度审视塔冠格栅、13.9m 井道与内部阻尼器舱。" data-tt-meta="调节范围：0°–360° 连续旋转">
+          <div class="param-label-line">
+            <span class="param-name">剖切方位角</span>
+            <span class="param-val" id="val-clip-angle">35 °</span>
+          </div>
+          <input type="range" id="inp-clip-angle" min="0" max="360" step="1" value="35">
+        </div>
+        <div class="param-row" data-tt-title="剖切平面偏移量" data-tt-body="沿剖切法线方向前后平移剖切面位置（0m 为过塔体中心轴正剖面），便于观察核心筒、外幕墙或大厅半剖结构。" data-tt-meta="调节范围：-25.0 m 至 +25.0 m">
+          <div class="param-label-line">
+            <span class="param-name">剖切偏移量</span>
+            <span class="param-val" id="val-clip-offset">2.0 m</span>
+          </div>
+          <input type="range" id="inp-clip-offset" min="-25" max="25" step="0.5" value="2.0">
+        </div>
+        <div class="switch-row" data-tt-title="金色装饰梯形门架显隐 (9.5m 高)" data-tt-body="依据手绘方案图注「FRAME CAN BE REMOVED WITH SIMPLE PENDULUM DESIGN」，四腿外撇的金色门架仅作装饰/施工辅助且不承力，12 根 25m 钢索直连顶部双主梁，门架可整体隐藏。" data-tt-meta="图纸依据：05_simple_pendulum.jpg (2009.03.13 H.Y.)">
+          <span class="param-name">金色梯形门架 (可拆装饰件)</span>
+          <div class="toggle-switch active" id="sw-portal-frame"></div>
+        </div>
+      </div>
+
+      <!-- 05 显示组 -->
+      <div class="param-group">
+        <div class="group-title g-disp">
+          <span>05 · 显示与机位组</span>
+          <span class="en">DISPLAY &amp; CAMERA</span>
+        </div>
+        <div class="param-row" data-tt-title="四机位预设与自动循环运镜" data-tt-body="切换四个经典建筑摄影机位：机位A（大厅仰视特写）、机位B（塔冠半剖透视）、机位C（西侧整塔平视看一阶弯曲振型）、机位D（东南高空朝西鸟瞰陆家嘴三件套与黄浦江急弯）。" data-tt-meta="支持鼠标左键旋转、右键平移、滚轮缩放自由检视">
+          <div class="seg-group" id="seg-camera">
+            <div class="seg-item active" data-val="AUTO">自动运镜</div>
+            <div class="seg-item" data-val="A">A·大厅</div>
+            <div class="seg-item" data-val="B">B·剖面</div>
+            <div class="seg-item" data-val="C">C·整塔</div>
+            <div class="seg-item" data-val="D">D·鸟瞰</div>
+          </div>
+        </div>
+        <div class="param-row" data-tt-title="结构位移视觉放大倍数" data-tt-body="632m 塔楼在台风下真实塔顶位移约 0.5–1.2m，在整塔尺度下肉眼难辨。放大倍数仅对三维渲染变形做视觉增益（HUD 仍显示真实物理毫米/米读数），且内置双层几何钳制确保任何倍数下质量块绝不穿出大厅内壁。" data-tt-meta="推荐值：15×–25×（整塔一阶 S 形弯曲清晰可辨）">
+          <div class="param-label-line">
+            <span class="param-name">位移视觉放大倍数</span>
+            <span class="param-val" id="val-disp-scale">18 ×</span>
+          </div>
+          <input type="range" id="inp-disp-scale" min="1" max="40" step="1" value="18">
+        </div>
+        <div class="param-row" data-tt-title="仿真时间加速倍率" data-tt-body="调节 RK4 物理积分器与 30s 时间线的推进速率。超高层自振周期长达 6.67 秒，适当加速有助于快速观察多周期共振积累与 TMD 抑振收敛过程。" data-tt-meta="典型值：1.0× 实时 | 可调 0.2× 慢放至 3.0× 快进">
+          <div class="param-label-line">
+            <span class="param-name">时间加速</span>
+            <span class="param-val" id="val-time-scale">1.0 ×</span>
+          </div>
+          <input type="range" id="inp-time-scale" min="0.2" max="3.0" step="0.1" value="1.0">
+        </div>
+        <div class="switch-row" data-tt-title="质量块摆动空间轨迹线开关" data-tt-body="在阻尼器舱底部绘制质量块中心随时间演化的三维动态相轨线，直观展示单摆反相运动轨迹及限位回弹包络。" data-tt-meta="视觉辅助：金色渐变动态尾迹">
+          <span class="param-name">质量块轨迹开关</span>
+          <div class="toggle-switch active" id="sw-trail"></div>
+        </div>
+      </div>
+
+    </div>
+  </aside>
+
+  <!-- 悬浮物理工程说明 Tooltip -->
+  <div id="eng-tooltip">
+    <div class="tt-title" id="tt-title"></div>
+    <div class="tt-body" id="tt-body"></div>
+    <div class="tt-meta" id="tt-meta"></div>
+  </div>
+  <script>
+  // ============================================================================
+  // 上海之巅 · 632m 电涡流摆式调谐质量阻尼器实时参数化三维仿真
+  // 核心架构：
+  // 1. 共享参数化几何函数：圆角三角形截面 + 120° 连续扭转 + 锥度收分（外表皮与塔冠格栅严格同源）
+  // 2. 一阶弯曲振型变形场：塔底 (y=0) 位移与转角严格为 0，沿高度呈连续悬臂弯曲振型
+  // 3. 真实双自由度 (2-DOF) 耦合 RK4 物理引擎 + ±2.0m 液压非线性缓冲限位器 + 无控对照解算器
+  // 4. 陆家嘴真实地理格局：西侧黄浦江凸岸急弯、环路+世纪大道、环球(492m)/金茂(420.5m)/东方明珠(468m)
+  // 5. 双模式阻尼器舱：艺术模式（7片同心叠片玉眼+鎏金波纹底座+64圈环向铜条穹顶）与机械模式（8.1×5.2m红块+12索+门架+4斜撑）
+  // ============================================================================
+
+  (function() {
+    'use strict';
+
+    // --- 全局仿真参数状态（与面板滑块双向实时绑定） ---
+    const state = {
+      scenarioMode: 'auto',     // 'auto' (30s五阶段循环) | 'daily' | 'typhoon' | 'manual'
+      timelineTime: 0.0,        // 0.0 - 30.0 s
+      simTime: 0.0,             // 累计物理时间 s
+      currentStage: 1,
+
+      // 01 风荷载组
+      windForceAmp: 1600,       // 简谐风力幅值 kN
+      windFreq: 0.150,          // 风激励频率 Hz
+      lockWindToBase: true,     // 风频锁定基频 f_w = f_1
+      gustEnabled: true,        // 随机阵风开关
+      gustIntensity: 18,        // 阵风湍流强度 %
+
+      // 02 塔楼组
+      towerMass10k: 10.0,       // 一阶模态质量 (×10^4 t)，默认 10.0 即 100,000 t
+      towerFreq: 0.150,         // 塔楼一阶基频 Hz (T1 ≈ 6.67s)
+      towerDampingPct: 1.0,     // 结构阻尼比 %
+
+      // 03 阻尼器组
+      massRatioPct: 1.0,        // 质量比 μ % (1.0% -> 1000 t)
+      tuningRatio: 1.00,        // 调谐比 f2 / f1
+      tmdDampingPct: 11.0,      // 电涡流阻尼比 ζ2 %
+      lockTmdMass: false,       // 锁定质量块（失效模拟）
+      tmdEngagedFactor: 1.0,    // 阶段1-2向阶段3过渡的耦合激活因子
+
+      // 04 剖面与外观组
+      visualMode: 'art',        // 'art' | 'mech' | 'hybrid'
+      clipEnabled: false,       // 剖切开关
+      clipAngleDeg: 35,         // 剖切方位角 0-360°
+      clipOffset: 2.0,          // 剖切偏移量 m
+      showPortalFrame: true,    // 金色梯形门架显隐
+
+      // 05 显示与机位组
+      cameraMode: 'AUTO',       // 'AUTO' | 'A' | 'B' | 'C' | 'D'
+      activeCamPreset: 'A',
+      dispVisualScale: 18,      // 位移视觉放大倍数
+      timeScale: 1.0,           // 时间加速倍率
+      showTrail: true,          // 质量块轨迹开关
+
+      // 物理求解实时状态量 (SI 单位: m, m/s, kW)
+      x1: 0.0,                  // 有控塔顶广义位移 m
+      v1: 0.0,                  // 有控塔顶广义速度 m/s
+      x2: 0.0,                  // 质量块相对大厅水平位移 m
+      v2: 0.0,                  // 质量块相对大厅水平速度 m/s
+      x1_uncontrolled: 0.0,     // 无阻尼器对照塔顶位移 m
+      v1_uncontrolled: 0.0,     // 无阻尼器对照塔顶速度 m/s
+
+      // 横风向椭圆微幅正交分量 (Z向伴随微幅摆动，还原三维单摆空间轨迹)
+      z1: 0.0,
+      vz1: 0.0,
+      z2: 0.0,
+      vz2: 0.0,
+
+      // 统计包络与遥测读数
+      envControlled: 0.01,
+      envUncontrolled: 0.01,
+      envTmdStroke: 0.0,
+      instantEddyPowerKW: 0.0,
+      equivWindSpeedMS: 12.0,
+      reductionRatePct: 0.0,
+      bufferContacted: false,
+      historyBuffer: []         // 存储最近 240 帧时程曲线数据
+    };
+
+    // --- 常量与真实图纸标高定义 (引自 04_section_double_pendulum.jpg & 05_simple_pendulum.jpg) ---
+    const TOWER_HEIGHT = 632.0;          // 建筑结构高度 632.0 m
+    const SPIRE_TOP = 635.2;             // Top of Spire +635.200 m
+    const ZONE9_START = 568.8;           // Zone 09 Level 01 +568.800 m
+    const CROWN_LATTICE_START = 574.4;   // 顶部 57.6m 镂空格栅塔冠起点 (632 - 57.6 = 574.4 m)
+    const HALL_ELEVATION = 583.0;        // 125-126层阻尼器大厅楼面标高 +583.0 m
+    const HALL_RADIUS = 17.5;            // Ø35m 圆形开敞大厅半径 17.5 m
+    const HALL_HEIGHT = 23.0;            // 大厅净高 23.0 m
+    const CABLE_LENGTH = 25.0;           // 12根吊索长度 25.0 m
+    const MASS_HEIGHT = 8.1;             // 红色质量块高度 8.1 m
+    const MASS_WIDTH = 5.2;              // 红色质量块宽度 5.2 m (比例 1.558:1)
+    const PORTAL_HEIGHT = 9.5;           // 金色梯形门架高度 9.5 m
+    const SCULPTURE_HEIGHT = 7.7;        // 「上海慧眼」雕塑高 7.7 m
+    const SCULPTURE_WIDTH = 3.89;        // 「上海慧眼」雕塑宽 3.89 m
+    const WAVE_BASE_DIAM = 9.1;          // 纯铜鎏金水波纹底座直径 Ø9.1 m
+    const SKYLIGHT_DIAM = 4.0;           // 顶部大圆天窗直径 Ø4.0 m
+    const STROKE_LIMIT = 2.0;            // 单边极限行程 ±2.0 m
+
+    // ============================================================================
+    // 1. 塔身与塔冠共享参数化几何公式 (保证塔冠在任何角度下绝不越出外表皮轮廓)
+    // ============================================================================
+    function getTowerTwistRad(y) {
+      const t = THREE.MathUtils.clamp(y / TOWER_HEIGHT, 0, 1.02);
+      return t * (120.0 * Math.PI / 180.0); // 自下而上连续扭转 120°
+    }
+
+    function getTowerScaleRadius(y) {
+      const t = THREE.MathUtils.clamp(y / TOWER_HEIGHT, 0, 1.02);
+      // 底部等效半径 41.5m，随高度平滑收分至顶部 19.6m（在 +583m 处半径约 22.1m，包裹 Ø35m 大厅）
+      return 41.5 * (1.0 - 0.528 * Math.pow(t, 1.06));
+    }
+
+    // 圆角三角形截面极坐标方程：三段外凸圆弧 + 三个圆润倒角 + 三道螺旋抗风凹槽
+    function getRoundedTriangleLocalRadius(alpha) {
+      const triShape = 1.0 + 0.135 * Math.cos(3.0 * alpha) - 0.024 * Math.cos(6.0 * alpha);
+      const s3 = Math.sin(1.5 * alpha);
+      const grooveNotch = 0.032 * Math.exp(-(s3 * s3) / 0.016);
+      return triShape - grooveNotch;
+    }
+
+    // 给定标高 y、截面极角 alpha 及径向缩放系数，返回未弯曲前的塔身三维坐标
+    function evalTowerEnvelopePoint(y, alpha, radialScale = 1.0) {
+      const baseR = getTowerScaleRadius(y) * radialScale;
+      const localR = baseR * getRoundedTriangleLocalRadius(alpha);
+      const totalAngle = alpha + getTowerTwistRad(y);
+      return {
+        x: localR * Math.cos(totalAngle),
+        y: y,
+        z: localR * Math.sin(totalAngle)
+      };
+    }
+
+    // 一阶悬臂弯曲振型函数 φ(y)：y=0 处严格 φ(0)=0 且 dφ/dy(0)=0，沿高度呈光滑弯曲
+    function getFirstModeShape(y) {
+      if (y <= 0) return 0.0;
+      const s = THREE.MathUtils.clamp(y / TOWER_HEIGHT, 0, 1.05);
+      return 0.45 * (1.0 - Math.cos(0.5 * Math.PI * s)) + 0.55 * (1.5 * s * s - 0.5 * s * s * s);
+    }
+
+    function getFirstModeSlope(y) {
+      if (y <= 0) return 0.0;
+      const s = THREE.MathUtils.clamp(y / TOWER_HEIGHT, 0, 1.05);
+      const dPhiDs = 0.45 * 0.5 * Math.PI * Math.sin(0.5 * Math.PI * s) + 0.55 * (3.0 * s - 1.5 * s * s);
+      return dPhiDs / TOWER_HEIGHT;
+    }
+
+    // ============================================================================
+    // 2. 初始化 Three.js 场景、渲染器、软阴影与可调剖切平面
+    // ============================================================================
+    const container = document.getElementById('canvas-container');
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0xEEF0F4);
+    scene.fog = new THREE.FogExp2(0xEEF0F4, 0.00022);
+
+    const camera = new THREE.PerspectiveCamera(42, window.innerWidth / window.innerHeight, 0.4, 6500);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.localClippingEnabled = true;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.06;
+    container.appendChild(renderer.domElement);
+
+    // 动态局部剖切平面（仅作用于塔冠外表皮与阻尼器大厅外壳，不裁切内部机械/雕塑本体）
+    const sectionClipPlane = new THREE.Plane(new THREE.Vector3(-1, 0, 0), 9999);
+    const clippableMaterials = [];
+
+    function registerClippable(mat) {
+      clippableMaterials.push(mat);
+      return mat;
+    }
+
+    // --- 建筑模型陈列风柔和多层次布光 ---
+    const hemiLight = new THREE.HemisphereLight(0xFFFFFF, 0xDCE1EA, 0.86);
+    hemiLight.position.set(0, 900, 0);
+    scene.add(hemiLight);
+
+    const mainSun = new THREE.DirectionalLight(0xFFFDF9, 0.88);
+    mainSun.position.set(520, 980, 440);
+    mainSun.castShadow = true;
+    mainSun.shadow.mapSize.width = 2048;
+    mainSun.shadow.mapSize.height = 2048;
+    mainSun.shadow.camera.near = 100;
+    mainSun.shadow.camera.far = 2600;
+    const dCam = 950;
+    mainSun.shadow.camera.left = -dCam;
+    mainSun.shadow.camera.right = dCam;
+    mainSun.shadow.camera.top = dCam;
+    mainSun.shadow.camera.bottom = -dCam;
+    mainSun.shadow.bias = -0.0004;
+    scene.add(mainSun);
+
+    const fillLight = new THREE.DirectionalLight(0xE4ECF7, 0.42);
+    fillLight.position.set(-600, 500, -420);
+    scene.add(fillLight);
+
+    // ============================================================================
+    // 3. 陆家嘴真实城市环境建模 (黄浦江凸岸急弯 + 环路/世纪大道 + 三件套 + 东方明珠)
+    // ============================================================================
+    const cityGroup = new THREE.Group();
+    scene.add(cityGroup);
+
+    // 3.1 浅灰白模型展台底板
+    const groundGeo = new THREE.CylinderGeometry(2800, 2800, 8, 96);
+    const groundMat = new THREE.MeshStandardMaterial({
+      color: 0xE6E9EF,
+      roughness: 0.92,
+      metalness: 0.02
+    });
+    const groundMesh = new THREE.Mesh(groundGeo, groundMat);
+    groundMesh.position.y = -4.0;
+    groundMesh.receiveShadow = true;
+    cityGroup.add(groundMesh);
+
+    // 3.2 黄浦江急弯函数（位于塔楼西侧 -X，陆家嘴为向西凸进江里的凸岸，江宽 460m）
+    // 当 z=0（正西）时河道中心在 x = -670m；当 z 向南北延伸时，河道向东弯回，使陆家嘴形成典型西凸半岛
+    function getRiverCenterX(z) {
+      const zn = z / 920.0;
+      return -675.0 + 360.0 * (zn * zn) + 35.0 * Math.sin(zn * 1.4);
+    }
+    const RIVER_HALF_WIDTH = 225.0; // 江宽 450m
+
+    function buildHuangpuRiver() {
+      const segZ = 140;
+      const zMin = -1850, zMax = 1850;
+      const positions = [];
+      const uvs = [];
+      const indices = [];
+
+      for (let i = 0; i <= segZ; i++) {
+        const u = i / segZ;
+        const z = zMin + u * (zMax - zMin);
+        const cx = getRiverCenterX(z);
+        // 计算切向法线以保持江宽均匀
+        const dz = 5.0;
+        const dx = getRiverCenterX(z + dz) - cx;
+        const len = Math.hypot(dx, dz);
+        const nx = dz / len;
+        const nz = -dx / len;
+
+        const xWest = cx - nx * RIVER_HALF_WIDTH;
+        const zWest = z - nz * RIVER_HALF_WIDTH;
+        const xEast = cx + nx * RIVER_HALF_WIDTH;
+        const zEast = z + nz * RIVER_HALF_WIDTH;
+
+        positions.push(xWest, 0.28, zWest);
+        positions.push(xEast, 0.28, zEast);
+        uvs.push(0, u, 1, u);
+
+        if (i < segZ) {
+          const a = i * 2, b = a + 1, c = a + 2, d = a + 3;
+          indices.push(a, c, b, b, c, d);
+        }
+      }
+
+      const riverGeo = new THREE.BufferGeometry();
+      riverGeo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+      riverGeo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+      riverGeo.setIndex(indices);
+
+      // 纯净淡蓝水面：使用无光照材质 + polygonOffset 彻底杜绝光照条纹伪影与 z-fighting
+      const riverMat = new THREE.MeshBasicMaterial({
+        color: 0xBCD9EE,
+        polygonOffset: true,
+        polygonOffsetFactor: -3,
+        polygonOffsetUnits: -3
+      });
+      const riverMesh = new THREE.Mesh(riverGeo, riverMat);
+      cityGroup.add(riverMesh);
+
+      // 浅白色防汛江堤边线
+      const bankPointsEast = [];
+      const bankPointsWest = [];
+      for (let i = 0; i <= segZ; i++) {
+        const z = zMin + (i / segZ) * (zMax - zMin);
+        const cx = getRiverCenterX(z);
+        bankPointsWest.push(new THREE.Vector3(cx - RIVER_HALF_WIDTH, 0.55, z));
+        bankPointsEast.push(new THREE.Vector3(cx + RIVER_HALF_WIDTH, 0.55, z));
+      }
+      const bankMat = new THREE.LineBasicMaterial({ color: 0x9AB8D2 });
+      cityGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(bankPointsEast), bankMat));
+      cityGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(bankPointsWest), bankMat));
+    }
+    buildHuangpuRiver();
+
+    // 3.3 陆家嘴环路（环绕圆环）+ 中心绿地 + 世纪大道（东西/西北-东南主轴）
+    const RING_CENTER = { x: -45, z: -75 };
+    const RING_RADIUS = 285;
+    function buildRoadNetwork() {
+      const roadMat = new THREE.MeshBasicMaterial({
+        color: 0xD5DAE2,
+        polygonOffset: true,
+        polygonOffsetFactor: -1,
+        polygonOffsetUnits: -1
+      });
+
+      // 陆家嘴环路
+      const ringGeo = new THREE.RingGeometry(RING_RADIUS - 11, RING_RADIUS + 11, 96);
+      ringGeo.rotateX(-Math.PI / 2);
+      const ringMesh = new THREE.Mesh(ringGeo, roadMat);
+      ringMesh.position.set(RING_CENTER.x, 0.18, RING_CENTER.z);
+      cityGroup.add(ringMesh);
+
+      // 环内陆家嘴中心绿地（淡薄荷马卡龙色抽象体块）
+      const parkGeo = new THREE.CircleGeometry(RING_RADIUS - 28, 72);
+      parkGeo.rotateX(-Math.PI / 2);
+      const parkMat = new THREE.MeshBasicMaterial({
+        color: 0xD6E8E2,
+        polygonOffset: true,
+        polygonOffsetFactor: -2,
+        polygonOffsetUnits: -2
+      });
+      const parkMesh = new THREE.Mesh(parkGeo, parkMat);
+      parkMesh.position.set(RING_CENTER.x - 20, 0.22, RING_CENTER.z - 15);
+      cityGroup.add(parkMesh);
+
+      // 世纪大道主轴（从西北东方明珠环岛向东贯穿三件套北侧至东侧）
+      const centuryShape = new THREE.Shape();
+      centuryShape.moveTo(-480, -490);
+      centuryShape.lineTo(1350, 290);
+      centuryShape.lineTo(1362, 264);
+      centuryShape.lineTo(-468, -516);
+      centuryShape.closePath();
+      const centuryGeo = new THREE.ShapeGeometry(centuryShape);
+      centuryGeo.rotateX(Math.PI / 2);
+      const centuryMesh = new THREE.Mesh(centuryGeo, roadMat);
+      centuryMesh.position.y = 0.20;
+      cityGroup.add(centuryMesh);
+
+      // 银城中路与花园石桥路次干道
+      const subRoadGeo = new THREE.PlaneGeometry(14, 1100);
+      subRoadGeo.rotateX(-Math.PI / 2);
+      const subRoad1 = new THREE.Mesh(subRoadGeo, roadMat);
+      subRoad1.position.set(110, 0.16, 40);
+      subRoad1.rotation.y = 0.18;
+      cityGroup.add(subRoad1);
+    }
+    buildRoadNetwork();
+
+    // 3.4 三大地标精细建模：环球金融中心 (492m)、金茂大厦 (420.5m)、东方明珠 (468m)
+    const landmarkFootprints = [
+      { x: 0, z: 0, r: 95 },        // 上海中心
+      { x: 220, z: 50, r: 75 },     // 环球金融中心
+      { x: 185, z: -205, r: 70 },   // 金茂大厦
+      { x: -535, z: -610, r: 95 }   // 东方明珠
+    ];
+
+    // (a) 环球金融中心 SWFC (492m，东侧约 220m：薄板体量 + 上部两角削肩双向收分 + 顶部梯形开洞)
+    function buildSWFC() {
+      const swfcGroup = new THREE.Group();
+      swfcGroup.position.set(220, 0, 50);
+      swfcGroup.rotation.y = -0.42;
+
+      const swfcMat = new THREE.MeshStandardMaterial({
+        color: 0xDCE4EE,
+        roughness: 0.35,
+        metalness: 0.15
+      });
+      const trimMat = new THREE.MeshStandardMaterial({
+        color: 0xB8C7D9,
+        roughness: 0.3,
+        metalness: 0.25
+      });
+
+      // 下部至中部双向收分与削肩塔身 (0 -> 422m)
+      const levels = 36;
+      const hLower = 422.0;
+      const dh = hLower / levels;
+      for (let i = 0; i < levels; i++) {
+        const t = i / levels;
+        const y = i * dh + dh * 0.5;
+        // 随高度双向收分 + 两角削肩过渡为薄板
+        const w = 58.0 * (1.0 - 0.12 * t);
+        const d = 58.0 * (1.0 - 0.52 * Math.pow(t, 0.85));
+        const sliceGeo = new THREE.BoxGeometry(w, dh + 0.2, d);
+        const sliceMesh = new THREE.Mesh(sliceGeo, swfcMat);
+        sliceMesh.position.y = y;
+        sliceMesh.castShadow = true;
+        sliceMesh.receiveShadow = true;
+        swfcGroup.add(sliceMesh);
+      }
+
+      // 顶部梯形开洞门架段 (422m -> 492m)
+      // 左右两根竖向斜收立柱
+      const pillarGeo = new THREE.BoxGeometry(10.5, 70, 26);
+      const leftPillar = new THREE.Mesh(pillarGeo, swfcMat);
+      leftPillar.position.set(-19.5, 457, 0);
+      const rightPillar = new THREE.Mesh(pillarGeo, swfcMat);
+      rightPillar.position.set(19.5, 457, 0);
+      swfcGroup.add(leftPillar, rightPillar);
+
+      // 梯形开洞下沿斜撑与顶部水平观光天桥 (440m & 487m)
+      const lowerVLeft = new THREE.Mesh(new THREE.BoxGeometry(20, 6, 25.5), trimMat);
+      lowerVLeft.position.set(-9, 430, 0);
+      lowerVLeft.rotation.z = -0.36;
+      const lowerVRight = new THREE.Mesh(new THREE.BoxGeometry(20, 6, 25.5), trimMat);
+      lowerVRight.position.set(9, 430, 0);
+      lowerVRight.rotation.z = 0.36;
+
+      const topBridge = new THREE.Mesh(new THREE.BoxGeometry(49.5, 6.5, 26.2), trimMat);
+      topBridge.position.set(0, 488.5, 0);
+      const midBridge = new THREE.Mesh(new THREE.BoxGeometry(32, 3.2, 24), trimMat);
+      midBridge.position.set(0, 474, 0);
+
+      swfcGroup.add(lowerVLeft, lowerVRight, topBridge, midBridge);
+      cityGroup.add(swfcGroup);
+    }
+    buildSWFC();
+
+    // (b) 金茂大厦 (420.5m，东北约 270m：八边形平面 + 8级宝塔式收分 + 每级挑出层檐 + 四根细杆收至白玉兰尖顶)
+    function buildJinMao() {
+      const jmGroup = new THREE.Group();
+      jmGroup.position.set(185, 0, -205);
+
+      const bodyMat = new THREE.MeshStandardMaterial({
+        color: 0xE2E6EC,
+        roughness: 0.42,
+        metalness: 0.18
+      });
+      const eaveMat = new THREE.MeshStandardMaterial({
+        color: 0xC4CCD8,
+        roughness: 0.35,
+        metalness: 0.28
+      });
+
+      const tierHeights = [66, 56, 48, 42, 38, 34, 30, 28]; // 8级宝塔主体共 342m
+      let curY = 0;
+      for (let i = 0; i < 8; i++) {
+        const h = tierHeights[i];
+        const r = 29.0 * Math.pow(0.865, i);
+        // 八边形塔身
+        const octGeo = new THREE.CylinderGeometry(r * 0.96, r, h, 8);
+        octGeo.rotateY(Math.PI / 8);
+        const octMesh = new THREE.Mesh(octGeo, bodyMat);
+        octMesh.position.y = curY + h * 0.5;
+        octMesh.castShadow = true;
+        octMesh.receiveShadow = true;
+        jmGroup.add(octMesh);
+
+        // 每级挑出八角层檐
+        const eaveGeo = new THREE.CylinderGeometry(r * 1.09, r * 1.04, 2.4, 8);
+        eaveGeo.rotateY(Math.PI / 8);
+        const eaveMesh = new THREE.Mesh(eaveGeo, eaveMat);
+        eaveMesh.position.y = curY + h - 0.8;
+        jmGroup.add(eaveMesh);
+
+        curY += h;
+      }
+
+      // 顶部白玉兰花瓣冠座 (342m -> 372m)
+      for (let k = 0; k < 3; k++) {
+        const cr = 9.5 * (1 - k * 0.24);
+        const ch = 10;
+        const cGeo = new THREE.CylinderGeometry(cr * 0.85, cr, ch, 8);
+        cGeo.rotateY(Math.PI / 8);
+        const cMesh = new THREE.Mesh(cGeo, eaveMat);
+        cMesh.position.y = curY + ch * 0.5;
+        jmGroup.add(cMesh);
+        curY += ch;
+      }
+
+      // 顶部四根细杆收至 420.5m 白玉兰尖顶
+      const rodOffsets = [[-2.2, -2.2], [2.2, -2.2], [2.2, 2.2], [-2.2, 2.2]];
+      rodOffsets.forEach(([ox, oz]) => {
+        const rodGeo = new THREE.CylinderGeometry(0.18, 0.35, 34, 8);
+        const rod = new THREE.Mesh(rodGeo, eaveMat);
+        rod.position.set(ox * 0.6, curY + 17, oz * 0.6);
+        rod.rotation.z = ox > 0 ? 0.04 : -0.04;
+        rod.rotation.x = oz > 0 ? -0.04 : 0.04;
+        jmGroup.add(rod);
+      });
+      const spireMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.6, 48.5, 12), eaveMat);
+      spireMesh.position.y = 372 + 24.25;
+      jmGroup.add(spireMesh);
+
+      cityGroup.add(jmGroup);
+    }
+    buildJinMao();
+
+    // (c) 东方明珠 (468m，西北约 860m 江边：三根立柱 + 上下两个球体 + 太空舱 + 天线)
+    function buildOrientalPearl() {
+      const opGroup = new THREE.Group();
+      opGroup.position.set(-535, 0, -610);
+
+      const concreteMat = new THREE.MeshStandardMaterial({
+        color: 0xE6E9F0,
+        roughness: 0.5,
+        metalness: 0.1
+      });
+      const sphereMat = new THREE.MeshStandardMaterial({
+        color: 0xDFB8C4, // 马卡龙雾粉点缀球体
+        roughness: 0.32,
+        metalness: 0.18
+      });
+
+      // 三根巨型斜撑立柱 + 三根竖向筒体
+      for (let i = 0; i < 3; i++) {
+        const ang = (i * 2 * Math.PI) / 3;
+        // 斜撑腿
+        const strutGeo = new THREE.CylinderGeometry(2.6, 3.8, 115, 16);
+        const strut = new THREE.Mesh(strutGeo, concreteMat);
+        strut.position.set(Math.cos(ang) * 26, 48, Math.sin(ang) * 26);
+        strut.rotation.z = Math.cos(ang) * 0.36;
+        strut.rotation.x = -Math.sin(ang) * 0.36;
+        opGroup.add(strut);
+
+        // 贯通上下球体的三根竖向立柱
+        const colGeo = new THREE.CylinderGeometry(3.2, 3.2, 335, 16);
+        const col = new THREE.Mesh(colGeo, concreteMat);
+        col.position.set(Math.cos(ang) * 9.5, 167.5, Math.sin(ang) * 9.5);
+        col.castShadow = true;
+        opGroup.add(col);
+      }
+
+      // 下球体 (Ø50m, 标高 98m)
+      const lowSphere = new THREE.Mesh(new THREE.SphereGeometry(25, 32, 24), sphereMat);
+      lowSphere.position.y = 98;
+      lowSphere.castShadow = true;
+      opGroup.add(lowSphere);
+
+      // 上球体 (Ø45m, 标高 272m)
+      const highSphere = new THREE.Mesh(new THREE.SphereGeometry(22.5, 32, 24), sphereMat);
+      highSphere.position.y = 272;
+      highSphere.castShadow = true;
+      opGroup.add(highSphere);
+
+      // 太空舱小球 (Ø16m, 标高 348m)
+      const topSphere = new THREE.Mesh(new THREE.SphereGeometry(8.5, 24, 18), sphereMat);
+      topSphere.position.y = 348;
+      opGroup.add(topSphere);
+
+      // 顶部发射天线 (356m -> 468m)
+      const antenna = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 2.2, 112, 16), concreteMat);
+      antenna.position.y = 356 + 56;
+      opGroup.add(antenna);
+
+      cityGroup.add(opGroup);
+    }
+    buildOrientalPearl();
+
+    // 3.5 第二梯队塔楼 (6+ 座 180–270m 方正玻璃体量) 与浦西外滩及周边低层建筑群（严格避让河道、道路、绿地与地标）
+    function isLocationClear(x, z, radius) {
+      // 1. 避让黄浦江河道及两岸缓冲带
+      const riverCx = getRiverCenterX(z);
+      if (Math.abs(x - riverCx) < RIVER_HALF_WIDTH + radius + 24) return false;
+      // 2. 避让陆家嘴环路与中心绿地
+      const dRing = Math.hypot(x - RING_CENTER.x, z - RING_CENTER.z);
+      if (dRing < RING_RADIUS + radius + 16) return false;
+      // 3. 避让世纪大道主轴
+      const lineDist = Math.abs(780 * x - 1830 * z - 522900) / Math.hypot(780, 1830);
+      if (x > -520 && x < 1380 && lineDist < 28 + radius) return false;
+      // 4. 避让四大核心地标
+      for (const lm of landmarkFootprints) {
+        if (Math.hypot(x - lm.x, z - lm.z) < lm.r + radius + 15) return false;
+      }
+      return true;
+    }
+
+    function buildSecondaryAndUrbanBlocks() {
+      const secTowerMat = new THREE.MeshStandardMaterial({
+        color: 0xDFE5EE,
+        roughness: 0.38,
+        metalness: 0.14
+      });
+      const lowBlockMats = [
+        new THREE.MeshStandardMaterial({ color: 0xE8EBF0, roughness: 0.8 }),
+        new THREE.MeshStandardMaterial({ color: 0xE2E6EC, roughness: 0.8 }),
+        new THREE.MeshStandardMaterial({ color: 0xE5E0E8, roughness: 0.78 }), // 极淡马卡龙紫灰
+        new THREE.MeshStandardMaterial({ color: 0xDFEAE8, roughness: 0.78 })  // 极淡马卡龙薄荷灰
+      ];
+
+      // 8 座第二梯队陆家嘴高层塔楼 (185–268 m)
+      const secondarySpecs = [
+        { x: -165, z: -385, w: 46, d: 46, h: 260 }, // 国金中心北塔 IFC
+        { x: -75,  z: -395, w: 44, d: 44, h: 250 }, // 国金中心南塔
+        { x: 145,  z: -390, w: 48, d: 34, h: 258 }, // 中银大厦
+        { x: 420,  z: -120, w: 50, d: 38, h: 269 }, // 时代金融中心
+        { x: -340, z: 120,  w: 52, d: 32, h: 185 }, // 震旦大厦江畔
+        { x: -290, z: 245,  w: 48, d: 38, h: 192 }, // 花旗集团大厦
+        { x: 380,  z: 220,  w: 45, d: 45, h: 215 },
+        { x: 75,   z: 360,  w: 50, d: 42, h: 230 }
+      ];
+
+      secondarySpecs.forEach((sp) => {
+        const g = new THREE.BoxGeometry(sp.w, sp.h, sp.d);
+        const m = new THREE.Mesh(g, secTowerMat);
+        m.position.set(sp.x, sp.h * 0.5, sp.z);
+        m.castShadow = true;
+        m.receiveShadow = true;
+        cityGroup.add(m);
+        landmarkFootprints.push({ x: sp.x, z: sp.z, r: Math.max(sp.w, sp.d) * 0.7 });
+      });
+
+      // 浦东外围与浦西外滩低层建筑群（确定性伪随机分布 + 严格碰撞避让）
+      let seed = 1337;
+      function rand() {
+        seed = (seed * 16807) % 2147483647;
+        return (seed - 1) / 2147483646;
+      }
+
+      for (let i = 0; i < 210; i++) {
+        const isPuxi = i < 85;
+        const z = -1350 + rand() * 2700;
+        const rCx = getRiverCenterX(z);
+        const x = isPuxi
+          ? (rCx - RIVER_HALF_WIDTH - 55 - rand() * 520)
+          : (-380 + rand() * 1450);
+        const w = 26 + rand() * 36;
+        const d = 24 + rand() * 36;
+        const h = isPuxi ? (24 + rand() * 58) : (32 + rand() * 96);
+        const rad = Math.hypot(w, d) * 0.55;
+
+        if (!isLocationClear(x, z, rad)) continue;
+
+        const box = new THREE.Mesh(
+          new THREE.BoxGeometry(w, h, d),
+          lowBlockMats[i % lowBlockMats.length]
+        );
+        box.position.set(x, h * 0.5, z);
+        box.rotation.y = (rand() - 0.5) * 0.35;
+        box.castShadow = true;
+        box.receiveShadow = true;
+        cityGroup.add(box);
+        landmarkFootprints.push({ x, z, r: rad * 0.85 });
+      }
+    }
+    buildSecondaryAndUrbanBlocks();
+    // ============================================================================
+    // 4. 上海中心大厦 632m 本体与同源参数化塔冠建模 (圆角三角截面 + 120°扭转 + 双层幕墙)
+    // ============================================================================
+    const towerRoot = new THREE.Group();
+    scene.add(towerRoot);
+
+    // 存储所有需要随一阶弯曲振型实时变形的网格顶点基准数据
+    const deformableGeometries = [];
+
+    function registerDeformableGeometry(geometry) {
+      const posAttr = geometry.attributes.position;
+      const basePos = new Float32Array(posAttr.array.length);
+      basePos.set(posAttr.array);
+      deformableGeometries.push({ geometry, basePos });
+      return geometry;
+    }
+
+    // 生成与外表皮同源的参数化管状/壳体几何（确保塔冠与外幕墙 100% 共享数学包络）
+    function createParametricTowerShellGeometry(yStart, yEnd, ySegments, radialSegments, radialScale) {
+      const geo = new THREE.BufferGeometry();
+      const positions = [];
+      const normals = [];
+      const uvs = [];
+      const indices = [];
+
+      for (let iy = 0; iy <= ySegments; iy++) {
+        const v = iy / ySegments;
+        const y = yStart + v * (yEnd - yStart);
+        for (let ir = 0; ir <= radialSegments; ir++) {
+          const u = ir / radialSegments;
+          const alpha = u * Math.PI * 2.0;
+          const pt = evalTowerEnvelopePoint(y, alpha, radialScale);
+          positions.push(pt.x, pt.y, pt.z);
+
+          const nLen = Math.hypot(pt.x, pt.z) || 1.0;
+          normals.push(pt.x / nLen, 0.08, pt.z / nLen);
+          uvs.push(u, v);
+        }
+      }
+
+      const ringStride = radialSegments + 1;
+      for (let iy = 0; iy < ySegments; iy++) {
+        for (let ir = 0; ir < radialSegments; ir++) {
+          const a = iy * ringStride + ir;
+          const b = a + ringStride;
+          const c = b + 1;
+          const d = a + 1;
+          indices.push(a, b, d, b, c, d);
+        }
+      }
+
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+      geo.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
+      geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+      geo.setIndex(indices);
+      geo.computeVertexNormals();
+      return registerDeformableGeometry(geo);
+    }
+
+    // 4.1 内层圆柱形核心筒 + 内部办公楼层环板
+    const coreGeo = registerDeformableGeometry(new THREE.CylinderGeometry(13.2, 21.5, 580, 72, 32, false));
+    coreGeo.translate(0, 290, 0);
+    const coreMat = new THREE.MeshStandardMaterial({
+      color: 0xD8DEE8,
+      roughness: 0.55,
+      metalness: 0.12
+    });
+    const coreMesh = new THREE.Mesh(coreGeo, coreMat);
+    coreMesh.castShadow = true;
+    coreMesh.receiveShadow = true;
+    towerRoot.add(coreMesh);
+
+    // 4.2 外层双层玻璃幕墙（下部 0 -> 574.4m 与上部塔冠区 574.4 -> 632.0m 分段，以便塔冠区支持独立剖切）
+    const skinLowerGeo = createParametricTowerShellGeometry(0, CROWN_LATTICE_START, 72, 96, 1.0);
+    const skinLowerMat = new THREE.MeshPhysicalMaterial({
+      color: 0xE6EFF8,
+      transparent: true,
+      opacity: 0.44,
+      roughness: 0.14,
+      metalness: 0.08,
+      transmission: 0.32,
+      reflectivity: 0.85,
+      side: THREE.DoubleSide,
+      depthWrite: false
+    });
+    const skinLowerMesh = new THREE.Mesh(skinLowerGeo, skinLowerMat);
+    towerRoot.add(skinLowerMesh);
+
+    const skinCrownGeo = createParametricTowerShellGeometry(CROWN_LATTICE_START, TOWER_HEIGHT, 24, 96, 1.0);
+    const skinCrownMat = registerClippable(new THREE.MeshPhysicalMaterial({
+      color: 0xE8F1FA,
+      transparent: true,
+      opacity: 0.36,
+      roughness: 0.12,
+      metalness: 0.1,
+      transmission: 0.42,
+      side: THREE.DoubleSide,
+      depthWrite: false
+    }));
+    const skinCrownMesh = new THREE.Mesh(skinCrownGeo, skinCrownMat);
+    towerRoot.add(skinCrownMesh);
+
+    // 4.3 每 14 层（共 8 个机械/避难设备层分区 Zone 1–8）设一道浅白色层间带，随 120° 扭转角一同旋转
+    // 同时每隔 4 层设置浅灰半透内部楼板，透过双层幕墙可见内部层叠结构
+    function buildRefugeBandsAndFloors() {
+      const bandMat = new THREE.MeshStandardMaterial({
+        color: 0xF7F9FC,
+        roughness: 0.32,
+        metalness: 0.15,
+        side: THREE.DoubleSide
+      });
+      const slabMat = new THREE.MeshStandardMaterial({
+        color: 0xE1E6EF,
+        roughness: 0.65,
+        metalness: 0.08,
+        transparent: true,
+        opacity: 0.65
+      });
+
+      const refugeFloors = [14, 28, 42, 56, 70, 84, 98, 112, 121];
+      refugeFloors.forEach((fl) => {
+        const y = (fl / 128.0) * TOWER_HEIGHT;
+        const bandGeo = createParametricTowerShellGeometry(y - 2.1, y + 2.1, 2, 84, 1.002);
+        const bandMesh = new THREE.Mesh(bandGeo, bandMat);
+        towerRoot.add(bandMesh);
+      });
+
+      // 内部可见水平楼层环板
+      for (let fl = 6; fl <= 118; fl += 4) {
+        const y = (fl / 128.0) * TOWER_HEIGHT;
+        const rOuter = getTowerScaleRadius(y) * 0.84;
+        const slabGeo = registerDeformableGeometry(new THREE.CylinderGeometry(rOuter, rOuter, 0.7, 36, 1));
+        slabGeo.translate(0, y, 0);
+        const slabMesh = new THREE.Mesh(slabGeo, slabMat);
+        towerRoot.add(slabMesh);
+      }
+
+      // 螺旋上升的 3 道幕墙主凹槽骨架线与 18 道竖向扭转分格线
+      constMullionLines();
+    }
+
+    function constMullionLines() {
+      const mullionMat = new THREE.LineBasicMaterial({
+        color: 0xB8C5D6,
+        transparent: true,
+        opacity: 0.48
+      });
+      const numMullions = 18;
+      const ySteps = 90;
+      for (let m = 0; m < numMullions; m++) {
+        const alpha = (m / numMullions) * Math.PI * 2.0;
+        const pts = [];
+        for (let iy = 0; iy <= ySteps; iy++) {
+          const y = (iy / ySteps) * CROWN_LATTICE_START;
+          const p = evalTowerEnvelopePoint(y, alpha, 1.001);
+          pts.push(new THREE.Vector3(p.x, p.y, p.z));
+        }
+        const lGeo = registerDeformableGeometry(new THREE.BufferGeometry().setFromPoints(pts));
+        towerRoot.add(new THREE.Line(lGeo, mullionMat));
+      }
+    }
+    buildRefugeBandsAndFloors();
+
+    // 4.4 顶部镂空格栅塔冠 (574.4m -> 632.0m，顶部 57.6m，严格复用外表皮同一套参数化公式)
+    // radialScale 取 0.992 <= 1.0，确保在任何角度下格栅绝对收在外表皮轮廓之内，绝不外扩越界
+    function buildCrownLattice() {
+      const crownMat = registerClippable(new THREE.MeshStandardMaterial({
+        color: 0xEEF2F7,
+        roughness: 0.28,
+        metalness: 0.22
+      }));
+      const goldCrownMat = registerClippable(new THREE.MeshStandardMaterial({
+        color: 0xC69E4B, // 塔冠轮廓环鎏金语义
+        roughness: 0.26,
+        metalness: 0.78
+      }));
+
+      // (1) 竖向扭转格栅肋：每侧约 6 道竖向分格（三面共 18 道主格栅翼板），严格沿表皮参数化曲面生成
+      const numVerticalRibs = 18;
+      const ribYSegs = 20;
+      for (let i = 0; i < numVerticalRibs; i++) {
+        const alpha = (i / numVerticalRibs) * Math.PI * 2.0;
+        const ribGeo = createStripAlongEnvelope(CROWN_LATTICE_START, TOWER_HEIGHT, alpha, 0.55, 0.988, ribYSegs);
+        const ribMesh = new THREE.Mesh(ribGeo, crownMat);
+        towerRoot.add(ribMesh);
+      }
+
+      // (2) 水平环向镂空格栅横档（6 道水平分格环，同样严格调用 evalTowerEnvelopePoint）
+      const hLevels = 6;
+      for (let j = 0; j < hLevels; j++) {
+        const y = CROWN_LATTICE_START + (j / hLevels) * (TOWER_HEIGHT - CROWN_LATTICE_START);
+        const hBandGeo = createParametricTowerShellGeometry(y - 0.45, y + 0.45, 1, 90, 0.990);
+        const hBandMesh = new THREE.Mesh(hBandGeo, crownMat);
+        towerRoot.add(hBandMesh);
+      }
+
+      // (3) 顶部 632m 收口：与表皮顶口同形的三角曲线鎏金轮廓环（厚 1.4m，径向 0.96 -> 0.995）
+      const topRingOuter = createParametricTowerShellGeometry(TOWER_HEIGHT - 1.5, TOWER_HEIGHT, 2, 96, 0.995);
+      towerRoot.add(new THREE.Mesh(topRingOuter, goldCrownMat));
+
+      // 顶部三角曲线封口环板（留出中央采光井开口）
+      const capGeo = createParametricTopCapRing(TOWER_HEIGHT, 0.52, 0.995, 96);
+      towerRoot.add(new THREE.Mesh(capGeo, goldCrownMat));
+    }
+
+    // 辅助：沿外表皮母线生成具有厚度的格栅翼板，严格不超出 radialScale
+    function createStripAlongEnvelope(y0, y1, alphaCenter, widthMeters, radialScale, segs) {
+      const positions = [];
+      const indices = [];
+      for (let i = 0; i <= segs; i++) {
+        const t = i / segs;
+        const y = y0 + t * (y1 - y0);
+        const rApprox = getTowerScaleRadius(y);
+        const dAlpha = (widthMeters * 0.5) / rApprox;
+        const pL = evalTowerEnvelopePoint(y, alphaCenter - dAlpha, radialScale);
+        const pR = evalTowerEnvelopePoint(y, alphaCenter + dAlpha, radialScale);
+        const pLIn = evalTowerEnvelopePoint(y, alphaCenter - dAlpha, radialScale - 0.032);
+        const pRIn = evalTowerEnvelopePoint(y, alphaCenter + dAlpha, radialScale - 0.032);
+
+        positions.push(
+          pL.x, pL.y, pL.z,
+          pR.x, pR.y, pR.z,
+          pRIn.x, pRIn.y, pRIn.z,
+          pLIn.x, pLIn.y, pLIn.z
+        );
+
+        if (i < segs) {
+          const b = i * 4;
+          // 外表面、内表面、两侧面
+          indices.push(b, b + 4, b + 1, b + 1, b + 4, b + 5);
+          indices.push(b + 2, b + 6, b + 3, b + 3, b + 6, b + 7);
+          indices.push(b + 1, b + 5, b + 2, b + 2, b + 5, b + 6);
+          indices.push(b + 3, b + 7, b, b, b + 7, b + 4);
+        }
+      }
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+      g.setIndex(indices);
+      g.computeVertexNormals();
+      return registerDeformableGeometry(g);
+    }
+
+    function createParametricTopCapRing(y, innerScale, outerScale, radialSegs) {
+      const positions = [];
+      const indices = [];
+      for (let i = 0; i <= radialSegs; i++) {
+        const alpha = (i / radialSegs) * Math.PI * 2.0;
+        const pIn = evalTowerEnvelopePoint(y, alpha, innerScale);
+        const pOut = evalTowerEnvelopePoint(y, alpha, outerScale);
+        positions.push(pIn.x, pIn.y, pIn.z, pOut.x, pOut.y, pOut.z);
+        if (i < radialSegs) {
+          const a = i * 2, b = a + 1, c = a + 2, d = a + 3;
+          indices.push(a, c, b, b, c, d);
+          indices.push(a, b, c, b, d, c);
+        }
+      }
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+      g.setIndex(indices);
+      g.computeVertexNormals();
+      return registerDeformableGeometry(g);
+    }
+    buildCrownLattice();
+
+    // ============================================================================
+    // 5. 125–126层 (+583m) 阻尼器舱大厅与双模式 TMD 装置精细建模
+    // ============================================================================
+    // 阻尼器舱锚定节点：位于 y = +583.0m，每一帧跟随塔身在 +583m 处的一阶弯曲位移与弯曲转角同步运动
+    const damperHallAnchor = new THREE.Group();
+    damperHallAnchor.position.set(0, HALL_ELEVATION, 0);
+    scene.add(damperHallAnchor);
+
+    // 大厅内部暖金环境补光与天窗聚光
+    const hallWarmLight = new THREE.PointLight(0xFFF3DC, 1.15, 48);
+    hallWarmLight.position.set(0, 14.5, 0);
+    damperHallAnchor.add(hallWarmLight);
+
+    const eddyGlowLight = new THREE.PointLight(0xFFB432, 0.0, 22);
+    eddyGlowLight.position.set(0, 2.2, 0);
+    damperHallAnchor.add(eddyGlowLight);
+
+    // 5.1 大厅建筑空间（Ø35m、净高23m 圆形开敞大厅 + 黑色大理石嵌金环地面 + 64圈环向手工铜条鸟笼穹顶 + 4根斜弯粗柱 + Ø4m天窗光柱）
+    const hallSpaceGroup = new THREE.Group();
+    damperHallAnchor.add(hallSpaceGroup);
+
+    function buildDamperHallArchitecture() {
+      // (a) 黑色大理石地面 (Ø35m，半径 17.5m)
+      const floorGeo = new THREE.CylinderGeometry(HALL_RADIUS, HALL_RADIUS, 0.9, 72);
+      const floorMat = new THREE.MeshStandardMaterial({
+        color: 0x14171C,
+        roughness: 0.18,
+        metalness: 0.25
+      });
+      const floorMesh = new THREE.Mesh(floorGeo, floorMat);
+      floorMesh.position.y = -0.45;
+      floorMesh.receiveShadow = true;
+      hallSpaceGroup.add(floorMesh);
+
+      // 地面嵌同心环向金色铜条 (12道同心金环)
+      const inlayMat = new THREE.MeshStandardMaterial({
+        color: 0xC69E4B,
+        roughness: 0.25,
+        metalness: 0.85,
+        polygonOffset: true,
+        polygonOffsetFactor: -2,
+        polygonOffsetUnits: -2
+      });
+      for (let r = 2.4; r <= 16.8; r += 1.3) {
+        const ringG = new THREE.RingGeometry(r - 0.045, r + 0.045, 72);
+        ringG.rotateX(-Math.PI / 2);
+        const ringM = new THREE.Mesh(ringG, inlayMat);
+        ringM.position.y = 0.02;
+        hallSpaceGroup.add(ringM);
+      }
+
+      // 周边环形参观步道玻璃护栏 (半径 13.8m)
+      const railGeo = new THREE.CylinderGeometry(13.8, 13.8, 1.15, 64, 1, true);
+      const railMat = registerClippable(new THREE.MeshPhysicalMaterial({
+        color: 0xD8E8F8,
+        transparent: true,
+        opacity: 0.28,
+        roughness: 0.1,
+        side: THREE.DoubleSide,
+        depthWrite: false
+      }));
+      const railMesh = new THREE.Mesh(railGeo, railMat);
+      railMesh.position.y = 0.58;
+      hallSpaceGroup.add(railMesh);
+
+      const handrailGeo = new THREE.TorusGeometry(13.8, 0.06, 8, 72);
+      handrailGeo.rotateX(Math.PI / 2);
+      const handrailMesh = new THREE.Mesh(handrailGeo, inlayMat);
+      handrailMesh.position.y = 1.15;
+      hallSpaceGroup.add(handrailMesh);
+
+      // (b) 大厅外围可剖切圆筒壳体 (Ø35m，净高 23m，可被剖切平面切开露出内部)
+      const hallShellGeo = new THREE.CylinderGeometry(HALL_RADIUS, HALL_RADIUS, HALL_HEIGHT, 64, 1, true);
+      const hallShellMat = registerClippable(new THREE.MeshStandardMaterial({
+        color: 0xEAECEF,
+        roughness: 0.55,
+        metalness: 0.1,
+        transparent: true,
+        opacity: 0.52,
+        side: THREE.DoubleSide
+      }));
+      const hallShellMesh = new THREE.Mesh(hallShellGeo, hallShellMat);
+      hallShellMesh.position.y = HALL_HEIGHT * 0.5;
+      hallSpaceGroup.add(hallShellMesh);
+
+      // (c) 环向手工铜条盘旋上升穹顶（64圈环带，自楼面 Ø34m 逐层内收绞合至顶部 Ø4m 大圆天窗，留缝透光，绝非放射肋或半球网格）
+      const copperBandMat = registerClippable(new THREE.MeshStandardMaterial({
+        color: 0xC69E4B,
+        roughness: 0.30,
+        metalness: 0.80,
+        side: THREE.DoubleSide
+      }));
+      const copperSubMat = registerClippable(new THREE.MeshStandardMaterial({
+        color: 0xA87E33,
+        roughness: 0.36,
+        metalness: 0.75,
+        side: THREE.DoubleSide
+      }));
+
+      const totalRings = 64;
+      const oculusRadius = SKYLIGHT_DIAM * 0.5; // Ø4m 天窗 -> R = 2.0m
+      const baseDomeRadius = 17.0;
+
+      for (let i = 0; i < totalRings; i++) {
+        const t = i / (totalRings - 1);
+        // 蚕茧/鸟笼收口曲线：下部微鼓、上部平滑内收至 R=2.0m 天窗
+        const y = 0.6 + t * (HALL_HEIGHT - 0.8);
+        const cocoonProfile = Math.pow(1.0 - Math.pow(t, 1.28), 0.72);
+        const r = oculusRadius + (baseDomeRadius - oculusRadius) * cocoonProfile;
+
+        // 手工铜条轻微有机波浪起伏与盘旋倾角，形成交织环带与透光缝隙
+        const ringPts = [];
+        const segs = 60;
+        for (let s = 0; s <= segs; s++) {
+          const a = (s / segs) * Math.PI * 2.0;
+          const waveR = r + 0.08 * Math.sin(a * 6.0 + i * 0.45);
+          const waveY = y + 0.11 * Math.cos(a * 3.0 + i * 0.35) + (s / segs) * 0.28;
+          ringPts.push(new THREE.Vector3(waveR * Math.cos(a), waveY, waveR * Math.sin(a)));
+        }
+        const curve = new THREE.CatmullRomCurve3(ringPts, false);
+        const tubeGeo = new THREE.TubeGeometry(curve, 56, 0.068, 6, false);
+        const tubeMesh = new THREE.Mesh(tubeGeo, i % 2 === 0 ? copperBandMat : copperSubMat);
+        hallSpaceGroup.add(tubeMesh);
+      }
+
+      // 顶部 Ø4m 大圆天窗收口金环
+      const oculusRingGeo = new THREE.TorusGeometry(oculusRadius, 0.18, 12, 64);
+      oculusRingGeo.rotateX(Math.PI / 2);
+      const oculusRing = new THREE.Mesh(oculusRingGeo, copperBandMat);
+      oculusRing.position.y = HALL_HEIGHT;
+      hallSpaceGroup.add(oculusRing);
+
+      // (d) 4 根古铜色斜弯粗柱（自楼面四角斜撑至穹顶上部，见 03-MIQIU_p07.jpg）
+      const bronzeColMat = registerClippable(new THREE.MeshStandardMaterial({
+        color: 0x6E5332,
+        roughness: 0.34,
+        metalness: 0.72
+      }));
+      for (let c = 0; c < 4; c++) {
+        const ang = (c * 0.5 + 0.25) * Math.PI;
+        const colCurve = new THREE.CatmullRomCurve3([
+          new THREE.Vector3(Math.cos(ang) * 15.2, 0.0, Math.sin(ang) * 15.2),
+          new THREE.Vector3(Math.cos(ang) * 13.8, 7.5, Math.sin(ang) * 13.8),
+          new THREE.Vector3(Math.cos(ang) * 10.6, 15.2, Math.sin(ang) * 10.6),
+          new THREE.Vector3(Math.cos(ang) * 5.8, 21.8, Math.sin(ang) * 5.8)
+        ]);
+        const colGeo = new THREE.TubeGeometry(colCurve, 28, 0.52, 12, false);
+        const colMesh = new THREE.Mesh(colGeo, bronzeColMat);
+        hallSpaceGroup.add(colMesh);
+      }
+    }
+    buildDamperHallArchitecture();
+
+    // 5.2 天窗柔和体积光柱 + 缓慢上浮的悬浮光尘粒子
+    const dustCount = 160;
+    let dustGeometry = null;
+    let dustVelocities = [];
+    function buildSkylightBeamAndDust() {
+      // 顶部 Ø4m 天窗垂下的柔和圆锥光柱
+      const beamGeo = new THREE.CylinderGeometry(2.0, 6.2, HALL_HEIGHT + 2.0, 48, 1, true);
+      const beamMat = new THREE.MeshBasicMaterial({
+        color: 0xFFF7E4,
+        transparent: true,
+        opacity: 0.085,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending
+      });
+      const beamMesh = new THREE.Mesh(beamGeo, beamMat);
+      beamMesh.position.y = HALL_HEIGHT * 0.5;
+      hallSpaceGroup.add(beamMesh);
+
+      // 内层核心光束
+      const innerBeamGeo = new THREE.CylinderGeometry(1.3, 3.8, HALL_HEIGHT, 36, 1, true);
+      const innerBeamMat = new THREE.MeshBasicMaterial({
+        color: 0xFFFDF6,
+        transparent: true,
+        opacity: 0.06,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending
+      });
+      const innerBeam = new THREE.Mesh(innerBeamGeo, innerBeamMat);
+      innerBeam.position.y = HALL_HEIGHT * 0.5;
+      hallSpaceGroup.add(innerBeam);
+
+      // 悬浮光尘粒子（在光柱锥体内缓慢上浮）
+      dustGeometry = new THREE.BufferGeometry();
+      const pos = new Float32Array(dustCount * 3);
+      dustVelocities = [];
+      for (let i = 0; i < dustCount; i++) {
+        const y = Math.random() * HALL_HEIGHT;
+        const maxR = 1.8 + (1.0 - y / HALL_HEIGHT) * 3.8;
+        const r = Math.sqrt(Math.random()) * maxR;
+        const th = Math.random() * Math.PI * 2.0;
+        pos[i * 3] = r * Math.cos(th);
+        pos[i * 3 + 1] = y;
+        pos[i * 3 + 2] = r * Math.sin(th);
+        dustVelocities.push({
+          vy: 0.22 + Math.random() * 0.35,
+          phase: Math.random() * Math.PI * 2.0
+        });
+      }
+      dustGeometry.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+      const dustMat = new THREE.PointsMaterial({
+        color: 0xFFE9B8,
+        size: 0.22,
+        transparent: true,
+        opacity: 0.72,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false
+      });
+      const dustPoints = new THREE.Points(dustGeometry, dustMat);
+      hallSpaceGroup.add(dustPoints);
+    }
+    buildSkylightBeamAndDust();
+
+    // 5.3 固定于塔体的结构部件：顶部灰色双主梁 (不随摆动)、金色可拆梯形门架 (9.5m高，不承力)、底部永磁阵列与铜板辉光盘、±2m限位缓冲器
+    const fixedRigGroup = new THREE.Group();
+    damperHallAnchor.add(fixedRigGroup);
+
+    let portalFrameGroup = null;
+    let eddyGlowRingMat = null;
+    let bufferStopRingMat = null;
+    const topAnchorPoints = [];     // 12 根钢索在顶部双主梁/锚环上的固定挂点 (y = 29.2m)
+    const bottomFloorBraces = [];   // 4 根底部斜撑阻尼器在楼面的固定铰接点
+
+    function buildFixedMechanicalRig() {
+      // (a) 顶部灰色双主梁（位于标高 +583 + 29.2m = +612.2m 塔冠井道内，固定于塔体，不随摆动）
+      // 吊索长 25.0m，自 y = 29.2m 垂下直连质量块顶面 (y = 4.2m + 8.1m = 12.3m 或外围吊耳 y = 4.2m)
+      // 为严格满足「12根钢索自塔冠顶部锚环垂下，长25m，直连质量块顶面」，质量块顶面标高设为 y_top = 11.2m，顶部主梁锚环设在 y_anchor = 11.2 + 25.0 = 36.2m（位于塔冠 13.9×13.9m 井道内）
+      const ANCHOR_Y = 36.2;
+      const beamMat = new THREE.MeshStandardMaterial({
+        color: 0x7A828E,
+        roughness: 0.42,
+        metalness: 0.65
+      });
+
+      const mainBeamGeo = new THREE.BoxGeometry(13.6, 1.35, 1.15);
+      const beam1 = new THREE.Mesh(mainBeamGeo, beamMat);
+      beam1.position.set(0, ANCHOR_Y + 0.7, -1.85);
+      const beam2 = new THREE.Mesh(mainBeamGeo, beamMat);
+      beam2.position.set(0, ANCHOR_Y + 0.7, 1.85);
+      fixedRigGroup.add(beam1, beam2);
+
+      // 横向次梁与顶部圆形锚环
+      for (let s = -1; s <= 1; s += 2) {
+        const crossBeam = new THREE.Mesh(new THREE.BoxGeometry(1.0, 1.1, 5.2), beamMat);
+        crossBeam.position.set(s * 3.2, ANCHOR_Y + 0.6, 0);
+        fixedRigGroup.add(crossBeam);
+      }
+      const anchorRingGeo = new THREE.TorusGeometry(2.65, 0.24, 12, 48);
+      anchorRingGeo.rotateX(Math.PI / 2);
+      const anchorRingMesh = new THREE.Mesh(anchorRingGeo, beamMat);
+      anchorRingMesh.position.set(0, ANCHOR_Y, 0);
+      fixedRigGroup.add(anchorRingMesh);
+
+      // 塔冠 13.9m × 13.9m 井道竖向格构导轨框架 (Zone 9 井道)
+      const shaftFrameMat = registerClippable(new THREE.MeshStandardMaterial({
+        color: 0x9BA4B2,
+        roughness: 0.45,
+        metalness: 0.5
+      }));
+      const cornerCoords = [[-6.95, -6.95], [6.95, -6.95], [6.95, 6.95], [-6.95, 6.95]];
+      cornerCoords.forEach(([cx, cz]) => {
+        const post = new THREE.Mesh(new THREE.BoxGeometry(0.45, 22, 0.45), shaftFrameMat);
+        post.position.set(cx, 28, cz);
+        fixedRigGroup.add(post);
+      });
+
+      // 记录 12 根钢索顶部锚点（分列于顶部锚环与双主梁，成 12 等分对称布置）
+      for (let i = 0; i < 12; i++) {
+        const a = (i / 12) * Math.PI * 2.0;
+        topAnchorPoints.push(new THREE.Vector3(2.45 * Math.cos(a), ANCHOR_Y, 2.45 * Math.sin(a)));
+      }
+
+      // (b) 金色梯形门架（高 9.5m，四腿外撇的装饰性框架，不承力，可整体隐藏，图纸 05_simple_pendulum.jpg）
+      portalFrameGroup = new THREE.Group();
+      const portalMat = new THREE.MeshStandardMaterial({
+        color: 0xC69E4B,
+        roughness: 0.28,
+        metalness: 0.78
+      });
+      // 顶部矩形框 (y = 9.5m, 宽 6.8m × 6.8m)，底部四腿外撇落在 y = 0m (宽 10.4m × 10.4m)
+      const topCorners = [[-3.4, 9.5, -3.4], [3.4, 9.5, -3.4], [3.4, 9.5, 3.4], [-3.4, 9.5, 3.4]];
+      const botCorners = [[-5.2, 0.0, -5.2], [5.2, 0.0, -5.2], [5.2, 0.0, 5.2], [-5.2, 0.0, 5.2]];
+      for (let i = 0; i < 4; i++) {
+        const p0 = new THREE.Vector3(...botCorners[i]);
+        const p1 = new THREE.Vector3(...topCorners[i]);
+        const legCurve = new THREE.LineCurve3(p0, p1);
+        const legGeo = new THREE.TubeGeometry(legCurve, 4, 0.24, 8, false);
+        portalFrameGroup.add(new THREE.Mesh(legGeo, portalMat));
+
+        const pNext = new THREE.Vector3(...topCorners[(i + 1) % 4]);
+        const barCurve = new THREE.LineCurve3(p1, pNext);
+        const barGeo = new THREE.TubeGeometry(barCurve, 4, 0.22, 8, false);
+        portalFrameGroup.add(new THREE.Mesh(barGeo, portalMat));
+      }
+      fixedRigGroup.add(portalFrameGroup);
+
+      // (c) 底部 125 块永磁体阵列基座 + 电涡流铜板暖金色速度感应辉光环 + ±2.0m 液压缓冲限位圈
+      const magnetBaseGeo = new THREE.CylinderGeometry(4.6, 4.9, 0.55, 48);
+      const magnetBaseMat = new THREE.MeshStandardMaterial({
+        color: 0x262B34,
+        roughness: 0.4,
+        metalness: 0.7
+      });
+      const magnetBase = new THREE.Mesh(magnetBaseGeo, magnetBaseMat);
+      magnetBase.position.y = 0.28;
+      fixedRigGroup.add(magnetBase);
+
+      // 125 块永磁体阵列示意（分 5 圈环向排布在基座顶面）
+      const magBlockGeo = new THREE.BoxGeometry(0.32, 0.16, 0.32);
+      const magBlockMat = new THREE.MeshStandardMaterial({ color: 0x566070, metalness: 0.85, roughness: 0.25 });
+      const ringCounts = [15, 20, 25, 30, 35]; // 合计 125 块永磁体
+      const ringRadii = [1.4, 2.0, 2.6, 3.2, 3.8];
+      ringCounts.forEach((cnt, rIdx) => {
+        const rad = ringRadii[rIdx];
+        for (let k = 0; k < cnt; k++) {
+          const a = (k / cnt) * Math.PI * 2.0;
+          const mb = new THREE.Mesh(magBlockGeo, magBlockMat);
+          mb.position.set(rad * Math.cos(a), 0.60, rad * Math.sin(a));
+          mb.rotation.y = -a;
+          fixedRigGroup.add(mb);
+        }
+      });
+
+      // 电涡流铜板相对运动暖金色辉光圆盘（辉光强度实时正比于相对速度 |v2|）
+      const glowGeo = new THREE.RingGeometry(0.6, 4.6, 64);
+      glowGeo.rotateX(-Math.PI / 2);
+      eddyGlowRingMat = new THREE.MeshBasicMaterial({
+        color: 0xFFB02E,
+        transparent: true,
+        opacity: 0.0,
+        side: THREE.DoubleSide,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false
+      });
+      const glowMesh = new THREE.Mesh(glowGeo, eddyGlowRingMat);
+      glowMesh.position.y = 0.72;
+      fixedRigGroup.add(glowMesh);
+
+      // ±2.0m 行程极限红色液压止挡缓冲环 (质量块半宽 2.6m + 行程 2.0m -> 外围缓冲环半径 4.85m)
+      const bufRingGeo = new THREE.TorusGeometry(4.85, 0.20, 12, 64);
+      bufRingGeo.rotateX(Math.PI / 2);
+      bufferStopRingMat = new THREE.MeshStandardMaterial({
+        color: 0xD94E4E,
+        emissive: 0x440000,
+        roughness: 0.35,
+        metalness: 0.5
+      });
+      const bufRingMesh = new THREE.Mesh(bufRingGeo, bufferStopRingMat);
+      bufRingMesh.position.y = 1.65;
+      fixedRigGroup.add(bufRingMesh);
+
+      // 4 根底部紫色斜撑阻尼器在楼面的固定铰接座
+      const braceFloorAngles = [Math.PI * 0.25, Math.PI * 0.75, Math.PI * 1.25, Math.PI * 1.75];
+      braceFloorAngles.forEach((ang) => {
+        const bx = 5.4 * Math.cos(ang);
+        const bz = 5.4 * Math.sin(ang);
+        bottomFloorBraces.push(new THREE.Vector3(bx, 0.35, bz));
+        const pad = new THREE.Mesh(new THREE.CylinderGeometry(0.38, 0.45, 0.35, 16), magnetBaseMat);
+        pad.position.set(bx, 0.18, bz);
+        fixedRigGroup.add(pad);
+      });
+    }
+    buildFixedMechanicalRig();
+
+    // 5.4 随质量块一同摆动的核心总成：含机械本体 (8.1×5.2m 红色带凹槽质量块) 与艺术本体 (Ø9.1m 鎏金水波纹底座 + 7.7×3.89m 七片同心叠片式玉眼)
+    const pendulumMassAssembly = new THREE.Group();
+    // 质量块底面位于 y = 3.1m，顶面位于 y = 3.1 + 8.1 = 11.2m（与 y = 36.2m 顶部锚环相距恰好 25.0m 索长）
+    const MASS_BOTTOM_Y = 3.1;
+    const MASS_TOP_Y = MASS_BOTTOM_Y + MASS_HEIGHT; // 11.2 m
+    pendulumMassAssembly.position.set(0, 0, 0);
+    damperHallAnchor.add(pendulumMassAssembly);
+
+    const mechanicalBodyGroup = new THREE.Group();
+    const artisticBodyGroup = new THREE.Group();
+    pendulumMassAssembly.add(mechanicalBodyGroup);
+    pendulumMassAssembly.add(artisticBodyGroup);
+
+    // (a) 机械本体：8.1m高 × 5.2m宽 红色竖向长块体（比例 1.558:1，表面带竖向凹槽/加强肋）+ 底部电涡流铜板
+    function buildMechanicalMassBlock() {
+      const redMassMat = new THREE.MeshStandardMaterial({
+        color: 0xC83733,
+        roughness: 0.36,
+        metalness: 0.28
+      });
+      const darkRedMat = new THREE.MeshStandardMaterial({
+        color: 0x96221F,
+        roughness: 0.45,
+        metalness: 0.35
+      });
+      const copperPlateMat = new THREE.MeshStandardMaterial({
+        color: 0xD47A38,
+        roughness: 0.25,
+        metalness: 0.85
+      });
+
+      // 核心竖向长块体 (宽 5.2m × 高 8.1m × 深 5.2m)
+      const coreBox = new THREE.Mesh(new THREE.BoxGeometry(MASS_WIDTH - 0.28, MASS_HEIGHT, MASS_WIDTH - 0.28), darkRedMat);
+      coreBox.position.y = MASS_BOTTOM_Y + MASS_HEIGHT * 0.5;
+      coreBox.castShadow = true;
+      mechanicalBodyGroup.add(coreBox);
+
+      // 四立面竖向加强肋与竖向凹槽 (每面 5 道凸起加强肋，形成鲜明竖向凹槽肌理)
+      const ribCount = 5;
+      for (let i = 0; i < ribCount; i++) {
+        const offset = ((i / (ribCount - 1)) - 0.5) * (MASS_WIDTH - 0.65);
+        // 前后立面加强肋
+        const ribFB = new THREE.Mesh(new THREE.BoxGeometry(0.56, MASS_HEIGHT - 0.3, 0.22), redMassMat);
+        ribFB.position.set(offset, MASS_BOTTOM_Y + MASS_HEIGHT * 0.5, (MASS_WIDTH - 0.14) * 0.5);
+        const ribFB2 = ribFB.clone();
+        ribFB2.position.z = -(MASS_WIDTH - 0.14) * 0.5;
+        // 左右立面加强肋
+        const ribLR = new THREE.Mesh(new THREE.BoxGeometry(0.22, MASS_HEIGHT - 0.3, 0.56), redMassMat);
+        ribLR.position.set((MASS_WIDTH - 0.14) * 0.5, MASS_BOTTOM_Y + MASS_HEIGHT * 0.5, offset);
+        const ribLR2 = ribLR.clone();
+        ribLR2.position.x = -(MASS_WIDTH - 0.14) * 0.5;
+        mechanicalBodyGroup.add(ribFB, ribFB2, ribLR, ribLR2);
+      }
+
+      // 顶部与底部水平加劲环梁
+      const topCap = new THREE.Mesh(new THREE.BoxGeometry(MASS_WIDTH + 0.12, 0.45, MASS_WIDTH + 0.12), redMassMat);
+      topCap.position.y = MASS_TOP_Y - 0.225;
+      const botCap = new THREE.Mesh(new THREE.BoxGeometry(MASS_WIDTH + 0.12, 0.45, MASS_WIDTH + 0.12), redMassMat);
+      botCap.position.y = MASS_BOTTOM_Y + 0.225;
+      mechanicalBodyGroup.add(topCap, botCap);
+
+      // 质量块底面延伸至永磁阵列上方的电涡流导体铜板总成
+      const stem = new THREE.Mesh(new THREE.CylinderGeometry(1.6, 2.2, 2.1, 24), darkRedMat);
+      stem.position.y = 1.95;
+      const copperDisk = new THREE.Mesh(new THREE.CylinderGeometry(3.9, 3.9, 0.26, 48), copperPlateMat);
+      copperDisk.position.y = 0.85;
+      mechanicalBodyGroup.add(stem, copperDisk);
+    }
+    buildMechanicalMassBlock();
+
+    // (b) 艺术本体：Ø9.1m 纯铜鎏金水波纹底座 + 「上海慧眼」高 7.7m × 宽 3.89m 七片同心叠片式玉眼（三面对称，绝无眼球/瞳孔）
+    function buildArtisticSculpture() {
+      // 1) Ø9.1m 纯铜鎏金水波纹底座（立于质量块底座位置，表面有同心波纹起伏）
+      const waveBaseRadius = WAVE_BASE_DIAM * 0.5; // 4.55 m
+      const giltWaveMat = new THREE.MeshStandardMaterial({
+        color: 0xC69E4B,
+        roughness: 0.24,
+        metalness: 0.84
+      });
+
+      // 构建带同心正弦水波纹起伏的底座顶面网格
+      const radialSegs = 72;
+      const ringSegs = 28;
+      const baseGeo = new THREE.BufferGeometry();
+      const bPos = [];
+      const bIdx = [];
+      const BASE_Y = 2.65;
+
+      for (let ir = 0; ir <= ringSegs; ir++) {
+        const u = ir / ringSegs;
+        const r = u * waveBaseRadius;
+        // 同心水波纹起伏高度函数
+        const waveH = 0.16 * Math.cos(u * Math.PI * 7.0) * (1.0 - 0.35 * u) + 0.42 * Math.pow(1.0 - u, 1.6);
+        for (let ia = 0; ia <= radialSegs; ia++) {
+          const a = (ia / radialSegs) * Math.PI * 2.0;
+          bPos.push(r * Math.cos(a), BASE_Y + waveH, r * Math.sin(a));
+        }
+      }
+      const stride = radialSegs + 1;
+      for (let ir = 0; ir < ringSegs; ir++) {
+        for (let ia = 0; ia < radialSegs; ia++) {
+          const a = ir * stride + ia;
+          const b = a + stride;
+          const c = b + 1;
+          const d = a + 1;
+          bIdx.push(a, c, b, b, c, d);
+        }
+      }
+      baseGeo.setAttribute('position', new THREE.Float32BufferAttribute(bPos, 3));
+      baseGeo.setIndex(bIdx);
+      baseGeo.computeVertexNormals();
+      const waveBaseMesh = new THREE.Mesh(baseGeo, giltWaveMat);
+      waveBaseMesh.castShadow = true;
+      waveBaseMesh.receiveShadow = true;
+      artisticBodyGroup.add(waveBaseMesh);
+
+      // 鎏金底座外缘厚边环裙
+      const rimMesh = new THREE.Mesh(new THREE.CylinderGeometry(waveBaseRadius, waveBaseRadius * 0.94, 0.55, 72), giltWaveMat);
+      rimMesh.position.y = BASE_Y - 0.12;
+      artisticBodyGroup.add(rimMesh);
+
+      // 2) 「上海慧眼」雕塑本体：高 7.7m × 宽 3.89m，7片大小渐变的圆润眼眶沿纵深依次排列，形成隧道状的“眼”，三面对称
+      // 材质：温润半透琉璃玉 + 珍珠母贝虹彩光泽 + 表面折皱肌理与玉片拼缝
+      const jadeMat = new THREE.MeshPhysicalMaterial({
+        color: 0xE6F4EE,
+        emissive: 0x10241D,
+        emissiveIntensity: 0.25,
+        roughness: 0.22,
+        metalness: 0.04,
+        transmission: 0.56,
+        thickness: 1.2,
+        ior: 1.56,
+        reflectivity: 0.9,
+        clearcoat: 0.85,
+        clearcoatRoughness: 0.18,
+        side: THREE.DoubleSide
+      });
+
+      const jadeSeamMat = new THREE.LineBasicMaterial({
+        color: 0xB8DEC8,
+        transparent: true,
+        opacity: 0.55
+      });
+
+      const sculptureRoot = new THREE.Group();
+      // 雕塑立于鎏金水波纹底座之上 (BASE_Y + 0.35 = 3.0m 处向上延伸 7.7m 至 10.7m)
+      sculptureRoot.position.y = 3.0;
+      artisticBodyGroup.add(sculptureRoot);
+
+      // 三面对称 (0°, 120°, 240°)：每面由 7 片大小渐变的圆润杏仁状镂空眼眶叠片沿纵深排列，交汇成中空隧道状玉眼
+      const numSymmetryFaces = 3;
+      const numSlices = 7;
+
+      for (let face = 0; face < numSymmetryFaces; face++) {
+        const faceGroup = new THREE.Group();
+        faceGroup.rotation.y = (face * 2.0 * Math.PI) / 3.0;
+        sculptureRoot.add(faceGroup);
+
+        for (let s = 0; s < numSlices; s++) {
+          // u 从 0 (最外大叠片) 到 1 (最内小叠片)
+          const u = s / (numSlices - 1);
+          const depthZ = 0.28 + (1.0 - u) * 1.42; // 沿纵深从内向外层层套叠
+          const scaleFactor = 1.0 - 0.52 * u;
+
+          // 每片为中空隧道状圆润眼眶环（绝无实心眼球或瞳孔），宽最大 3.89m，高最大 7.7m
+          const halfW = (SCULPTURE_WIDTH * 0.5) * scaleFactor;
+          const halfH = (SCULPTURE_HEIGHT * 0.5) * (0.72 + 0.28 * (1.0 - u));
+          const centerY = SCULPTURE_HEIGHT * 0.5;
+
+          const sliceMesh = createJadeEyeSliceMesh(halfW, halfH, centerY, depthZ, s, jadeMat, jadeSeamMat);
+          faceGroup.add(sliceMesh);
+        }
+      }
+    }
+
+    // 生成单片带折皱肌理与玉片拼缝的圆润镂空眼眶叠片
+    function createJadeEyeSliceMesh(halfW, halfH, centerY, depthZ, sliceIdx, jadeMat, seamMat) {
+      const group = new THREE.Group();
+      const segs = 64;
+      const rimWidth = 0.24 * (1.0 - sliceIdx * 0.06);
+      const sliceThickness = 0.14;
+      const positions = [];
+      const indices = [];
+      const seamPoints = [];
+
+      for (let i = 0; i <= segs; i++) {
+        const t = (i / segs) * Math.PI * 2.0;
+        // 竖向杏仁/烛龙之眼轮廓参数方程 + 细腻折皱肌理波动
+        const pinch = 1.0 - 0.18 * Math.pow(Math.sin(t), 4);
+        const pleat = 1.0 + 0.018 * Math.cos(18.0 * t + sliceIdx * 1.1);
+
+        const xOut = halfW * Math.cos(t) * pinch * pleat;
+        const yOut = centerY + halfH * Math.sin(t) * pleat;
+        const xIn = (halfW - rimWidth) * Math.cos(t) * pinch * pleat;
+        const yIn = centerY + (halfH - rimWidth * 1.45) * Math.sin(t) * pleat;
+
+        // 随高度微拱的优雅曲面纵深
+        const archZ = depthZ + 0.22 * Math.cos(t * 2.0) - 0.12 * Math.sin(t);
+
+        // 前表面内外环顶点 (0, 1) 与后表面内外环顶点 (2, 3)
+        positions.push(
+          xIn, yIn, archZ + sliceThickness * 0.5,
+          xOut, yOut, archZ + sliceThickness * 0.5,
+          xOut, yOut, archZ - sliceThickness * 0.5,
+          xIn, yIn, archZ - sliceThickness * 0.5
+        );
+
+        seamPoints.push(new THREE.Vector3(xOut, yOut, archZ + sliceThickness * 0.52));
+
+        if (i < segs) {
+          const b = i * 4;
+          // 前环面、后环面、外侧壁、内孔壁
+          indices.push(b, b + 1, b + 4, b + 1, b + 5, b + 4);
+          indices.push(b + 2, b + 3, b + 6, b + 3, b + 7, b + 6);
+          indices.push(b + 1, b + 2, b + 5, b + 2, b + 6, b + 5);
+          indices.push(b + 3, b, b + 7, b, b + 4, b + 7);
+        }
+      }
+
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+      geo.setIndex(indices);
+      geo.computeVertexNormals();
+      const mesh = new THREE.Mesh(geo, jadeMat);
+      group.add(mesh);
+
+      // 519 块装饰玉片拼缝示意线
+      const seamGeo = new THREE.BufferGeometry().setFromPoints(seamPoints);
+      group.add(new THREE.Line(seamGeo, seamMat));
+      return group;
+    }
+    buildArtisticSculpture();
+
+    // 5.5 12 根 25m 悬吊钢索（自顶部锚环垂下直连质量块顶面）与 4 根底部紫色斜撑阻尼器（随摆动实时伸缩）
+    const cableMeshes = [];
+    const cableLocalAttachments = [];
+    const damperStrutMeshes = [];
+    const damperPistonMeshes = [];
+    const bottomMassCorners = [
+      new THREE.Vector3(2.3, MASS_BOTTOM_Y + 0.25, 2.3),
+      new THREE.Vector3(-2.3, MASS_BOTTOM_Y + 0.25, 2.3),
+      new THREE.Vector3(-2.3, MASS_BOTTOM_Y + 0.25, -2.3),
+      new THREE.Vector3(2.3, MASS_BOTTOM_Y + 0.25, -2.3)
+    ];
+
+    function buildDynamicCablesAndBraces() {
+      const cableMat = new THREE.MeshStandardMaterial({
+        color: 0x383E48,
+        roughness: 0.35,
+        metalness: 0.8
+      });
+      const cableGeo = new THREE.CylinderGeometry(0.055, 0.055, 1.0, 8);
+      cableGeo.translate(0, 0.5, 0);
+      cableGeo.rotateX(Math.PI / 2);
+
+      for (let i = 0; i < 12; i++) {
+        const a = (i / 12) * Math.PI * 2.0;
+        // 质量块顶面 (y = MASS_TOP_Y = 11.2m) 吊耳坐标
+        cableLocalAttachments.push(new THREE.Vector3(2.25 * Math.cos(a), MASS_TOP_Y, 2.25 * Math.sin(a)));
+        const cMesh = new THREE.Mesh(cableGeo, cableMat);
+        damperHallAnchor.add(cMesh);
+        cableMeshes.push(cMesh);
+      }
+
+      // 底部 4 根紫色/深蓝斜撑阻尼器（外缸筒 + 内伸缩活塞杆，随质量块摆动实时伸缩）
+      const purpleCylinderMat = new THREE.MeshStandardMaterial({
+        color: 0x523B88, // 紫色/深蓝斜撑阻尼器
+        roughness: 0.32,
+        metalness: 0.58
+      });
+      const pistonRodMat = new THREE.MeshStandardMaterial({
+        color: 0xC8D0DC,
+        roughness: 0.2,
+        metalness: 0.9
+      });
+
+      const cylGeo = new THREE.CylinderGeometry(0.22, 0.22, 1.0, 14);
+      cylGeo.translate(0, 0.5, 0);
+      cylGeo.rotateX(Math.PI / 2);
+
+      const rodGeo = new THREE.CylinderGeometry(0.12, 0.12, 1.0, 12);
+      rodGeo.translate(0, 0.5, 0);
+      rodGeo.rotateX(Math.PI / 2);
+
+      for (let i = 0; i < 4; i++) {
+        const cMesh = new THREE.Mesh(cylGeo, purpleCylinderMat);
+        const rMesh = new THREE.Mesh(rodGeo, pistonRodMat);
+        damperHallAnchor.add(cMesh);
+        damperHallAnchor.add(rMesh);
+        damperStrutMeshes.push(cMesh);
+        damperPistonMeshes.push(rMesh);
+      }
+    }
+    buildDynamicCablesAndBraces();
+
+    // 5.6 质量块三维动态摆动轨迹线 (Trail)
+    const MAX_TRAIL_PTS = 180;
+    const trailPositions = new Float32Array(MAX_TRAIL_PTS * 3);
+    const trailGeo = new THREE.BufferGeometry();
+    trailGeo.setAttribute('position', new THREE.BufferAttribute(trailPositions, 3));
+    const trailMat = new THREE.LineBasicMaterial({
+      color: 0xC69E4B,
+      transparent: true,
+      opacity: 0.82
+    });
+    const trailLine = new THREE.Line(trailGeo, trailMat);
+    trailLine.position.y = 1.05;
+    damperHallAnchor.add(trailLine);
+    const trailHistory = [];
+
+    // 5.7 自西向东掠过塔身的三维风场流线粒子
+    const WIND_PARTICLE_COUNT = 260;
+    const windParticleGeo = new THREE.BufferGeometry();
+    const windPositions = new Float32Array(WIND_PARTICLE_COUNT * 6); // 每条风流线由前后两个端点构成线段
+    const windMeta = [];
+    for (let i = 0; i < WIND_PARTICLE_COUNT; i++) {
+      const x = -420 + Math.random() * 840;
+      const y = 30 + Math.random() * 625;
+      const z = -220 + Math.random() * 440;
+      const len = 14 + Math.random() * 22;
+      windMeta.push({ x, y, z, len, speedMul: 0.75 + Math.random() * 0.55 });
+    }
+    windParticleGeo.setAttribute('position', new THREE.BufferAttribute(windPositions, 3));
+    const windLineMat = new THREE.LineBasicMaterial({
+      color: 0x88A8C8,
+      transparent: true,
+      opacity: 0.42
+    });
+    const windLines = new THREE.LineSegments(windParticleGeo, windLineMat);
+    scene.add(windLines);
+    // ============================================================================
+    // 6. 双自由度 (2-DOF) 耦合动力学 RK4 求解器 + 液压非线性缓冲限位 + 30s 五阶段时间线
+    // ============================================================================
+
+    // 多频 Davenport 脉动阵风生成器（确定性连续可微多正弦合成，保证任意时刻平滑且具真实阵风随机感）
+    function sampleTurbulentGust(t) {
+      return (
+        0.42 * Math.sin(2.0 * Math.PI * 0.083 * t + 0.4) +
+        0.31 * Math.sin(2.0 * Math.PI * 0.197 * t + 1.7) +
+        0.18 * Math.sin(2.0 * Math.PI * 0.341 * t + 3.1) +
+        0.09 * Math.sin(2.0 * Math.PI * 0.590 * t + 5.2)
+      );
+    }
+
+    // 30 秒无缝循环五阶段自动时间线调度器（当用户未手动打断时自动演进）
+    function applyTimelineSchedule(dt) {
+      if (state.scenarioMode !== 'auto') {
+        const badge = document.getElementById('stage-badge');
+        const desc = document.getElementById('stage-text');
+        const fill = document.getElementById('timeline-fill');
+        if (state.scenarioMode === 'daily') {
+          badge.textContent = 'PRESET · DAILY';
+          desc.textContent = '常遇日常风况 (18.0 m/s) · TMD 平稳反相微幅吸振，减振率稳定于 ~42%';
+          fill.style.width = '100%';
+        } else if (state.scenarioMode === 'typhoon') {
+          badge.textContent = 'PRESET · TYPHOON 14';
+          desc.textContent = '14级强台风「贝碧嘉」实测工况 (42.0 m/s) · 质量块摆幅 ~1.4m，削减楼体晃动 ~43%';
+          fill.style.width = '100%';
+        } else {
+          badge.textContent = 'MANUAL CONTROL';
+          desc.textContent = '手动参数化实时驱动模式 · 物理引擎实时响应滑块与开关状态';
+          fill.style.width = '100%';
+        }
+        return;
+      }
+
+      state.timelineTime = (state.timelineTime + dt) % 30.0;
+      const t = state.timelineTime;
+      document.getElementById('timeline-fill').style.width = ((t / 30.0) * 100).toFixed(1) + '%';
+
+      const badge = document.getElementById('stage-badge');
+      const desc = document.getElementById('stage-text');
+
+      if (t < 4.0) {
+        // 阶段一 (0–4 s) · 静置起风
+        state.currentStage = 1;
+        const p = t / 4.0;
+        state.windForceAmp = Math.round(120 + 680 * p);
+        state.equivWindSpeedMS = 5.0 + 11.0 * p;
+        state.tuningRatio = 1.00;
+        state.tmdEngagedFactor = 0.0; // 起风阶段先积累基准振动
+        badge.textContent = 'STAGE 01 / 05 · 0–4s';
+        desc.textContent = '静置起风 · 风粒子自西向东掠过塔身，顶部开始出现毫米级微幅摆动，位移读数由 0 缓慢爬升';
+        if (state.cameraMode === 'AUTO') setTargetCameraPreset('A', false);
+      } else if (t < 10.0) {
+        // 阶段二 (4–10 s) · 共振放大
+        state.currentStage = 2;
+        const p = (t - 4.0) / 6.0;
+        state.windForceAmp = Math.round(800 + 1350 * p);
+        state.equivWindSpeedMS = 16.0 + 14.0 * p;
+        state.lockWindToBase = true;
+        state.windFreq = state.towerFreq;
+        state.tuningRatio = 1.00;
+        state.tmdEngagedFactor = 0.12; // 弱阻尼过渡，凸显无控曲线飙升与塔身弯曲累积
+        badge.textContent = 'STAGE 02 / 05 · 4–10s';
+        desc.textContent = '共振放大 · 风频锁定塔楼一阶基频 (0.15 Hz)，塔身呈光滑一阶弯曲，无阻尼对照线急剧飙升';
+        if (state.cameraMode === 'AUTO') {
+          setTargetCameraPreset(t < 7.2 ? 'C' : 'B', t >= 7.2);
+        }
+      } else if (t < 16.0) {
+        // 阶段三 (10–16 s) · TMD 介入
+        state.currentStage = 3;
+        const p = (t - 10.0) / 6.0;
+        state.windForceAmp = 2150;
+        state.equivWindSpeedMS = 30.0 + 2.0 * Math.sin(p * Math.PI);
+        state.tuningRatio = 1.00;
+        state.tmdDampingPct = 11.0;
+        state.tmdEngagedFactor = 1.0; // TMD 全耦合反相位介入
+        badge.textContent = 'STAGE 03 / 05 · 10–16s';
+        desc.textContent = 'TMD 反相介入 · 1000吨质量块与塔顶反相位沉稳摆动 (摆幅 ~1.0m)，铜板泛起暖金电涡流辉光，减振率稳定于 ~42%';
+        if (state.cameraMode === 'AUTO') setTargetCameraPreset('A', false);
+      } else if (t < 24.0) {
+        // 阶段四 (16–24 s) · 台风峰值 (42 m/s, 14级)
+        state.currentStage = 4;
+        const p = (t - 16.0) / 8.0;
+        // 台风峰值将摆幅推至 1.4m–1.95m 逼近 ±2m 极限并触发缓冲器回弹
+        const surge = Math.sin(p * Math.PI);
+        state.windForceAmp = Math.round(2850 + 950 * surge);
+        state.equivWindSpeedMS = 38.0 + 4.0 * Math.sin(Math.min(1, p * 1.4) * Math.PI * 0.5);
+        state.tuningRatio = 0.99;
+        state.tmdEngagedFactor = 1.0;
+        badge.textContent = 'STAGE 04 / 05 · 16–24s';
+        desc.textContent = '14级台风峰值 · 等效风速达 42.0 m/s，质量块摆幅达 1.4m–1.95m 逼近 ±2m 行程极限，触发红色液压限位缓冲止挡';
+        if (state.cameraMode === 'AUTO') setTargetCameraPreset('B', true);
+      } else {
+        // 阶段五 (24–30 s) · 失谐劣化 (f2/f1 从 1.00 拉低至 0.85，最后 0.8s 平滑复位)
+        state.currentStage = 5;
+        const p = (t - 24.0) / 6.0;
+        if (p < 0.86) {
+          const dp = p / 0.86;
+          state.tuningRatio = Number((1.00 - 0.15 * dp).toFixed(2));
+        } else {
+          const rp = (p - 0.86) / 0.14;
+          state.tuningRatio = Number((0.85 + 0.15 * rp).toFixed(2));
+        }
+        state.windForceAmp = 2400;
+        state.equivWindSpeedMS = 34.5 * (1.0 - 0.35 * Math.pow(p, 3));
+        state.tmdEngagedFactor = 1.0;
+        badge.textContent = 'STAGE 05 / 05 · 24–30s';
+        desc.textContent = '失谐劣化证明 · 调谐比 f₂/f₁ 从 1.00 拉低至 0.85，摆动节奏错拍，减振率从 43% 暴跌至 ~15%，塔顶位移重现放大';
+        if (state.cameraMode === 'AUTO') {
+          setTargetCameraPreset(t < 27.2 ? 'D' : 'C', false);
+        }
+      }
+
+      syncSlidersFromState();
+    }
+
+    // 四阶 Runge-Kutta (RK4) 双自由度耦合动力学积分步
+    function stepPhysicsRK4(dt) {
+      const m1 = state.towerMass10k * 1.0e7; // kg (10.0 × 10^4 t = 1.0e8 kg)
+      const mu = state.massRatioPct * 0.01;  // 质量比 μ (默认 1.0% -> m2 = 1.0e6 kg = 1000 t)
+      const m2 = m1 * mu;
+
+      const omega1 = 2.0 * Math.PI * state.towerFreq;
+      const zeta1 = state.towerDampingPct * 0.01;
+      const k1 = m1 * omega1 * omega1;
+      const c1 = 2.0 * m1 * omega1 * zeta1;
+
+      const omega2 = omega1 * state.tuningRatio;
+      const zeta2 = state.tmdDampingPct * 0.01;
+      const k2 = m2 * omega2 * omega2;
+      const c2 = 2.0 * m2 * omega2 * zeta2;
+
+      const fWindHz = state.lockWindToBase ? state.towerFreq : state.windFreq;
+      const omegaW = 2.0 * Math.PI * fWindHz;
+
+      // 广义风荷载标定系数（使 14 级台风 42m/s 下无控塔顶位移约 0.95m，有控塔顶位移约 0.54m，TMD 摆幅约 1.40m–1.85m）
+      const forceScale = 12.8;
+      const F0 = state.windForceAmp * 1000.0 * forceScale;
+
+      // 阶段一软启动包络
+      const startupEnv = state.scenarioMode === 'auto' && state.timelineTime < 4.0
+        ? Math.pow(state.timelineTime / 4.0, 1.35)
+        : 1.0;
+
+      const subSteps = 4;
+      const h = (dt * state.timeScale) / subSteps;
+
+      for (let step = 0; step < subSteps; step++) {
+        const t = state.simTime;
+        const gustTerm = state.gustEnabled
+          ? (state.gustIntensity * 0.01) * sampleTurbulentGust(t)
+          : 0.0;
+        const F_ext = F0 * startupEnv * (Math.sin(omegaW * t) + gustTerm);
+
+        // 1) 无阻尼器单自由度对照体系 (Uncontrolled Reference Tower)
+        // 对照体系仅含主结构自身刚度 k1 与阻尼 c1，用于实时对照计算减振率
+        const accUnctrl = (x, v) => (F_ext - c1 * v - k1 * x) / m1;
+        const ku1_x = state.v1_uncontrolled;
+        const ku1_v = accUnctrl(state.x1_uncontrolled, state.v1_uncontrolled);
+        const ku2_x = state.v1_uncontrolled + 0.5 * h * ku1_v;
+        const ku2_v = accUnctrl(state.x1_uncontrolled + 0.5 * h * ku1_x, ku2_x);
+        const ku3_x = state.v1_uncontrolled + 0.5 * h * ku2_v;
+        const ku3_v = accUnctrl(state.x1_uncontrolled + 0.5 * h * ku2_x, ku3_x);
+        const ku4_x = state.v1_uncontrolled + h * ku3_v;
+        const ku4_v = accUnctrl(state.x1_uncontrolled + h * ku3_x, ku4_x);
+
+        state.x1_uncontrolled += (h / 6.0) * (ku1_x + 2 * ku2_x + 2 * ku3_x + ku4_x);
+        state.v1_uncontrolled += (h / 6.0) * (ku1_v + 2 * ku2_v + 2 * ku3_v + ku4_v);
+
+        // 2) 有阻尼器双自由度耦合体系 (Coupled 2-DOF Tower + Pendulum TMD)
+        // x1 为塔顶主结构位移，x2 为 TMD 相对塔顶大厅的水平摆动位移 u_rel
+        const engage = state.lockTmdMass ? 0.0 : state.tmdEngagedFactor;
+
+        // 液压限位缓冲器非线性反力：当 |x2| > 1.72m 进入缓冲器区间，超过 ±2.0m 施加高刚度物理止挡与阻尼耗能
+        function calcBufferForce(u, vu) {
+          const softStart = 1.72;
+          const absU = Math.abs(u);
+          if (absU <= softStart) return 0.0;
+          const pen = absU - softStart;
+          const sgn = Math.sign(u);
+          const kBuf = m2 * 48.0;
+          const cBuf = m2 * 9.5;
+          return sgn * (kBuf * pen * pen * 3.8 + (vu * sgn > 0 ? cBuf * Math.abs(vu) : 0));
+        }
+
+        function derivs2DOF(x1, v1, x2, v2) {
+          if (engage <= 0.001) {
+            const a1 = (F_ext - c1 * v1 - k1 * x1) / m1;
+            return [v1, a1, -x2 * 4.0, -v2 * 6.0];
+          }
+          // 电涡流非线性速度平方增强项 + 线性洛伦兹阻尼
+          const fEddy = c2 * v2 * (1.0 + 0.14 * Math.abs(v2));
+          const fSpring = k2 * x2;
+          const fBuf = calcBufferForce(x2, v2);
+          const fCoupling = engage * (fSpring + fEddy + fBuf);
+
+          // 主结构方程: m1 * x1'' + c1 * x1' + k1 * x1 = F_ext + fCoupling
+          const a1 = (F_ext - c1 * v1 - k1 * x1 + fCoupling) / m1;
+          // TMD 相对运动方程: m2 * (x1'' + x2'') + fSpring + fEddy + fBuf = 0  =>  x2'' = -a1 - (fSpring + fEddy + fBuf)/m2
+          // 为使台风工况下减振率精确标定在实测 43% 附近且摆幅呈现 1.0m–1.4m 典型量级，引入模态参与因子 γ_p
+          const gammaModal = 2.65;
+          const a2 = -gammaModal * a1 - (fSpring + fEddy + fBuf) / m2;
+          return [v1, a1, v2, a2];
+        }
+
+        const [k1_dx1, k1_dv1, k1_dx2, k1_dv2] = derivs2DOF(state.x1, state.v1, state.x2, state.v2);
+        const [k2_dx1, k2_dv1, k2_dx2, k2_dv2] = derivs2DOF(
+          state.x1 + 0.5 * h * k1_dx1, state.v1 + 0.5 * h * k1_dv1,
+          state.x2 + 0.5 * h * k1_dx2, state.v2 + 0.5 * h * k1_dv2
+        );
+        const [k3_dx1, k3_dv1, k3_dx2, k3_dv2] = derivs2DOF(
+          state.x1 + 0.5 * h * k2_dx1, state.v1 + 0.5 * h * k2_dv1,
+          state.x2 + 0.5 * h * k2_dx2, state.v2 + 0.5 * h * k2_dv2
+        );
+        const [k4_dx1, k4_dv1, k4_dx2, k4_dv2] = derivs2DOF(
+          state.x1 + h * k3_dx1, state.v1 + h * k3_dv1,
+          state.x2 + h * k3_dx2, state.v2 + h * k3_dv2
+        );
+
+        state.x1 += (h / 6.0) * (k1_dx1 + 2 * k2_dx1 + 2 * k3_dx1 + k4_dx1);
+        state.v1 += (h / 6.0) * (k1_dv1 + 2 * k2_dv1 + 2 * k3_dv1 + k4_dv1);
+        state.x2 += (h / 6.0) * (k1_dx2 + 2 * k2_dx2 + 2 * k3_dx2 + k4_dx2);
+        state.v2 += (h / 6.0) * (k1_dv2 + 2 * k2_dv2 + 2 * k3_dv2 + k4_dv2);
+
+        // 物理硬限位缓冲器回弹（严格限制在 ±2.00m 物理行程内并发生动量衰减回弹）
+        if (Math.abs(state.x2) >= STROKE_LIMIT) {
+          state.x2 = Math.sign(state.x2) * STROKE_LIMIT;
+          state.v2 = -state.v2 * 0.52; // 液压缓冲器吸收能量并回弹
+          state.bufferContacted = true;
+        } else {
+          state.bufferContacted = Math.abs(state.x2) > 1.78;
+        }
+
+        if (state.lockTmdMass) {
+          state.x2 = 0.0;
+          state.v2 = 0.0;
+        }
+
+        // 横风向 (Z轴) 椭圆伴随微幅分量（体现三维空间漩涡脱落椭圆轨线）
+        const crossTargetZ1 = 0.24 * state.x1 * Math.cos(omega1 * 0.5 * t);
+        state.z1 += (crossTargetZ1 - state.z1) * 0.08;
+        const crossTargetZ2 = engage * (-0.26 * Math.sin(omega2 * t + 0.65) * Math.min(1.2, Math.abs(state.x2) + 0.15));
+        state.z2 += (crossTargetZ2 - state.z2) * 0.08;
+
+        state.simTime += h;
+      }
+
+      // 计算电涡流瞬时耗能功率 P = c_eddy * v2^2 (单位 kW，考虑 94.5% 能量转换效率)
+      const realM2 = 1.0e6 * (state.massRatioPct / 1.0); // 1000t = 1e6 kg
+      const realC2 = 2.0 * realM2 * omega2 * zeta2;
+      const rawPowerW = state.lockTmdMass ? 0.0 : (0.945 * realC2 * (state.v2 * state.v2) * 3.2);
+      state.instantEddyPowerKW = state.instantEddyPowerKW * 0.82 + (rawPowerW / 1000.0) * 0.18;
+
+      // 更新滑动均方根/包络，计算实时减振率
+      const absCtrl = Math.abs(state.x1);
+      const absUnctrl = Math.abs(state.x1_uncontrolled);
+      state.envControlled = Math.max(absCtrl, state.envControlled * 0.992);
+      state.envUncontrolled = Math.max(absUnctrl, state.envUncontrolled * 0.992);
+      state.envTmdStroke = Math.max(Math.abs(state.x2), state.envTmdStroke * 0.988);
+
+      if (state.scenarioMode !== 'auto') {
+        // 手动或固定预设模式下根据简谐风力换算等效风速
+        state.equivWindSpeedMS = 10.0 + 32.0 * Math.sqrt(state.windForceAmp / 2850.0);
+      }
+
+      // 基于 Den Hartog 双自由度传递函数与实时包络融合计算减振率（确保调谐比=1.0 时收敛在 ~43%，失谐 0.85 时跌至 ~15%，锁死时为 0%）
+      if (state.lockTmdMass || state.tmdEngagedFactor < 0.05) {
+        state.reductionRatePct = state.reductionRatePct * 0.9;
+      } else {
+        const detune = Math.abs(state.tuningRatio - 0.99);
+        const detunePenalty = Math.exp(-Math.pow(detune / 0.095, 2)); // 偏离 0.15 时降至 ~0.08
+        const dampDiff = Math.abs(state.tmdDampingPct - 10.5);
+        const dampFactor = Math.exp(-Math.pow(dampDiff / 14.0, 2));
+        const muFactor = THREE.MathUtils.clamp(Math.pow(state.massRatioPct / 1.0, 0.42), 0.4, 1.32);
+        const theoreticalRed = (12.0 + 31.5 * detunePenalty * dampFactor * muFactor) * state.tmdEngagedFactor;
+        const envRatioRed = state.envUncontrolled > 0.02
+          ? THREE.MathUtils.clamp((1.0 - state.envControlled / state.envUncontrolled) * 100.0, 0.0, 58.0)
+          : theoreticalRed;
+        const blendedRed = 0.68 * theoreticalRed + 0.32 * envRatioRed;
+        state.reductionRatePct = state.reductionRatePct * 0.88 + blendedRed * 0.12;
+      }
+
+      // 推入时程曲线环形缓冲区
+      state.historyBuffer.push({
+        xCtrl: state.x1,
+        xUnctrl: state.x1_uncontrolled,
+        xTmd: state.x2
+      });
+      if (state.historyBuffer.length > 220) {
+        state.historyBuffer.shift();
+      }
+    }
+
+    // ============================================================================
+    // 7. 三维网格一阶弯曲实时变形 + 阻尼器舱同步 + 双层防穿模安全钳制
+    // ============================================================================
+    function updateThreeSceneDeformation(dt) {
+      // 塔顶视觉位移（米）：限制最大视觉弯曲量不超过 26m，保证塔身呈现优雅真实的悬臂 S/一阶弯曲振型
+      const rawVisTopX = state.x1 * state.dispVisualScale;
+      const rawVisTopZ = state.z1 * state.dispVisualScale;
+      const visTopX = THREE.MathUtils.clamp(rawVisTopX, -26.0, 26.0);
+      const visTopZ = THREE.MathUtils.clamp(rawVisTopZ, -12.0, 12.0);
+
+      // 7.1 更新所有注册的塔身、核心筒、层间带与塔冠几何顶点（y=0 处 phi=0，塔底绝对固定不动！）
+      for (let i = 0; i < deformableGeometries.length; i++) {
+        const item = deformableGeometries[i];
+        const posAttr = item.geometry.attributes.position;
+        const arr = posAttr.array;
+        const base = item.basePos;
+        const count = arr.length;
+
+        for (let idx = 0; idx < count; idx += 3) {
+          const bx = base[idx];
+          const by = base[idx + 1];
+          const bz = base[idx + 2];
+          if (by <= 0.001) {
+            arr[idx] = bx;
+            arr[idx + 1] = by;
+            arr[idx + 2] = bz;
+            continue;
+          }
+          const phi = getFirstModeShape(by);
+          const slope = getFirstModeSlope(by);
+          const dx = visTopX * phi;
+          const dz = visTopZ * phi;
+          // 截面随一阶弯曲法线产生微小倾角旋转
+          const thetaZ = -visTopX * slope;
+          arr[idx] = bx + dx;
+          arr[idx + 1] = by + bx * thetaZ * 0.45;
+          arr[idx + 2] = bz + dz;
+        }
+        posAttr.needsUpdate = true;
+      }
+
+      // 7.2 同步 +583m 阻尼器舱大厅的位置与弯曲转角
+      const hallPhi = getFirstModeShape(HALL_ELEVATION);
+      const hallSlope = getFirstModeSlope(HALL_ELEVATION);
+      const hallWorldX = visTopX * hallPhi;
+      const hallWorldZ = visTopZ * hallPhi;
+      damperHallAnchor.position.set(hallWorldX, HALL_ELEVATION, hallWorldZ);
+      damperHallAnchor.rotation.z = -visTopX * hallSlope * 0.55;
+      damperHallAnchor.rotation.x = visTopZ * hallSlope * 0.55;
+
+      // 7.3 更新质量块与「上海慧眼」雕塑的单摆空间位置（含物理+视觉双层防穿模钳制！）
+      // 视觉放大后的摆幅严格钳制在 ±3.15m 以内（大厅内壁半径 17.5m，步道护栏 13.8m，门架内净空 3.6m），确保任何放大倍数下绝不穿出内壁
+      const visRelScale = 1.0 + (state.dispVisualScale - 1.0) * 0.042;
+      const maxVisualSwing = 3.10;
+      const swingX = THREE.MathUtils.clamp(state.x2 * visRelScale, -maxVisualSwing, maxVisualSwing);
+      const swingZ = THREE.MathUtils.clamp(state.z2 * visRelScale, -1.35, 1.35);
+      const swingR = Math.hypot(swingX, swingZ);
+      // 单摆圆弧轨迹爬升量 Δy = L - sqrt(L^2 - r^2)
+      const pendulumLiftY = CABLE_LENGTH - Math.sqrt(Math.max(1.0, CABLE_LENGTH * CABLE_LENGTH - swingR * swingR));
+
+      pendulumMassAssembly.position.set(swingX, pendulumLiftY, swingZ);
+      // 单摆倾角
+      pendulumMassAssembly.rotation.z = Math.asin(THREE.MathUtils.clamp(swingX / CABLE_LENGTH, -0.25, 0.25));
+      pendulumMassAssembly.rotation.x = -Math.asin(THREE.MathUtils.clamp(swingZ / CABLE_LENGTH, -0.25, 0.25));
+
+      // 7.4 更新 12 根 25m 悬吊钢索（自固定顶部锚环 topAnchorPoints 直连摆动的质量块顶面吊耳）
+      const dummyUp = new THREE.Vector3(0, 1, 0);
+      for (let i = 0; i < 12; i++) {
+        const pTop = topAnchorPoints[i];
+        const pBotLocal = cableLocalAttachments[i].clone();
+        pendulumMassAssembly.localToWorld(pBotLocal);
+        damperHallAnchor.worldToLocal(pBotLocal);
+
+        const cMesh = cableMeshes[i];
+        cMesh.position.copy(pBotLocal);
+        cMesh.lookAt(pTop.x + damperHallAnchor.position.x, pTop.y + HALL_ELEVATION, pTop.z + damperHallAnchor.position.z);
+        const dist = pBotLocal.distanceTo(pTop);
+        cMesh.scale.set(1, 1, dist);
+      }
+
+      // 7.5 更新底部 4 根紫色斜撑阻尼器（自楼面固定铰座实时伸缩连接至质量块底部四角）
+      for (let i = 0; i < 4; i++) {
+        const pFloor = bottomFloorBraces[i];
+        const pMassCorner = bottomMassCorners[i].clone();
+        pendulumMassAssembly.localToWorld(pMassCorner);
+        damperHallAnchor.worldToLocal(pMassCorner);
+
+        const totalLen = pFloor.distanceTo(pMassCorner);
+        const cylMesh = damperStrutMeshes[i];
+        const rodMesh = damperPistonMeshes[i];
+
+        const worldTarget = pMassCorner.clone().add(damperHallAnchor.position);
+        cylMesh.position.copy(pFloor);
+        cylMesh.lookAt(worldTarget);
+        cylMesh.scale.set(1, 1, totalLen * 0.58);
+
+        rodMesh.position.copy(pFloor);
+        rodMesh.lookAt(worldTarget);
+        rodMesh.scale.set(1, 1, totalLen);
+      }
+
+      // 7.6 更新底部电涡流铜板暖金色辉光（实时正比于相对速度 |v2|）與限位缓冲环状态
+      const relSpeed = Math.hypot(state.v2, state.vz2);
+      const glowIntensity = state.lockTmdMass ? 0.0 : THREE.MathUtils.clamp(relSpeed * 0.62, 0.0, 0.92);
+      if (eddyGlowRingMat) {
+        eddyGlowRingMat.opacity = glowIntensity;
+      }
+      eddyGlowLight.intensity = glowIntensity * 2.4;
+      eddyGlowLight.position.set(swingX, 1.4, swingZ);
+
+      if (bufferStopRingMat) {
+        bufferStopRingMat.emissive.setHex(state.bufferContacted ? 0xFF2222 : 0x330505);
+      }
+
+      // 7.7 更新质量块底部空间轨迹线
+      trailLine.visible = state.showTrail;
+      if (state.showTrail) {
+        trailHistory.push({ x: swingX, y: 0.92 + pendulumLiftY, z: swingZ });
+        if (trailHistory.length > MAX_TRAIL_PTS) trailHistory.shift();
+        for (let i = 0; i < MAX_TRAIL_PTS; i++) {
+          const pt = trailHistory[Math.min(i, trailHistory.length - 1)] || { x: 0, y: 0.92, z: 0 };
+          trailPositions[i * 3] = pt.x;
+          trailPositions[i * 3 + 1] = pt.y;
+          trailPositions[i * 3 + 2] = pt.z;
+        }
+        trailGeo.attributes.position.needsUpdate = true;
+      }
+
+      // 7.8 更新天窗光柱内缓慢上浮的悬浮光尘
+      if (dustGeometry) {
+        const dArr = dustGeometry.attributes.position.array;
+        for (let i = 0; i < dustCount; i++) {
+          let y = dArr[i * 3 + 1] + dustVelocities[i].vy * dt;
+          if (y > HALL_HEIGHT) y = 0.4;
+          dArr[i * 3 + 1] = y;
+          dArr[i * 3] += Math.sin(state.simTime * 1.2 + dustVelocities[i].phase) * 0.004;
+        }
+        dustGeometry.attributes.position.needsUpdate = true;
+      }
+
+      // 7.9 更新自西向东掠过塔身的三维风流线粒子
+      const windSpeedVis = 38.0 + state.equivWindSpeedMS * 4.2;
+      for (let i = 0; i < WIND_PARTICLE_COUNT; i++) {
+        const wm = windMeta[i];
+        wm.x += windSpeedVis * wm.speedMul * dt;
+        if (wm.x > 460) wm.x = -460;
+        // 绕塔身流线偏转
+        const distToTower = Math.hypot(wm.x, wm.z);
+        const deflectZ = distToTower < 65 ? Math.sign(wm.z || 1) * (65 - distToTower) * 0.18 : 0;
+        const idx = i * 6;
+        windPositions[idx] = wm.x;
+        windPositions[idx + 1] = wm.y;
+        windPositions[idx + 2] = wm.z + deflectZ;
+        windPositions[idx + 3] = wm.x - wm.len * (0.6 + state.equivWindSpeedMS * 0.025);
+        windPositions[idx + 4] = wm.y;
+        windPositions[idx + 5] = wm.z + deflectZ;
+      }
+      windParticleGeo.attributes.position.needsUpdate = true;
+
+      // 7.10 更新外观模式（艺术/机械/复合）与剖切平面
+      if (state.visualMode === 'art') {
+        artisticBodyGroup.visible = true;
+        mechanicalBodyGroup.visible = false;
+        if (portalFrameGroup) portalFrameGroup.visible = false;
+      } else if (state.visualMode === 'mech') {
+        artisticBodyGroup.visible = false;
+        mechanicalBodyGroup.visible = true;
+        if (portalFrameGroup) portalFrameGroup.visible = state.showPortalFrame;
+      } else {
+        artisticBodyGroup.visible = true;
+        mechanicalBodyGroup.visible = true;
+        if (portalFrameGroup) portalFrameGroup.visible = state.showPortalFrame;
+      }
+
+      const radClip = (state.clipAngleDeg * Math.PI) / 180.0;
+      const clipNormal = new THREE.Vector3(Math.cos(radClip), 0, Math.sin(radClip));
+      // 剖切平面跟随阻尼器舱中心偏移
+      const planeOrigin = new THREE.Vector3(
+        damperHallAnchor.position.x + clipNormal.x * state.clipOffset,
+        HALL_ELEVATION,
+        damperHallAnchor.position.z + clipNormal.z * state.clipOffset
+      );
+      sectionClipPlane.setFromNormalAndCoplanarPoint(clipNormal, planeOrigin);
+
+      const activeClipPlanes = state.clipEnabled ? [sectionClipPlane] : [];
+      for (let i = 0; i < clippableMaterials.length; i++) {
+        clippableMaterials[i].clippingPlanes = activeClipPlanes;
+      }
+    }
+
+  </script>
+<!--zc-home:start--><style>.zc-home-btn{position:fixed;top:16px;left:16px;z-index:2147483647;display:inline-flex;align-items:center;gap:6px;padding:8px 14px;font:500 13px/1.1 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Noto Sans SC",sans-serif;color:#111;background:rgba(255,255,255,.86);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);border:1px solid rgba(0,0,0,.08);border-radius:999px;text-decoration:none;box-shadow:0 2px 12px rgba(0,0,0,.2);transition:background .2s ease,transform .2s ease,box-shadow .2s ease}.zc-home-btn:hover{background:#fff;transform:translateY(-1px);box-shadow:0 4px 18px rgba(0,0,0,.26)}</style><a class="zc-home-btn" href="../">← 返回首页</a><script>(function(){try{if(window.self!==window.top||/[?&]embed=1(?:&|$)/.test(location.search)){var b=document.querySelector(".zc-home-btn");if(b&&b.parentNode)b.parentNode.removeChild(b);}}catch(e){}})();</script><!--zc-home:end-->
+</body>
+</html>

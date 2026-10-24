@@ -1,0 +1,251 @@
+{
+  "generatedAt": "2026-10-24T19:24:46.437Z",
+  "model": "jev-1.14.0",
+  "weights": {
+    "fidelity": 30,
+    "physics": 25,
+    "visual": 20,
+    "hud": 15,
+    "city": 10
+  },
+  "dimLabels": {
+    "fidelity": "造型还原",
+    "physics": "工程物理",
+    "visual": "三维表现",
+    "hud": "信息交互",
+    "city": "城市环境"
+  },
+  "results": [
+    {
+      "slug": "gemini-4-argon",
+      "total": 70,
+      "dims": {
+        "fidelity": {
+          "score": 2.65,
+          "confidence": 0.66,
+          "frac": 0.883
+        },
+        "physics": {
+          "score": 2.26,
+          "confidence": 0.26,
+          "frac": 0.753
+        },
+        "visual": {
+          "score": 2.11,
+          "confidence": 0.54,
+          "frac": 0.703
+        },
+        "hud": {
+          "score": 0.22,
+          "confidence": 0.77,
+          "frac": 0.073
+        },
+        "city": {
+          "score": 2.8,
+          "confidence": 0.8,
+          "frac": 0.933
+        }
+      },
+      "jev": "jev-1.14.0",
+      "rank": 1
+    },
+    {
+      "slug": "grokbot",
+      "total": 53,
+      "dims": {
+        "fidelity": {
+          "score": 1.49,
+          "confidence": 0.11,
+          "frac": 0.497
+        },
+        "physics": {
+          "score": 1.67,
+          "confidence": 0.15,
+          "frac": 0.557
+        },
+        "visual": {
+          "score": 1.92,
+          "confidence": 0.3,
+          "frac": 0.64
+        },
+        "hud": {
+          "score": 1.41,
+          "confidence": 0.2,
+          "frac": 0.47
+        },
+        "city": {
+          "score": 1.25,
+          "confidence": 0,
+          "frac": 0.417
+        }
+      },
+      "jev": "jev-1.14.0",
+      "rank": 2
+    },
+    {
+      "slug": "glm-5.3",
+      "total": 45,
+      "dims": {
+        "fidelity": {
+          "score": 0.78,
+          "confidence": 0.2,
+          "frac": 0.26
+        },
+        "physics": {
+          "score": 1.53,
+          "confidence": 0,
+          "frac": 0.51
+        },
+        "visual": {
+          "score": 1.67,
+          "confidence": 0.14,
+          "frac": 0.557
+        },
+        "hud": {
+          "score": 1.78,
+          "confidence": 0,
+          "frac": 0.593
+        },
+        "city": {
+          "score": 1.2,
+          "confidence": 0,
+          "frac": 0.4
+        }
+      },
+      "jev": "jev-1.14.0",
+      "rank": 3
+    },
+    {
+      "slug": "deepseek-v4.1-flash-1017",
+      "total": 35,
+      "dims": {
+        "fidelity": {
+          "score": 0.83,
+          "confidence": 0.17,
+          "frac": 0.277
+        },
+        "physics": {
+          "score": 1,
+          "confidence": 0,
+          "frac": 0.333
+        },
+        "visual": {
+          "score": 1.21,
+          "confidence": 0,
+          "frac": 0.403
+        },
+        "hud": {
+          "score": 1.02,
+          "confidence": 0,
+          "frac": 0.34
+        },
+        "city": {
+          "score": 1.65,
+          "confidence": 0,
+          "frac": 0.55
+        }
+      },
+      "jev": "jev-1.14.0",
+      "rank": 4
+    },
+    {
+      "slug": "glm",
+      "total": 33,
+      "dims": {
+        "fidelity": {
+          "score": 1.53,
+          "confidence": 0.25,
+          "frac": 0.51
+        },
+        "physics": {
+          "score": 0.63,
+          "confidence": 0.37,
+          "frac": 0.21
+        },
+        "visual": {
+          "score": 0.8,
+          "confidence": 0.38,
+          "frac": 0.267
+        },
+        "hud": {
+          "score": 0.53,
+          "confidence": 0.47,
+          "frac": 0.177
+        },
+        "city": {
+          "score": 1.25,
+          "confidence": 0.41,
+          "frac": 0.417
+        }
+      },
+      "jev": "jev-1.14.0",
+      "rank": 5
+    },
+    {
+      "slug": "kimi-k3",
+      "total": 32,
+      "dims": {
+        "fidelity": {
+          "score": 0.95,
+          "confidence": 0.45,
+          "frac": 0.317
+        },
+        "physics": {
+          "score": 0.73,
+          "confidence": 0.26,
+          "frac": 0.243
+        },
+        "visual": {
+          "score": 1.51,
+          "confidence": 0.35,
+          "frac": 0.503
+        },
+        "hud": {
+          "score": 0.51,
+          "confidence": 0.49,
+          "frac": 0.17
+        },
+        "city": {
+          "score": 1.1,
+          "confidence": 0,
+          "frac": 0.367
+        }
+      },
+      "jev": "jev-1.14.0",
+      "rank": 6
+    },
+    {
+      "slug": "kimi-work-1.1",
+      "total": 24,
+      "dims": {
+        "fidelity": {
+          "score": 0.91,
+          "confidence": 0.91,
+          "frac": 0.303
+        },
+        "physics": {
+          "score": 0.14,
+          "confidence": 0.88,
+          "frac": 0.047
+        },
+        "visual": {
+          "score": 1.05,
+          "confidence": 0.81,
+          "frac": 0.35
+        },
+        "hud": {
+          "score": 0.04,
+          "confidence": 0.98,
+          "frac": 0.013
+        },
+        "city": {
+          "score": 1.89,
+          "confidence": 0.85,
+          "frac": 0.63
+        }
+      },
+      "jev": "jev-1.14.0",
+      "rank": 7
+    }
+  ]
+}
