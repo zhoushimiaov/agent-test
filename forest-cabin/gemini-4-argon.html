@@ -1,0 +1,2298 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>彼得 · 卒姆托：莱斯木屋｜The Leis Houses — 建筑空间与光影研究</title>
+  <script src="https://cdn.tailwindcss.com/3.4.17"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&family=Noto+Serif+SC:wght@400;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-paper: #FFFFFF;
+      --text-primary: #0A0A0A;
+      --text-secondary: #333333;
+      --text-tertiary: #666666;
+      --text-meta: #777777;
+      --text-caption: #999999;
+      --rule-hairline: rgba(10, 10, 10, 0.14);
+      --rule-strong: #0A0A0A;
+    }
+
+    *, *::before, *::after {
+      box-sizing: border-box;
+      border-radius: 0 !important;
+      box-shadow: none !important;
+      font-style: normal !important;
+    }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background-color: #161d24;
+      color: var(--text-primary);
+      font-family: "Montserrat", "Source Han Sans SC", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+      -webkit-font-smoothing: antialiased;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    /* 宋体点缀声部：仅限导语与长引文 */
+    .serif-lead {
+      font-family: "Source Han Serif SC", "Noto Serif SC", "Songti SC", "SimSun", serif;
+      font-size: 15px;
+      font-weight: 400;
+      line-height: 1.75;
+      color: var(--text-secondary);
+      margin: 0;
+    }
+
+    #canvas-container {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      width: 100%;
+      height: 100%;
+      cursor: grab;
+      z-index: 1;
+    }
+    #canvas-container:active {
+      cursor: grabbing;
+    }
+
+    #hotspot-layer {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      pointer-events: none;
+      overflow: hidden;
+      z-index: 10;
+    }
+
+    /* 顶部一体化建筑编辑控制台 */
+    .top-editorial-console {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 30;
+      background-color: var(--bg-paper);
+      border-bottom: 1px solid var(--rule-hairline);
+      pointer-events: auto;
+    }
+
+    .rule-bar-strong {
+      height: 4px;
+      width: 100%;
+      background-color: var(--rule-strong);
+    }
+
+    .console-row {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: stretch;
+      justify-content: space-between;
+      min-height: 34px;
+      border-bottom: 1px solid var(--rule-hairline);
+    }
+    .console-row::-webkit-scrollbar {
+      display: none;
+    }
+    .console-row:last-child {
+      border-bottom: none;
+    }
+
+    .console-group {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    .brand-cell {
+      display: flex;
+      align-items: baseline;
+      gap: 6px;
+      padding: 0 10px;
+      border-right: 1px solid var(--rule-hairline);
+      height: 100%;
+      display: inline-flex;
+      align-items: center;
+    }
+    .brand-zh {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--text-primary);
+      white-space: nowrap;
+    }
+    .brand-en {
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--text-meta);
+      letter-spacing: 0.04em;
+      white-space: nowrap;
+    }
+
+    .section-tag {
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--text-meta);
+      letter-spacing: 0.05em;
+      padding: 0 10px;
+      border-right: 1px solid var(--rule-hairline);
+      height: 100%;
+      display: inline-flex;
+      align-items: center;
+      background-color: #FAFAFA;
+      white-space: nowrap;
+    }
+
+    /* 建筑目录索引按钮：零圆角、零阴影、无 Emoji */
+    .mode-btn, .cam-btn, .index-btn {
+      background-color: var(--bg-paper);
+      color: var(--text-primary);
+      border: none;
+      border-right: 1px solid var(--rule-hairline);
+      cursor: pointer;
+      display: inline-flex;
+      align-items: baseline;
+      gap: 4px;
+      padding: 0 8px;
+      height: 34px;
+      line-height: 34px;
+      white-space: nowrap;
+      transition: background-color 0.12s ease, color 0.12s ease;
+    }
+    .mode-btn:hover, .cam-btn:hover, .index-btn:hover {
+      background-color: #F0F0F0;
+    }
+    .mode-btn.active, .cam-btn.active, .index-btn.active {
+      background-color: var(--text-primary);
+      color: var(--bg-paper);
+    }
+    .mode-btn.active .btn-zh,
+    .cam-btn.active .btn-zh,
+    .index-btn.active .btn-zh {
+      color: var(--bg-paper);
+    }
+    .mode-btn.active .btn-en,
+    .cam-btn.active .btn-en,
+    .index-btn.active .btn-en {
+      color: var(--text-caption);
+    }
+
+    .btn-zh {
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--text-primary);
+    }
+    .btn-en {
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--text-meta);
+      letter-spacing: 0.03em;
+    }
+
+    /* 内联线性滑块单元：高响应拖拽区（26px 高度可点击区域） */
+    .slider-cell {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 0 8px;
+      height: 34px;
+      border-right: 1px solid var(--rule-hairline);
+      background-color: var(--bg-paper);
+      white-space: nowrap;
+    }
+    .slider-label {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--text-primary);
+      cursor: pointer;
+    }
+    .slider-sub {
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--text-meta);
+      letter-spacing: 0.03em;
+    }
+    .slider-readout {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-meta);
+      min-width: 34px;
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+    }
+
+    input[type="range"] {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 64px;
+      height: 26px;
+      background: transparent;
+      outline: none;
+      margin: 0;
+      padding: 0;
+      cursor: ew-resize;
+      user-select: auto !important;
+      -webkit-user-select: auto !important;
+      pointer-events: auto !important;
+      touch-action: none;
+    }
+    input[type="range"]::-webkit-slider-runnable-track {
+      width: 100%;
+      height: 2px;
+      background: rgba(10, 10, 10, 0.25);
+      border: none;
+    }
+    input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 10px;
+      height: 16px;
+      background: var(--text-primary);
+      cursor: ew-resize;
+      border: none;
+      margin-top: -7px;
+    }
+    input[type="range"]::-moz-range-track {
+      width: 100%;
+      height: 2px;
+      background: rgba(10, 10, 10, 0.25);
+      border: none;
+    }
+    input[type="range"]::-moz-range-thumb {
+      width: 10px;
+      height: 16px;
+      background: var(--text-primary);
+      cursor: ew-resize;
+      border: none;
+    }
+
+    /* 弹出式建筑档案与构造卡片 */
+    .popover-card {
+      position: fixed;
+      top: 88px;
+      z-index: 25;
+      background-color: var(--bg-paper);
+      border: 1px solid var(--rule-hairline);
+      width: 320px;
+      pointer-events: auto;
+    }
+    .popover-left {
+      left: 12px;
+    }
+    .popover-right {
+      right: 12px;
+    }
+    .is-hidden {
+      display: none !important;
+    }
+
+    .meta-label {
+      font-size: 11px;
+      font-weight: 600;
+      line-height: 1.35;
+      color: var(--text-meta);
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+    .spec-value {
+      font-size: 13px;
+      font-weight: 500;
+      line-height: 1.4;
+      color: var(--text-primary);
+    }
+    .h3-zh {
+      font-size: 15px;
+      font-weight: 700;
+      line-height: 1.35;
+      color: var(--text-primary);
+      margin: 0;
+    }
+    .h3-en {
+      font-size: 11px;
+      font-weight: 600;
+      line-height: 1.35;
+      color: var(--text-meta);
+      letter-spacing: 0.03em;
+      margin-top: 2px;
+    }
+    .caption-fig {
+      font-size: 11px;
+      font-weight: 500;
+      color: var(--text-caption);
+      padding: 0 12px;
+      white-space: nowrap;
+    }
+
+    .hairline-t { border-top: 1px solid var(--rule-hairline); }
+    .hairline-b { border-bottom: 1px solid var(--rule-hairline); }
+    .hairline-l { border-left: 1px solid var(--rule-hairline); }
+    .hairline-r { border-right: 1px solid var(--rule-hairline); }
+
+    /* 3D 空间构造索引标尺点：22x22 极简方标 */
+    .hotspot {
+      position: absolute;
+      transform: translate(-50%, -50%);
+      pointer-events: auto;
+      z-index: 15;
+    }
+    .hotspot-dot {
+      width: 22px;
+      height: 22px;
+      background: var(--bg-paper);
+      border: 1px solid var(--text-primary);
+      color: var(--text-primary);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 10px;
+      font-weight: 600;
+      cursor: pointer;
+      padding: 0;
+      transition: background-color 0.12s ease, color 0.12s ease;
+    }
+    .hotspot-dot:hover, .hotspot-dot.active {
+      background: var(--text-primary);
+      color: var(--bg-paper);
+    }
+  </style>
+</head>
+<body>
+  <!-- 3D Viewport Container -->
+  <div id="canvas-container"></div>
+
+  <!-- 3D Architectural Hotspot Overlay Layer -->
+  <div id="hotspot-layer"></div>
+
+  <!-- INTEGRATED TOP ARCHITECTURAL CONSOLE -->
+  <header class="top-editorial-console">
+    <div class="rule-bar-strong"></div>
+
+    <!-- ROW 1: Title + Time-of-Day Atmosphere Buttons + Direct Draggable Environment Sliders -->
+    <div id="controls-dock" class="console-row">
+      <div class="console-group">
+        <div class="brand-cell">
+          <span class="brand-zh">第一幕｜莱斯木屋</span>
+          <span class="brand-en">THE LEIS HOUSES</span>
+        </div>
+
+        <button id="btn-toggle-specs" class="index-btn" title="展开或收起项目档案">
+          <span id="label-specs" class="btn-zh">ARCHIVE / 收起</span>
+        </button>
+
+        <span class="section-tag">TIME / 时段</span>
+
+        <button data-mode="day" class="mode-btn">
+          <span class="btn-zh">01 白昼</span>
+          <span class="btn-en">DAYLIGHT</span>
+        </button>
+        <button data-mode="dusk" class="mode-btn active">
+          <span class="btn-zh">02 暮色</span>
+          <span class="btn-en">ALPINE DUSK</span>
+        </button>
+        <button data-mode="night" class="mode-btn">
+          <span class="btn-zh">03 星夜</span>
+          <span class="btn-en">STARLIGHT</span>
+        </button>
+      </div>
+
+      <!-- Right: Always-Visible Draggable Environment Sliders -->
+      <div id="env-sliders-panel" class="console-group">
+        <div class="slider-cell" title="拖动滑块删减或增加山谷雾气 (0% 为完全无雾)">
+          <label for="slider-fog" class="slider-label">雾气</label>
+          <span class="slider-sub">MIST</span>
+          <input id="slider-fog" type="range" min="0" max="200" step="1" value="80" />
+          <span id="val-fog" class="slider-readout">80%</span>
+        </div>
+
+        <div class="slider-cell" title="调节室内灯光与壁炉火光强度">
+          <label for="slider-warmth" class="slider-label">炉火</label>
+          <span class="slider-sub">HEARTH</span>
+          <input id="slider-warmth" type="range" min="0" max="180" step="1" value="100" />
+          <span id="val-warmth" class="slider-readout">100%</span>
+        </div>
+
+        <div class="slider-cell" style="border-right: none;" title="调节松林微风摆动与粒子速度">
+          <label for="slider-wind" class="slider-label">微风</label>
+          <span class="slider-sub">WIND</span>
+          <input id="slider-wind" type="range" min="0" max="200" step="1" value="100" />
+          <span id="val-wind" class="slider-readout">100%</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ROW 2: Camera Viewpoint Presets + Scene Toggles + Readout -->
+    <div class="console-row">
+      <div class="console-group">
+        <span class="section-tag">VIEW / 视角</span>
+
+        <button data-cam="overview" class="cam-btn active">
+          <span class="btn-zh">山谷全貌</span>
+          <span class="btn-en">VALLEY AXON</span>
+        </button>
+        <button data-cam="facade" class="cam-btn">
+          <span class="btn-zh">悬挑南立面</span>
+          <span class="btn-en">SOUTH FACADE</span>
+        </button>
+        <button data-cam="terrace" class="cam-btn">
+          <span class="btn-zh">石板基座</span>
+          <span class="btn-en">VALS PLINTH</span>
+        </button>
+        <button data-cam="forest" class="cam-btn">
+          <span class="btn-zh">松林步道</span>
+          <span class="btn-en">PINE TRAIL</span>
+        </button>
+        <button data-cam="interior" class="cam-btn">
+          <span class="btn-zh">起居室炉火</span>
+          <span class="btn-en">HEARTH VIEW</span>
+        </button>
+
+        <span id="status-readout" class="meta-label" style="padding: 0 8px;">SCENE 02 · DUSK 18:20</span>
+      </div>
+
+      <div class="console-group hairline-l">
+        <button id="btn-toggle-panel" class="index-btn" title="快速清零或恢复山谷雾气">
+          <span class="btn-zh">参数</span>
+          <span class="btn-en">PARAMS</span>
+        </button>
+
+        <button id="btn-toggle-hotspots" class="index-btn active" title="显示或隐藏建筑构造节点">
+          <span class="btn-zh" id="label-hotspots">构造索引：开</span>
+          <span class="btn-en">NODES: ON</span>
+        </button>
+
+        <button id="btn-toggle-audio" class="index-btn" title="合成林间风声与壁炉声">
+          <span class="btn-zh" id="label-audio">林间风声：关</span>
+          <span class="btn-en">AMBIENCE: OFF</span>
+        </button>
+
+        <button id="btn-auto-orbit" class="index-btn" title="自动环绕巡礼">
+          <span class="btn-zh" id="label-orbit">环绕巡礼：关</span>
+          <span class="btn-en">ORBIT: OFF</span>
+        </button>
+
+        <button id="btn-reset-cam" class="index-btn" title="重置相机视角">
+          <span class="btn-zh">复位视角</span>
+          <span class="btn-en">RESET VIEW</span>
+        </button>
+
+        <span id="fps-counter" class="meta-label" style="padding: 0 12px;">60 FPS</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- Collapsible Project Archive Popover -->
+  <aside id="editorial-archive-body" class="popover-card popover-left is-hidden">
+    <div class="rule-bar-strong"></div>
+    <div style="padding: 16px;">
+      <div style="display: flex; align-items: center; justify-content: space-between; padding-bottom: 6px; margin-bottom: 12px;" class="hairline-b">
+        <span class="meta-label">PROJECT ARCHIVE / 建筑档案</span>
+        <button id="btn-close-archive" class="meta-label" style="background: none; border: none; cursor: pointer;">CLOSE / 关闭</button>
+      </div>
+      <blockquote style="padding-left: 12px; margin: 0; border-left: 6px solid #0A0A0A;">
+        <p class="serif-lead">
+          「实木的存在感触手可及，亲密而贴近身体；它在高山光线中散发出柔和、如丝绸般的温润光泽。」
+        </p>
+      </blockquote>
+      <div style="margin-top: 12px; padding-top: 8px;" class="hairline-t">
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; padding: 6px 0;" class="hairline-b">
+          <div>
+            <div class="meta-label">Location / 地点</div>
+            <div class="spec-value">瑞士瓦尔斯 · 莱斯</div>
+          </div>
+          <div>
+            <div class="meta-label">Altitude / 海拔</div>
+            <div class="spec-value">1,500 m</div>
+          </div>
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; padding: 6px 0;">
+          <div>
+            <div class="meta-label">Architect / 建筑师</div>
+            <div class="spec-value">彼得 · 卒姆托</div>
+          </div>
+          <div>
+            <div class="meta-label">System / 建构体系</div>
+            <div class="spec-value">实木叠梁 Strickbau</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Compact Architectural Node Specification Card -->
+  <aside id="hotspot-card" class="popover-card popover-right is-hidden">
+    <div class="rule-bar-strong"></div>
+    <div style="padding: 16px;">
+      <div style="display: flex; align-items: center; justify-content: space-between; padding-bottom: 6px; margin-bottom: 8px;" class="hairline-b">
+        <span id="hotspot-tag" class="meta-label">DETAIL 01 / STRICKBAU</span>
+        <button id="btn-close-hotspot" class="meta-label" style="background: none; border: none; cursor: pointer;">CLOSE / 关闭</button>
+      </div>
+      <h2 id="hotspot-title" class="h3-zh">山松实木叠梁与交角出挑</h2>
+      <div id="hotspot-subtitle" class="h3-en">Interlocking Solid Timber Core &amp; Steel Tension Pins</div>
+      <p id="hotspot-desc" style="margin: 10px 0 0 0; font-size: 12px; color: #333333; line-height: 1.7;"></p>
+      <button id="btn-close-params" class="is-hidden">CLOSE</button>
+    </div>
+  </aside>
+
+  <script>
+    (function () {
+      'use strict';
+
+      // =========================================================
+      // 1. PROCEDURAL TEXTURES (MATCHED TO GEOMETRY TO PREVENT MOIRÉ)
+      // =========================================================
+      // 1.1 Solid Timber Stacked Wall Texture (10 beams per story = ~25cm per beam)
+      function createTimberWallMaps(isWeatheredBarn) {
+        const diffCanvas = document.createElement('canvas');
+        const bumpCanvas = document.createElement('canvas');
+        diffCanvas.width = bumpCanvas.width = 1024;
+        diffCanvas.height = bumpCanvas.height = 1024;
+        const dCtx = diffCanvas.getContext('2d');
+        const bCtx = bumpCanvas.getContext('2d');
+
+        dCtx.fillStyle = isWeatheredBarn ? '#2a2019' : '#a16e45';
+        dCtx.fillRect(0, 0, 1024, 1024);
+
+        bCtx.fillStyle = '#808080';
+        bCtx.fillRect(0, 0, 1024, 1024);
+
+        const numBeams = 10;
+        const beamH = 1024 / numBeams;
+
+        for (let i = 0; i < numBeams; i++) {
+          const y = i * beamH;
+          const shift = ((i * 37) % 16) - 8;
+          const r = isWeatheredBarn ? 44 + shift : 162 + shift;
+          const g = isWeatheredBarn ? 33 + Math.floor(shift * 0.7) : 112 + Math.floor(shift * 0.7);
+          const b = isWeatheredBarn ? 25 + Math.floor(shift * 0.5) : 70 + Math.floor(shift * 0.5);
+
+          dCtx.fillStyle = `rgb(${r},${g},${b})`;
+          dCtx.fillRect(0, y, 1024, beamH - 4);
+
+          bCtx.fillStyle = '#a8a8a8';
+          bCtx.fillRect(0, y + 3, 1024, beamH - 7);
+
+          // Subtle silky wood grain
+          for (let s = 0; s < 18; s++) {
+            const gy = y + 4 + ((s * 29 + i * 13) % (beamH - 10));
+            dCtx.fillStyle = isWeatheredBarn ? 'rgba(14,9,5,0.2)' : 'rgba(80,46,20,0.11)';
+            dCtx.fillRect(0, gy, 1024, 1.5);
+          }
+
+          // Clean horizontal shadow groove between stacked solid timber beams
+          dCtx.fillStyle = isWeatheredBarn ? 'rgba(10,6,3,0.8)' : 'rgba(52,30,14,0.65)';
+          dCtx.fillRect(0, y + beamH - 4, 1024, 4);
+          bCtx.fillStyle = '#303030';
+          bCtx.fillRect(0, y + beamH - 4, 1024, 4);
+        }
+
+        const map = new THREE.CanvasTexture(diffCanvas);
+        const bumpMap = new THREE.CanvasTexture(bumpCanvas);
+        map.wrapS = map.wrapT = THREE.RepeatWrapping;
+        bumpMap.wrapS = bumpMap.wrapT = THREE.RepeatWrapping;
+        map.anisotropy = 4;
+        map.repeat.set(1, 1);
+        bumpMap.repeat.set(1, 1);
+        return { map, bumpMap };
+      }
+
+      // 1.2 Seamless Laminated Larch Texture (For Floor Slabs, Corner Ends & Trim — Zero Squashed Seams!)
+      function createLaminatedLarchTexture() {
+        const canvas = document.createElement('canvas');
+        canvas.width = 512;
+        canvas.height = 512;
+        const ctx = canvas.getContext('2d');
+
+        ctx.fillStyle = '#a67349';
+        ctx.fillRect(0, 0, 512, 512);
+
+        for (let i = 0; i < 90; i++) {
+          const y = (i / 90) * 512;
+          ctx.fillStyle = i % 2 === 0 ? 'rgba(185, 136, 92, 0.22)' : 'rgba(82, 48, 22, 0.14)';
+          ctx.fillRect(0, y, 512, 2.5);
+        }
+
+        const tex = new THREE.CanvasTexture(canvas);
+        tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+        tex.anisotropy = 4;
+        return tex;
+      }
+
+      // 1.3 Vals Quartzite Stone Texture
+      function createValsQuartziteMaps() {
+        const diffCanvas = document.createElement('canvas');
+        const bumpCanvas = document.createElement('canvas');
+        diffCanvas.width = bumpCanvas.width = 1024;
+        diffCanvas.height = bumpCanvas.height = 1024;
+        const dCtx = diffCanvas.getContext('2d');
+        const bCtx = bumpCanvas.getContext('2d');
+
+        dCtx.fillStyle = '#474f56';
+        dCtx.fillRect(0, 0, 1024, 1024);
+        bCtx.fillStyle = '#505050';
+        bCtx.fillRect(0, 0, 1024, 1024);
+
+        const rows = 16;
+        const rowH = 1024 / rows;
+        for (let r = 0; r < rows; r++) {
+          let x = 0;
+          const y = r * rowH;
+          while (x < 1024) {
+            const w = 96 + ((r * 67 + x * 23) % 128);
+            const shade = 68 + ((r * 31 + x) % 24);
+            dCtx.fillStyle = `rgb(${shade - 3}, ${shade + 2}, ${shade + 6})`;
+            dCtx.fillRect(x + 2, y + 2, w - 4, rowH - 4);
+
+            const bumpVal = 155 + ((r * 19 + x) % 60);
+            bCtx.fillStyle = `rgb(${bumpVal}, ${bumpVal}, ${bumpVal})`;
+            bCtx.fillRect(x + 2, y + 2, w - 4, rowH - 4);
+
+            dCtx.strokeStyle = 'rgba(220, 230, 235, 0.15)';
+            dCtx.lineWidth = 1.2;
+            dCtx.beginPath();
+            dCtx.moveTo(x + 6, y + rowH * 0.35);
+            dCtx.lineTo(x + w - 8, y + rowH * 0.68);
+            dCtx.stroke();
+
+            x += w;
+          }
+        }
+
+        const map = new THREE.CanvasTexture(diffCanvas);
+        const bumpMap = new THREE.CanvasTexture(bumpCanvas);
+        map.wrapS = map.wrapT = THREE.RepeatWrapping;
+        bumpMap.wrapS = bumpMap.wrapT = THREE.RepeatWrapping;
+        map.anisotropy = 4;
+        map.repeat.set(3, 3);
+        bumpMap.repeat.set(3, 3);
+        return { map, bumpMap };
+      }
+
+      // =========================================================
+      // 2. MULTI-OCTAVE SIMPLEX/FBM NOISE FOR GRAUBÜNDEN TERRAIN
+      // =========================================================
+      function hash2D(ix, iz) {
+        const n = Math.sin(ix * 127.1 + iz * 311.7) * 43758.5453123;
+        return n - Math.floor(n);
+      }
+
+      function smoothNoise(x, z) {
+        const ix = Math.floor(x);
+        const iz = Math.floor(z);
+        const fx = x - ix;
+        const fz = z - iz;
+        const ux = fx * fx * (3 - 2 * fx);
+        const uz = fz * fz * (3 - 2 * fz);
+
+        const a = hash2D(ix, iz);
+        const b = hash2D(ix + 1, iz);
+        const c = hash2D(ix, iz + 1);
+        const d = hash2D(ix + 1, iz + 1);
+
+        return a + (b - a) * ux + (c - a) * uz + (a - b - c + d) * ux * uz;
+      }
+
+      function fbm(x, z) {
+        let val = 0;
+        let amp = 0.5;
+        let freq = 1;
+        for (let i = 0; i < 4; i++) {
+          val += amp * smoothNoise(x * freq, z * freq);
+          freq *= 2.04;
+          amp *= 0.48;
+        }
+        return val;
+      }
+
+      function getTerrainHeight(x, z) {
+        const baseSlope = (-z * 0.135) + (-x * 0.045);
+        const undulation = (fbm(x * 0.034 + 12, z * 0.034 + 12) - 0.5) * 9.0;
+        const microRelief = (fbm(x * 0.14, z * 0.14) - 0.5) * 1.35;
+
+        const distCabin = Math.hypot(x, z);
+        const flattenCabin = Math.min(1, Math.max(0, (distCabin - 6.8) / 8.5));
+
+        const radialDist = Math.hypot(x, z);
+        let ridge = 0;
+        if (radialDist > 42 && z < 22) {
+          const t = (radialDist - 42) / 52;
+          ridge = t * t * 36 * (0.58 + 0.84 * fbm(x * 0.048, z * 0.048));
+        }
+
+        const streamCenter = 15.5 + Math.sin(z * 0.08) * 3.6;
+        const distStream = Math.abs(x - streamCenter);
+        const streamCut = distStream < 4.4 ? -Math.cos((distStream / 4.4) * Math.PI * 0.5) * 1.75 : 0;
+
+        const rawH = baseSlope + undulation + microRelief + ridge + streamCut;
+        return 0.2 * (1 - flattenCabin) + rawH * flattenCabin;
+      }
+
+      // =========================================================
+      // 3. SCENE, RENDERER & CAMERA (WITH HIGH DEPTH PRECISION)
+      // =========================================================
+      const container = document.getElementById('canvas-container');
+      const scene = new THREE.Scene();
+      scene.fog = new THREE.FogExp2(0x1f2632, 0.0115 * 0.8);
+
+      // Tightened near/far planes (0.6 to 280) to eliminate depth-buffer Z-fighting
+      const camera = new THREE.PerspectiveCamera(44, window.innerWidth / window.innerHeight, 0.6, 280);
+
+      const renderer = new THREE.WebGLRenderer({
+        antialias: true,
+        powerPreference: 'high-performance',
+        logarithmicDepthBuffer: true
+      });
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+      renderer.shadowMap.enabled = true;
+      renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      renderer.toneMappingExposure = 1.06;
+      renderer.outputEncoding = THREE.sRGBEncoding;
+      container.appendChild(renderer.domElement);
+
+      // =========================================================
+      // 4. ATMOSPHERIC SKY DOME & STARFIELD
+      // =========================================================
+      const skyGeo = new THREE.SphereGeometry(250, 32, 24);
+      const skyMat = new THREE.ShaderMaterial({
+        side: THREE.BackSide,
+        depthWrite: false,
+        uniforms: {
+          topColor: { value: new THREE.Color(0x162238) },
+          horizonColor: { value: new THREE.Color(0xd97b54) },
+          bottomColor: { value: new THREE.Color(0x121720) }
+        },
+        vertexShader: `
+          varying vec3 vWorldPosition;
+          void main() {
+            vec4 worldPosition = modelMatrix * vec4(position, 1.0);
+            vWorldPosition = worldPosition.xyz;
+            gl_Position = projectionMatrix * viewMatrix * worldPosition;
+          }
+        `,
+        fragmentShader: `
+          uniform vec3 topColor;
+          uniform vec3 horizonColor;
+          uniform vec3 bottomColor;
+          varying vec3 vWorldPosition;
+          void main() {
+            float h = normalize(vWorldPosition).y;
+            vec3 col = mix(horizonColor, topColor, pow(max(h, 0.0), 0.52));
+            if (h < 0.0) {
+              col = mix(horizonColor, bottomColor, min(1.0, -h * 4.0));
+            }
+            gl_FragColor = vec4(col, 1.0);
+          }
+        `
+      });
+      scene.add(new THREE.Mesh(skyGeo, skyMat));
+
+      const starCount = 1000;
+      const starPos = new Float32Array(starCount * 3);
+      for (let i = 0; i < starCount; i++) {
+        const theta = Math.random() * Math.PI * 2;
+        const phi = Math.acos(Math.random() * 0.86 + 0.12);
+        const r = 220;
+        starPos[i * 3] = r * Math.sin(phi) * Math.cos(theta);
+        starPos[i * 3 + 1] = r * Math.cos(phi);
+        starPos[i * 3 + 2] = r * Math.sin(phi) * Math.sin(theta);
+      }
+      const starGeo = new THREE.BufferGeometry();
+      starGeo.setAttribute('position', new THREE.BufferAttribute(starPos, 3));
+      const starMat = new THREE.PointsMaterial({
+        color: 0xfff8eb,
+        size: 1.35,
+        transparent: true,
+        opacity: 0.38,
+        fog: false
+      });
+      const starField = new THREE.Points(starGeo, starMat);
+      scene.add(starField);
+
+      // =========================================================
+      // 5. LIGHTING SYSTEM (WITH SHADOW NORMAL BIAS TO PREVENT ACNE)
+      // =========================================================
+      const hemiLight = new THREE.HemisphereLight(0x8fa8c8, 0x293226, 0.58);
+      scene.add(hemiLight);
+
+      const mainLight = new THREE.DirectionalLight(0xff9d5c, 1.5);
+      mainLight.position.set(-48, 28, -32);
+      mainLight.castShadow = true;
+      mainLight.shadow.mapSize.width = 2048;
+      mainLight.shadow.mapSize.height = 2048;
+      mainLight.shadow.camera.near = 10;
+      mainLight.shadow.camera.far = 150;
+      const d = 36;
+      mainLight.shadow.camera.left = -d;
+      mainLight.shadow.camera.right = d;
+      mainLight.shadow.camera.top = d;
+      mainLight.shadow.camera.bottom = -d;
+      // Critical: normalBias + bias completely eliminates diagonal shadow-acne Moiré bands on walls
+      mainLight.shadow.bias = -0.0015;
+      mainLight.shadow.normalBias = 0.05;
+      scene.add(mainLight);
+
+      const rimLight = new THREE.DirectionalLight(0x6384b8, 0.38);
+      rimLight.position.set(45, 32, 42);
+      scene.add(rimLight);
+
+      const celestialOrb = new THREE.Mesh(
+        new THREE.SphereGeometry(4.6, 24, 24),
+        new THREE.MeshBasicMaterial({ color: 0xffb370, fog: false })
+      );
+      scene.add(celestialOrb);
+
+      // =========================================================
+      // 6. TERRAIN MESH WITH MULTI-BIOME VERTEX SHADING
+      // =========================================================
+      const terrainGeo = new THREE.PlaneGeometry(190, 190, 176, 176);
+      terrainGeo.rotateX(-Math.PI / 2);
+
+      const posAttr = terrainGeo.attributes.position;
+      const colors = new Float32Array(posAttr.count * 3);
+
+      const colMeadow = new THREE.Color(0x2f4329);
+      const colPineNeedles = new THREE.Color(0x1e2c1d);
+      const colGneissRock = new THREE.Color(0x4c5359);
+      const colAlpineSnow = new THREE.Color(0xe2ebf2);
+      const tempCol = new THREE.Color();
+
+      for (let i = 0; i < posAttr.count; i++) {
+        const vx = posAttr.getX(i);
+        const vz = posAttr.getZ(i);
+        const vy = getTerrainHeight(vx, vz);
+        posAttr.setY(i, vy);
+
+        const n = fbm(vx * 0.08, vz * 0.08);
+        if (vy > 17.5 + n * 4) {
+          tempCol.copy(colAlpineSnow).lerp(colGneissRock, 0.22);
+        } else if (vy > 9.0 + n * 3) {
+          tempCol.copy(colGneissRock).lerp(colPineNeedles, 0.28);
+        } else {
+          tempCol.copy(colPineNeedles).lerp(colMeadow, n * 0.88);
+        }
+        colors[i * 3] = tempCol.r;
+        colors[i * 3 + 1] = tempCol.g;
+        colors[i * 3 + 2] = tempCol.b;
+      }
+
+      terrainGeo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+      terrainGeo.computeVertexNormals();
+
+      const terrainMesh = new THREE.Mesh(
+        terrainGeo,
+        new THREE.MeshStandardMaterial({
+          vertexColors: true,
+          roughness: 0.92,
+          metalness: 0.04
+        })
+      );
+      terrainMesh.receiveShadow = true;
+      scene.add(terrainMesh);
+
+      // =========================================================
+      // 7. PETER ZUMTHOR'S LEIS HOUSES (WATERTIGHT ENCLOSURE & ZERO OVERLAPS)
+      // =========================================================
+      const larchMaps = createTimberWallMaps(false);
+      const darkBarnMaps = createTimberWallMaps(true);
+      const laminatedTex = createLaminatedLarchTexture();
+      const stoneMaps = createValsQuartziteMaps();
+
+      const timberMat = new THREE.MeshStandardMaterial({
+        map: larchMaps.map,
+        bumpMap: larchMaps.bumpMap,
+        bumpScale: 0.022,
+        roughness: 0.62,
+        metalness: 0.05,
+        side: THREE.DoubleSide
+      });
+
+      const laminatedMat = new THREE.MeshStandardMaterial({
+        map: laminatedTex,
+        roughness: 0.58,
+        metalness: 0.05,
+        side: THREE.DoubleSide
+      });
+
+      const darkTimberMat = new THREE.MeshStandardMaterial({
+        map: darkBarnMaps.map,
+        bumpMap: darkBarnMaps.bumpMap,
+        bumpScale: 0.025,
+        roughness: 0.78,
+        metalness: 0.05,
+        side: THREE.DoubleSide
+      });
+
+      const stoneMat = new THREE.MeshStandardMaterial({
+        map: stoneMaps.map,
+        bumpMap: stoneMaps.bumpMap,
+        bumpScale: 0.04,
+        roughness: 0.82,
+        metalness: 0.08,
+        side: THREE.DoubleSide
+      });
+
+      const steelMat = new THREE.MeshStandardMaterial({
+        color: 0x26292c,
+        roughness: 0.38,
+        metalness: 0.72,
+        side: THREE.DoubleSide
+      });
+
+      const glassMat = new THREE.MeshPhysicalMaterial({
+        color: 0xdaf0ff,
+        transparent: true,
+        opacity: 0.30,
+        roughness: 0.06,
+        metalness: 0.1,
+        reflectivity: 0.9,
+        depthWrite: false,
+        side: THREE.DoubleSide
+      });
+
+      const interiorGlowMat = new THREE.MeshStandardMaterial({
+        color: 0xe3b882,
+        emissive: 0xff983f,
+        emissiveIntensity: 0.65,
+        roughness: 0.65,
+        side: THREE.DoubleSide
+      });
+
+      const hearthFireMat = new THREE.MeshBasicMaterial({ color: 0xff6e1a });
+
+      const cabinGroup = new THREE.Group();
+      const cabinBaseY = getTerrainHeight(0, 0);
+      cabinGroup.position.set(0, cabinBaseY, 0);
+      cabinGroup.rotation.y = Math.PI * 0.12;
+      scene.add(cabinGroup);
+
+      // 7.1 Vals Quartzite Plinth (Top at y = 1.44, strictly below f1Y = 1.45)
+      const plinthMesh = new THREE.Mesh(new THREE.BoxGeometry(11.8, 2.48, 9.8), stoneMat);
+      plinthMesh.position.set(0, 0.2, 0.4);
+      plinthMesh.castShadow = true;
+      plinthMesh.receiveShadow = true;
+      cabinGroup.add(plinthMesh);
+
+      // Warm wooden interior floor for Level 1 (strictly inside Level 1 enclosed footprint)
+      const f1Floor = new THREE.Mesh(new THREE.BoxGeometry(7.8, 0.02, 5.6), laminatedMat);
+      f1Floor.position.set(-0.05, 1.45, 0.02);
+      f1Floor.receiveShadow = true;
+      cabinGroup.add(f1Floor);
+
+      for (let s = 0; s < 6; s++) {
+        const stepMesh = new THREE.Mesh(new THREE.BoxGeometry(2.5, 0.22, 0.62), stoneMat);
+        stepMesh.position.set(2.8, -0.55 + s * 0.24, 5.45 + (5 - s) * 0.64);
+        stepMesh.castShadow = true;
+        stepMesh.receiveShadow = true;
+        cabinGroup.add(stepMesh);
+      }
+
+      // 7.2 Zero-Overlap Strickbau Solid Timber Utility Core Builder
+      function createStrickbauCore(w, h, d, cx, cy, cz, wallMat, endMat) {
+        const coreGroup = new THREE.Group();
+        coreGroup.position.set(cx, cy, cz);
+
+        const safeH = h - 0.016;
+        const body = new THREE.Mesh(new THREE.BoxGeometry(w, safeH, d), wallMat);
+        body.castShadow = true;
+        body.receiveShadow = true;
+        coreGroup.add(body);
+
+        const numCourses = 10;
+        const courseH = safeH / numCourses;
+        const lugLen = 0.22;
+        const lugThick = 0.16;
+        const lugH = courseH * 0.86;
+
+        const xLugGeo = new THREE.BoxGeometry(lugLen, lugH, lugThick);
+        const zLugGeo = new THREE.BoxGeometry(lugThick, lugH, lugLen);
+
+        for (let i = 0; i < numCourses; i++) {
+          const ny = -safeH / 2 + (i + 0.5) * courseH;
+          if (i % 2 === 0) {
+            const zFront = d / 2 - lugThick / 2 - 0.02;
+            const zBack = -d / 2 + lugThick / 2 + 0.02;
+            [
+              [-w / 2 - lugLen / 2, zFront],
+              [w / 2 + lugLen / 2, zFront],
+              [-w / 2 - lugLen / 2, zBack],
+              [w / 2 + lugLen / 2, zBack]
+            ].forEach(([lx, lz]) => {
+              const lug = new THREE.Mesh(xLugGeo, endMat);
+              lug.position.set(lx, ny, lz);
+              lug.castShadow = true;
+              lug.receiveShadow = true;
+              coreGroup.add(lug);
+            });
+          } else {
+            const xLeft = -w / 2 + lugThick / 2 + 0.02;
+            const xRight = w / 2 - lugThick / 2 - 0.02;
+            [
+              [xLeft, d / 2 + lugLen / 2],
+              [xRight, d / 2 + lugLen / 2],
+              [xLeft, -d / 2 - lugLen / 2],
+              [xRight, -d / 2 - lugLen / 2]
+            ].forEach(([lx, lz]) => {
+              const lug = new THREE.Mesh(zLugGeo, endMat);
+              lug.position.set(lx, ny, lz);
+              lug.castShadow = true;
+              lug.receiveShadow = true;
+              coreGroup.add(lug);
+            });
+          }
+        }
+
+        const pinGeo = new THREE.CylinderGeometry(0.022, 0.022, safeH, 8);
+        const pinOffset = lugLen * 0.52;
+        [
+          [-w / 2 - pinOffset, d / 2 - lugThick / 2 - 0.02],
+          [w / 2 + pinOffset, d / 2 - lugThick / 2 - 0.02],
+          [-w / 2 - pinOffset, -d / 2 + lugThick / 2 + 0.02],
+          [w / 2 + pinOffset, -d / 2 + lugThick / 2 + 0.02]
+        ].forEach(([px, pz]) => {
+          const pin = new THREE.Mesh(pinGeo, steelMat);
+          pin.position.set(px, 0, pz);
+          coreGroup.add(pin);
+        });
+
+        return coreGroup;
+      }
+
+      // Helper for Panoramic Window Wall that spans exact [start, end] coordinates
+      function addPanoramicWindowWall(width, height, x, y, z, rotY, mullions, hasVentShutter) {
+        const safeWinH = height - 0.024;
+        const winGroup = new THREE.Group();
+        winGroup.position.set(x, y, z);
+        winGroup.rotation.y = rotY;
+
+        const pane = new THREE.Mesh(new THREE.PlaneGeometry(width - 0.04, safeWinH - 0.10), glassMat);
+        pane.position.z = -0.012;
+        winGroup.add(pane);
+
+        const topFrame = new THREE.Mesh(new THREE.BoxGeometry(width + 0.06, 0.07, 0.09), steelMat);
+        topFrame.position.set(0, safeWinH / 2 - 0.035, 0);
+        winGroup.add(topFrame);
+
+        const botFrame = topFrame.clone();
+        botFrame.position.set(0, -safeWinH / 2 + 0.035, 0);
+        winGroup.add(botFrame);
+
+        for (let m = 0; m <= mullions; m++) {
+          const mx = -width / 2 + (m / mullions) * width;
+          const bar = new THREE.Mesh(new THREE.BoxGeometry(0.065, safeWinH - 0.12, 0.09), steelMat);
+          bar.position.set(mx, 0, 0.004);
+          bar.castShadow = true;
+          winGroup.add(bar);
+        }
+
+        if (hasVentShutter) {
+          const ventShutter = new THREE.Mesh(new THREE.BoxGeometry(0.24, safeWinH - 0.12, 0.10), laminatedMat);
+          ventShutter.position.set(width / 2 - 0.15, 0, 0.008);
+          winGroup.add(ventShutter);
+        }
+
+        cabinGroup.add(winGroup);
+      }
+
+      function addCornerPost(x, yCenter, z, height) {
+        const post = new THREE.Mesh(new THREE.BoxGeometry(0.095, height - 0.02, 0.095), steelMat);
+        post.position.set(x, yCenter, z);
+        post.castShadow = true;
+        cabinGroup.add(post);
+      }
+
+      // =========================================================
+      // FLOOR 1 (y: 1.45 -> 3.85, height = 2.40) — WATERTIGHT ENCLOSURE
+      // Back-Left Core: x in [-4.0, -1.0], z in [-2.8, +0.4]
+      // Back-Right Core: x in [+1.0, +3.8], z in [-2.8, +0.4]
+      // Glazed Entry & Garden Room projects from z = +0.4 to z = +2.85 across x in [-2.3, +2.3]
+      // =========================================================
+      const f1Y = 1.45;
+      const f1H = 2.40;
+      cabinGroup.add(createStrickbauCore(3.0, f1H, 3.2, -2.5, f1Y + f1H / 2, -1.2, timberMat, laminatedMat));
+      cabinGroup.add(createStrickbauCore(2.8, f1H, 3.2, 2.4, f1Y + f1H / 2, -1.2, timberMat, laminatedMat));
+
+      // Back center timber wall closing x in [-1.0, +1.0] at z = -2.4
+      const f1BackWall = new THREE.Mesh(new THREE.BoxGeometry(2.0, f1H - 0.02, 0.6), timberMat);
+      f1BackWall.position.set(0, f1Y + f1H / 2, -2.4);
+      f1BackWall.castShadow = true;
+      cabinGroup.add(f1BackWall);
+
+      // Floor 1 Front Window (x: -2.3 to +2.3 at z = +2.85, width = 4.6)
+      addPanoramicWindowWall(4.6, f1H, 0.0, f1Y + f1H / 2, 2.85, 0, 4, true);
+      // Floor 1 Left Return Window (z: +0.4 to +2.85 at x = -2.3, width = 2.45) — closes left gap!
+      addPanoramicWindowWall(2.45, f1H, -2.3, f1Y + f1H / 2, 1.625, -Math.PI / 2, 2, false);
+      // Floor 1 Right Return Window (z: +0.4 to +2.85 at x = +2.3, width = 2.45) — closes right gap!
+      addPanoramicWindowWall(2.45, f1H, 2.3, f1Y + f1H / 2, 1.625, Math.PI / 2, 2, false);
+      addCornerPost(-2.3, f1Y + f1H / 2, 2.85, f1H);
+      addCornerPost(2.3, f1Y + f1H / 2, 2.85, f1H);
+
+      // Stacked Firewood Alcove (Holzlager) along East Ground Wall
+      const firewoodGroup = new THREE.Group();
+      firewoodGroup.position.set(4.15, f1Y + 0.7, -1.1);
+      for (let row = 0; row < 6; row++) {
+        for (let col = 0; col < 5; col++) {
+          const log = new THREE.Mesh(new THREE.CylinderGeometry(0.085, 0.085, 0.62, 7), darkTimberMat);
+          log.rotation.z = Math.PI / 2;
+          log.position.set(0, row * 0.18, (col - 2) * 0.19);
+          firewoodGroup.add(log);
+        }
+      }
+      cabinGroup.add(firewoodGroup);
+
+      // Laminated ceiling slab 1 (y: 3.85 -> 4.13)
+      const slab1 = new THREE.Mesh(new THREE.BoxGeometry(9.8, 0.28, 7.5), laminatedMat);
+      slab1.position.set(0, f1Y + f1H + 0.14, 0);
+      slab1.castShadow = true;
+      slab1.receiveShadow = true;
+      cabinGroup.add(slab1);
+
+      // =========================================================
+      // FLOOR 2 (y: 4.13 -> 6.68, height = 2.55) — WATERTIGHT ENCLOSURE
+      // Back-Left Core: x in [-4.0, -1.0], z in [-2.7, +0.1]
+      // Front-Left Core: x in [-4.0, -1.0], z in [+0.1, +2.9] (Continuous left timber wing!)
+      // Back-Right Core: x in [+1.0, +3.8], z in [-2.7, +0.1]
+      // Corner Bedroom Glazing encloses x in [-1.0, +3.8] and z in [+0.1, +2.9]
+      // =========================================================
+      const f2Y = f1Y + f1H + 0.28;
+      const f2H = 2.55;
+      cabinGroup.add(createStrickbauCore(3.0, f2H, 2.8, -2.5, f2Y + f2H / 2, -1.3, timberMat, laminatedMat));
+      cabinGroup.add(createStrickbauCore(3.0, f2H, 2.8, -2.5, f2Y + f2H / 2, 1.5, timberMat, laminatedMat));
+      cabinGroup.add(createStrickbauCore(2.8, f2H, 2.8, 2.4, f2Y + f2H / 2, -1.3, timberMat, laminatedMat));
+
+      const f2BackWall = new THREE.Mesh(new THREE.BoxGeometry(2.0, f2H - 0.02, 0.6), timberMat);
+      f2BackWall.position.set(0, f2Y + f2H / 2, -2.4);
+      f2BackWall.castShadow = true;
+      cabinGroup.add(f2BackWall);
+
+      // Floor 2 Front Window: spans exact x in [-1.0, +3.8] at z = +2.9 (width = 4.8, center x = +1.4)
+      addPanoramicWindowWall(4.8, f2H, 1.4, f2Y + f2H / 2, 2.9, 0, 4, true);
+      // Floor 2 East Window: spans exact z in [+0.1, +2.9] at x = +3.8 (width = 2.8, center z = +1.5)
+      addPanoramicWindowWall(2.8, f2H, 3.8, f2Y + f2H / 2, 1.5, Math.PI / 2, 3, false);
+      addCornerPost(3.8, f2Y + f2H / 2, 2.9, f2H);
+
+      // Cantilevered Balcony Railing in front of Floor 2 Glazing
+      const balconyRail = new THREE.Mesh(new THREE.BoxGeometry(3.8, 0.86, 0.1), laminatedMat);
+      balconyRail.position.set(2.15, f2Y + 0.44, 3.58);
+      balconyRail.castShadow = true;
+      cabinGroup.add(balconyRail);
+
+      // Laminated ceiling slab 2 (y: 6.68 -> 6.98)
+      const slab2 = new THREE.Mesh(new THREE.BoxGeometry(10.2, 0.3, 7.9), laminatedMat);
+      slab2.position.set(0, f2Y + f2H + 0.15, 0.1);
+      slab2.castShadow = true;
+      slab2.receiveShadow = true;
+      cabinGroup.add(slab2);
+
+      // =========================================================
+      // FLOOR 3 (y: 6.98 -> 9.63, height = 2.65) — WATERTIGHT ENCLOSURE
+      // Back-Left Core: x in [-4.0, -1.0], z in [-2.7, +0.1]
+      // Back-Right Core: x in [+1.0, +3.8], z in [-2.7, +0.1]
+      // Panoramic Living Room Glazing encloses x in [-4.0, +3.8] and z in [+0.1, +3.1]
+      // =========================================================
+      const f3Y = f2Y + f2H + 0.3;
+      const f3H = 2.65;
+      cabinGroup.add(createStrickbauCore(3.0, f3H, 2.8, -2.5, f3Y + f3H / 2, -1.3, timberMat, laminatedMat));
+      cabinGroup.add(createStrickbauCore(2.8, f3H, 2.8, 2.4, f3Y + f3H / 2, -1.3, timberMat, laminatedMat));
+
+      const f3BackWall = new THREE.Mesh(new THREE.BoxGeometry(2.0, f3H - 0.02, 0.6), timberMat);
+      f3BackWall.position.set(0, f3Y + f3H / 2, -2.4);
+      f3BackWall.castShadow = true;
+      cabinGroup.add(f3BackWall);
+
+      // Floor 3 West (Left) Window: spans exact z in [+0.1, +3.1] at x = -4.0 (width = 3.0, center z = +1.6)
+      addPanoramicWindowWall(3.0, f3H, -4.0, f3Y + f3H / 2, 1.6, -Math.PI / 2, 3, false);
+      // Floor 3 Front (South) Window: spans exact x in [-4.0, +3.8] at z = +3.1 (width = 7.8, center x = -0.1)
+      addPanoramicWindowWall(7.8, f3H, -0.1, f3Y + f3H / 2, 3.1, 0, 6, true);
+      // Floor 3 East (Right) Window: spans exact z in [+0.1, +3.1] at x = +3.8 (width = 3.0, center z = +1.6)
+      addPanoramicWindowWall(3.0, f3H, 3.8, f3Y + f3H / 2, 1.6, Math.PI / 2, 3, true);
+      addCornerPost(-4.0, f3Y + f3H / 2, 3.1, f3H);
+      addCornerPost(3.8, f3Y + f3H / 2, 3.1, f3H);
+
+      // 7.3 Warm Interior Partition Walls & Designer Furniture
+      function addInteriorSpineWall(yBottom, floorH, zPos, width) {
+        const wall = new THREE.Mesh(
+          new THREE.BoxGeometry(width, floorH - 0.04, 0.24),
+          interiorGlowMat
+        );
+        wall.position.set(0, yBottom + floorH / 2, zPos);
+        cabinGroup.add(wall);
+      }
+      addInteriorSpineWall(f1Y, f1H, -0.5, 2.0);
+      addInteriorSpineWall(f2Y, f2H, -0.5, 2.0);
+      addInteriorSpineWall(f3Y, f3H, -0.5, 2.0);
+
+      // Warm glowing ceiling soffit panels inside the living areas
+      const ceilingGlow1 = new THREE.Mesh(new THREE.PlaneGeometry(4.4, 2.3), interiorGlowMat);
+      ceilingGlow1.rotation.x = Math.PI / 2;
+      ceilingGlow1.position.set(0, f1Y + f1H - 0.02, 1.6);
+      cabinGroup.add(ceilingGlow1);
+
+      const ceilingGlow2 = new THREE.Mesh(new THREE.PlaneGeometry(4.6, 2.6), interiorGlowMat);
+      ceilingGlow2.rotation.x = Math.PI / 2;
+      ceilingGlow2.position.set(1.4, f2Y + f2H - 0.02, 1.5);
+      cabinGroup.add(ceilingGlow2);
+
+      const ceilingGlow3 = new THREE.Mesh(new THREE.PlaneGeometry(7.6, 2.8), interiorGlowMat);
+      ceilingGlow3.rotation.x = Math.PI / 2;
+      ceilingGlow3.position.set(-0.1, f3Y + f3H - 0.02, 1.6);
+      cabinGroup.add(ceilingGlow3);
+
+      // Green Vals Marble Cylindrical Fireplace & Glowing Hearth (3rd Floor Living Room)
+      const fireplaceMat = new THREE.MeshStandardMaterial({ color: 0x203e30, roughness: 0.3, metalness: 0.22 });
+      const fireplaceCyl = new THREE.Mesh(new THREE.CylinderGeometry(0.46, 0.46, f3H - 0.04, 24), fireplaceMat);
+      fireplaceCyl.position.set(0.35, f3Y + f3H / 2, 1.15);
+      fireplaceCyl.castShadow = true;
+      cabinGroup.add(fireplaceCyl);
+
+      const hearthGlow = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.48, 0.24), hearthFireMat);
+      hearthGlow.position.set(0.35, f3Y + 0.55, 1.5);
+      cabinGroup.add(hearthGlow);
+
+      // Eero Saarinen Round Dining Table & Baltensweiler Floor Lamp in 3rd Floor Living Room
+      const saarinenTableTop = new THREE.Mesh(new THREE.CylinderGeometry(0.92, 0.92, 0.07, 24), laminatedMat);
+      saarinenTableTop.position.set(-1.35, f3Y + 0.76, 1.95);
+      cabinGroup.add(saarinenTableTop);
+
+      const saarinenPedestal = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.4, 0.72, 16), steelMat);
+      saarinenPedestal.position.set(-1.35, f3Y + 0.37, 1.95);
+      cabinGroup.add(saarinenPedestal);
+
+      const lampStem = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 1.82, 8), steelMat);
+      lampStem.position.set(2.1, f3Y + 0.92, 1.95);
+      cabinGroup.add(lampStem);
+      const lampHead = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.18, 0.18, 0.06, 16),
+        new THREE.MeshBasicMaterial({ color: 0xffe8bf })
+      );
+      lampHead.position.set(2.1, f3Y + 1.84, 1.95);
+      cabinGroup.add(lampHead);
+
+      const pendantLamp = new THREE.Mesh(
+        new THREE.SphereGeometry(0.2, 16, 12),
+        new THREE.MeshBasicMaterial({ color: 0xffe4b5 })
+      );
+      pendantLamp.position.set(-1.35, f3Y + 1.96, 1.95);
+      cabinGroup.add(pendantLamp);
+
+      // 2nd Floor Bedroom Platform Bed
+      const bedPlatform = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.38, 2.1), laminatedMat);
+      bedPlatform.position.set(1.2, f2Y + 0.2, 1.4);
+      cabinGroup.add(bedPlatform);
+
+      // =========================================================
+      // 7.5 WATERTIGHT SOLID TIMBER GABLE ATTIC & PITCHED VALS SLATE ROOF
+      // Uses exact ExtrudeGeometry triangular prism so the gable is 100% enclosed!
+      // =========================================================
+      const roofBaseY = f3Y + f3H;
+      const roofGroup = new THREE.Group();
+      roofGroup.position.set(0, roofBaseY, 0.1);
+      cabinGroup.add(roofGroup);
+
+      const roofCeilingSlab = new THREE.Mesh(new THREE.BoxGeometry(10.6, 0.28, 8.4), laminatedMat);
+      roofCeilingSlab.position.set(0, 0.14, 0);
+      roofCeilingSlab.castShadow = true;
+      roofCeilingSlab.receiveShadow = true;
+      roofGroup.add(roofCeilingSlab);
+
+      const roofW = 11.6;
+      const roofD = 9.4;
+      const roofPitch = 0.22;
+      const halfW = roofW / 2 + 0.35;
+
+      // Exact triangular prism filling the gable space between y = 0.28 and the pitched roof slopes
+      const gableHalfW = 4.95;
+      const gableBaseY = 0.27;
+      const gableApexY = gableBaseY + Math.tan(roofPitch) * gableHalfW + 0.16;
+      const gableShape = new THREE.Shape();
+      gableShape.moveTo(-gableHalfW, gableBaseY);
+      gableShape.lineTo(0, gableApexY);
+      gableShape.lineTo(gableHalfW, gableBaseY);
+      gableShape.closePath();
+
+      const gableDepth = 7.4;
+      const gableGeo = new THREE.ExtrudeGeometry(gableShape, {
+        depth: gableDepth,
+        bevelEnabled: false
+      });
+      gableGeo.translate(0, 0, -gableDepth / 2);
+      const gableMesh = new THREE.Mesh(gableGeo, laminatedMat);
+      gableMesh.castShadow = true;
+      gableMesh.receiveShadow = true;
+      roofGroup.add(gableMesh);
+
+      const leftSlope = new THREE.Mesh(new THREE.BoxGeometry(halfW, 0.24, roofD), stoneMat);
+      leftSlope.position.set(-halfW / 2 * Math.cos(roofPitch) + 0.06, Math.sin(roofPitch) * halfW / 2 + 0.42, 0);
+      leftSlope.rotation.z = roofPitch;
+      leftSlope.castShadow = true;
+      leftSlope.receiveShadow = true;
+      roofGroup.add(leftSlope);
+
+      const rightSlope = new THREE.Mesh(new THREE.BoxGeometry(halfW, 0.24, roofD), stoneMat);
+      rightSlope.position.set(halfW / 2 * Math.cos(roofPitch) - 0.06, Math.sin(roofPitch) * halfW / 2 + 0.42, 0);
+      rightSlope.rotation.z = -roofPitch;
+      rightSlope.castShadow = true;
+      rightSlope.receiveShadow = true;
+      roofGroup.add(rightSlope);
+
+      const chimney = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.32, 1.95, 16), steelMat);
+      chimney.position.set(0.35, 1.55, 1.05);
+      chimney.castShadow = true;
+      roofGroup.add(chimney);
+
+      // 7.6 Interior & Terrace Lighting
+      const cabinWarmLight1 = new THREE.PointLight(0xff9436, 2.3, 24, 1.6);
+      cabinWarmLight1.position.set(0.2, f3Y + 1.4, 2.2);
+      cabinWarmLight1.castShadow = false;
+      cabinGroup.add(cabinWarmLight1);
+
+      const cabinWarmLight2 = new THREE.PointLight(0xff8424, 1.7, 18, 1.7);
+      cabinWarmLight2.position.set(1.2, f2Y + 1.3, 2.0);
+      cabinWarmLight2.castShadow = false;
+      cabinGroup.add(cabinWarmLight2);
+
+      const terraceLanternLight = new THREE.PointLight(0xffaa4c, 1.25, 13, 1.8);
+      terraceLanternLight.position.set(-3.4, f1Y + 0.9, 4.2);
+      cabinGroup.add(terraceLanternLight);
+
+      const bollardPost = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.78, 0.18), steelMat);
+      bollardPost.position.set(-3.4, f1Y + 0.39, 4.2);
+      cabinGroup.add(bollardPost);
+      const bollardBulb = new THREE.Mesh(
+        new THREE.BoxGeometry(0.16, 0.18, 0.16),
+        new THREE.MeshBasicMaterial({ color: 0xffd28a })
+      );
+      bollardBulb.position.set(-3.4, f1Y + 0.82, 4.2);
+      cabinGroup.add(bollardBulb);
+
+      // =========================================================
+      // 8. LEIS HAMLET CONTEXT: OBERHUS BARN & 17TH-C WHITE CHAPEL
+      // =========================================================
+      const upperChalet = new THREE.Group();
+      const ux = -22, uz = -24;
+      upperChalet.position.set(ux, getTerrainHeight(ux, uz), uz);
+      upperChalet.rotation.y = Math.PI * 0.22;
+      scene.add(upperChalet);
+
+      const barnPlinth = new THREE.Mesh(new THREE.BoxGeometry(6.5, 2.1, 5.5), stoneMat);
+      barnPlinth.position.y = 0.55;
+      barnPlinth.castShadow = true;
+      barnPlinth.receiveShadow = true;
+      upperChalet.add(barnPlinth);
+
+      upperChalet.add(createStrickbauCore(6.0, 4.1, 5.0, 0, 3.68, 0, darkTimberMat, darkTimberMat));
+
+      const barnWinGlow = new THREE.Mesh(new THREE.PlaneGeometry(2.2, 1.2), interiorGlowMat);
+      barnWinGlow.position.set(0.6, 4.1, 2.54);
+      upperChalet.add(barnWinGlow);
+
+      const barnRoofL = new THREE.Mesh(new THREE.BoxGeometry(3.8, 0.22, 5.8), stoneMat);
+      barnRoofL.position.set(-1.7, 6.2, 0);
+      barnRoofL.rotation.z = 0.28;
+      barnRoofL.castShadow = true;
+      upperChalet.add(barnRoofL);
+
+      const barnRoofR = new THREE.Mesh(new THREE.BoxGeometry(3.8, 0.22, 5.8), stoneMat);
+      barnRoofR.position.set(1.7, 6.2, 0);
+      barnRoofR.rotation.z = -0.28;
+      barnRoofR.castShadow = true;
+      upperChalet.add(barnRoofR);
+
+      const chapelGroup = new THREE.Group();
+      const cxChapel = 25, czChapel = -30;
+      chapelGroup.position.set(cxChapel, getTerrainHeight(cxChapel, czChapel), czChapel);
+      chapelGroup.rotation.y = -Math.PI * 0.16;
+      scene.add(chapelGroup);
+
+      const limePlasterMat = new THREE.MeshStandardMaterial({ color: 0xeae6df, roughness: 0.85 });
+      const chapelNave = new THREE.Mesh(new THREE.BoxGeometry(5.2, 4.8, 7.6), limePlasterMat);
+      chapelNave.position.y = 2.2;
+      chapelNave.castShadow = true;
+      chapelNave.receiveShadow = true;
+      chapelGroup.add(chapelNave);
+
+      const chapelRoofL = new THREE.Mesh(new THREE.BoxGeometry(3.4, 0.22, 8.2), stoneMat);
+      chapelRoofL.position.set(-1.4, 5.4, 0);
+      chapelRoofL.rotation.z = 0.42;
+      chapelRoofL.castShadow = true;
+      chapelGroup.add(chapelRoofL);
+
+      const chapelRoofR = new THREE.Mesh(new THREE.BoxGeometry(3.4, 0.22, 8.2), stoneMat);
+      chapelRoofR.position.set(1.4, 5.4, 0);
+      chapelRoofR.rotation.z = -0.42;
+      chapelRoofR.castShadow = true;
+      chapelGroup.add(chapelRoofR);
+
+      const belfry = new THREE.Mesh(new THREE.BoxGeometry(1.1, 3.2, 1.1), limePlasterMat);
+      belfry.position.set(0, 7.1, 2.4);
+      belfry.castShadow = true;
+      chapelGroup.add(belfry);
+
+      const spire = new THREE.Mesh(new THREE.ConeGeometry(0.95, 2.4, 4), darkTimberMat);
+      spire.position.set(0, 9.9, 2.4);
+      spire.rotation.y = Math.PI / 4;
+      chapelGroup.add(spire);
+
+      // =========================================================
+      // 9. STREAM, STEPPING STONES & VALS GNEISS BOULDERS
+      // =========================================================
+      const streamGeo = new THREE.PlaneGeometry(5.6, 98, 16, 64);
+      streamGeo.rotateX(-Math.PI / 2);
+      const sPos = streamGeo.attributes.position;
+      for (let i = 0; i < sPos.count; i++) {
+        const lz = sPos.getZ(i);
+        const lx = sPos.getX(i) + 15.5 + Math.sin(lz * 0.08) * 3.6;
+        sPos.setX(i, lx);
+        sPos.setY(i, getTerrainHeight(lx, lz) + 0.18);
+      }
+      streamGeo.computeVertexNormals();
+      const streamMesh = new THREE.Mesh(
+        streamGeo,
+        new THREE.MeshStandardMaterial({ color: 0x244354, roughness: 0.1, metalness: 0.82 })
+      );
+      streamMesh.receiveShadow = true;
+      scene.add(streamMesh);
+
+      const steppingGroup = new THREE.Group();
+      for (let i = 0; i < 24; i++) {
+        const t = i / 23;
+        const sz = 7.5 + t * 26;
+        const sx = 2.8 + Math.sin(t * Math.PI * 1.6) * 3.4;
+        const sy = getTerrainHeight(sx, sz);
+        const stone = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.55 + (i % 3) * 0.15, 0.65, 0.16, 7),
+          stoneMat
+        );
+        stone.position.set(sx, sy + 0.06, sz);
+        stone.rotation.y = i * 1.1;
+        stone.receiveShadow = true;
+        steppingGroup.add(stone);
+      }
+      scene.add(steppingGroup);
+
+      const boulderGeo = new THREE.DodecahedronGeometry(1.0, 1);
+      const boulderCount = 60;
+      const boulderInst = new THREE.InstancedMesh(boulderGeo, stoneMat, boulderCount);
+      boulderInst.castShadow = true;
+      boulderInst.receiveShadow = true;
+      const dummy = new THREE.Object3D();
+
+      for (let i = 0; i < boulderCount; i++) {
+        const angle = (i / boulderCount) * Math.PI * 2 + (i % 5) * 0.4;
+        const radius = 10 + ((i * 19) % 58);
+        const bx = Math.cos(angle) * radius;
+        const bz = Math.sin(angle) * radius;
+        const by = getTerrainHeight(bx, bz);
+
+        dummy.position.set(bx, by + 0.2, bz);
+        dummy.rotation.set(i * 0.7, i * 1.3, i * 0.4);
+        const sx = 0.6 + ((i * 7) % 18) * 0.12;
+        const sy = sx * (0.55 + ((i * 3) % 5) * 0.1);
+        const sz = sx * (0.8 + ((i * 11) % 4) * 0.1);
+        dummy.scale.set(sx, sy, sz);
+        dummy.updateMatrix();
+        boulderInst.setMatrixAt(i, dummy.matrix);
+      }
+      scene.add(boulderInst);
+
+      // =========================================================
+      // 10. INSTANCED SWISS SPRUCE & GOLDEN ALPINE LARCH FOREST
+      // =========================================================
+      const treePositions = [];
+      const totalCandidateTrees = 440;
+      for (let i = 0; i < totalCandidateTrees; i++) {
+        const r = 9.5 + Math.sqrt(i / totalCandidateTrees) * 76;
+        const theta = i * 2.39996 + Math.sin(i * 1.7) * 0.25;
+        const tx = Math.cos(theta) * r;
+        const tz = Math.sin(theta) * r;
+
+        if (Math.abs(tx - 1.5) < 6.4 && tz > 2 && tz < 32) continue;
+        if (Math.hypot(tx - ux, tz - uz) < 6.8) continue;
+        if (Math.hypot(tx - cxChapel, tz - czChapel) < 7.5) continue;
+        const streamCenter = 15.5 + Math.sin(tz * 0.08) * 3.6;
+        if (Math.abs(tx - streamCenter) < 3.5) continue;
+
+        const ty = getTerrainHeight(tx, tz);
+        if (ty > 14.5 || r > 58) continue;
+
+        const scale = 0.75 + ((i * 29) % 100) / 100 * 0.98;
+        treePositions.push({ x: tx, y: ty, z: tz, scale, phase: (i * 0.43) % (Math.PI * 2), idx: i });
+      }
+
+      const treeCount = treePositions.length;
+      const trunkGeo = new THREE.CylinderGeometry(0.14, 0.28, 2.6, 7);
+      trunkGeo.translate(0, 1.3, 0);
+      const trunkMat = new THREE.MeshStandardMaterial({ color: 0x3b281c, roughness: 0.92 });
+
+      const foliageMat1 = new THREE.MeshStandardMaterial({ color: 0x1e3626, roughness: 0.86, flatShading: true });
+      const foliageMat2 = new THREE.MeshStandardMaterial({ color: 0x25402d, roughness: 0.84, flatShading: true });
+      const foliageMat3 = new THREE.MeshStandardMaterial({ color: 0x2e4d36, roughness: 0.82, flatShading: true });
+
+      const tier1Geo = new THREE.ConeGeometry(1.85, 3.6, 7);
+      tier1Geo.translate(0, 3.4, 0);
+      const tier2Geo = new THREE.ConeGeometry(1.45, 3.2, 7);
+      tier2Geo.translate(0, 5.2, 0);
+      const tier3Geo = new THREE.ConeGeometry(0.98, 2.7, 7);
+      tier3Geo.translate(0, 6.9, 0);
+
+      const trunkInst = new THREE.InstancedMesh(trunkGeo, trunkMat, treeCount);
+      const tier1Inst = new THREE.InstancedMesh(tier1Geo, foliageMat1, treeCount);
+      const tier2Inst = new THREE.InstancedMesh(tier2Geo, foliageMat2, treeCount);
+      const tier3Inst = new THREE.InstancedMesh(tier3Geo, foliageMat3, treeCount);
+
+      const cSpruce = new THREE.Color(0xffffff);
+      const cLarch = new THREE.Color(0xd8a858);
+      const cTemp = new THREE.Color();
+      for (let i = 0; i < treeCount; i++) {
+        const isLarch = (treePositions[i].idx % 7 === 0);
+        cTemp.copy(isLarch ? cLarch : cSpruce);
+        tier1Inst.setColorAt(i, cTemp);
+        tier2Inst.setColorAt(i, cTemp);
+        tier3Inst.setColorAt(i, cTemp);
+      }
+
+      [trunkInst, tier1Inst, tier2Inst, tier3Inst].forEach((inst) => {
+        inst.castShadow = true;
+        inst.receiveShadow = true;
+        scene.add(inst);
+      });
+
+      function updateForestWind(time, windStrength) {
+        for (let i = 0; i < treeCount; i++) {
+          const t = treePositions[i];
+          const sway = Math.sin(time * 1.3 + t.phase) * 0.022 * windStrength;
+          dummy.position.set(t.x, t.y - 0.15, t.z);
+          dummy.rotation.set(sway * 0.5, t.phase, sway);
+          dummy.scale.set(t.scale, t.scale, t.scale);
+          dummy.updateMatrix();
+          trunkInst.setMatrixAt(i, dummy.matrix);
+          tier1Inst.setMatrixAt(i, dummy.matrix);
+
+          dummy.rotation.set(sway * 0.85, t.phase + 0.4, sway * 1.35);
+          dummy.updateMatrix();
+          tier2Inst.setMatrixAt(i, dummy.matrix);
+
+          dummy.rotation.set(sway * 1.1, t.phase + 0.8, sway * 1.75);
+          dummy.updateMatrix();
+          tier3Inst.setMatrixAt(i, dummy.matrix);
+        }
+        trunkInst.instanceMatrix.needsUpdate = true;
+        tier1Inst.instanceMatrix.needsUpdate = true;
+        tier2Inst.instanceMatrix.needsUpdate = true;
+        tier3Inst.instanceMatrix.needsUpdate = true;
+      }
+      updateForestWind(0, 1);
+
+      // =========================================================
+      // 11. ATMOSPHERIC PARTICLES & CHIMNEY SMOKE
+      // =========================================================
+      const fireflyCount = 180;
+      const fireflyPos = new Float32Array(fireflyCount * 3);
+      const fireflyPhase = new Float32Array(fireflyCount);
+      for (let i = 0; i < fireflyCount; i++) {
+        const fx = (Math.random() - 0.5) * 68;
+        const fz = (Math.random() - 0.5) * 68;
+        const fy = getTerrainHeight(fx, fz) + 0.6 + Math.random() * 5.5;
+        fireflyPos[i * 3] = fx;
+        fireflyPos[i * 3 + 1] = fy;
+        fireflyPos[i * 3 + 2] = fz;
+        fireflyPhase[i] = Math.random() * Math.PI * 2;
+      }
+      const fireflyGeo = new THREE.BufferGeometry();
+      fireflyGeo.setAttribute('position', new THREE.BufferAttribute(fireflyPos, 3));
+      const fireflyMat = new THREE.PointsMaterial({
+        color: 0xffd97d,
+        size: 0.28,
+        transparent: true,
+        opacity: 0.75,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false
+      });
+      scene.add(new THREE.Points(fireflyGeo, fireflyMat));
+
+      const smokeCount = 36;
+      const smokePos = new Float32Array(smokeCount * 3);
+      for (let i = 0; i < smokeCount; i++) {
+        smokePos[i * 3] = 0;
+        smokePos[i * 3 + 1] = i * 0.25;
+        smokePos[i * 3 + 2] = 0;
+      }
+      const smokeGeo = new THREE.BufferGeometry();
+      smokeGeo.setAttribute('position', new THREE.BufferAttribute(smokePos, 3));
+      const smokeMat = new THREE.PointsMaterial({
+        color: 0xd8e0e8,
+        size: 0.75,
+        transparent: true,
+        opacity: 0.26,
+        depthWrite: false
+      });
+      const smokePoints = new THREE.Points(smokeGeo, smokeMat);
+      smokePoints.position.set(0.35, roofBaseY + 2.45, 1.05);
+      cabinGroup.add(smokePoints);
+
+      // =========================================================
+      // 12. ARCHITECTURAL HOTSPOTS & POPOVER DRAWERS
+      // =========================================================
+      const hotspotsData = [
+        {
+          id: 'strickbau',
+          label: '01',
+          tag: 'DETAIL 01 / STRICKBAU SYSTEM',
+          title: '山松实木叠梁与交角出挑',
+          subtitle: 'Interlocking Solid Timber Core & Steel Tension Pins',
+          desc: '卒姆托将瑞士传统木屋的厚实木盒转化为结构核心筒（Utility Cores），墙体端部在转角处相互咬合并向外悬挑，以竖向钢拉杆与销钉精密锚固，适应高山松木随四季湿度变化的自然收缩。',
+          localPos: new THREE.Vector3(-2.6, f2Y + 1.5, 2.2)
+        },
+        {
+          id: 'windows',
+          label: '02',
+          tag: 'DETAIL 02 / CANTILEVERED GLAZING',
+          title: '通高悬挑全景落地窗与通风百叶',
+          subtitle: 'Floor-to-Ceiling Panoramic Bay Windows & Timber Shutters',
+          desc: '由于实木服务核心筒承担了全部竖向荷载，起居室与卧室得以跳出传统木屋的小窗限制，实现地板至天花板的整幅无框玻璃景窗，侧边配以精密的窄条实木通风扇。',
+          localPos: new THREE.Vector3(1.5, f3Y + 1.3, 3.35)
+        },
+        {
+          id: 'fireplace',
+          label: '03',
+          tag: 'DETAIL 03 / INTERIOR HEARTH',
+          title: '绿色大理石圆柱壁炉与室内家具',
+          subtitle: 'Vals Green Marble Cylinder Fireplace & Custom Furnishings',
+          desc: '顶层起居室中央矗立着绿色大理石圆柱体壁炉，蓄热温和持久；室内家具与灯具由卒姆托与 Baltensweiler、Saarinen 等设计，实木内壁在暖光下呈现丝绸般的温润光泽。',
+          localPos: new THREE.Vector3(0.35, f3Y + 0.9, 1.5)
+        },
+        {
+          id: 'plinth',
+          label: '04',
+          tag: 'DETAIL 04 / VALS QUARTZITE PLINTH',
+          title: '瓦尔斯片麻岩基座与顺坡台地',
+          subtitle: 'Dry-Stone Vals Gneiss Plinth & Alpine Slope Integration',
+          desc: '木屋坐落于海拔 1,500 m 的莱斯（Leis）阳坡，底部采用当地瓦尔斯石英片麻岩石板砌筑，顺应高山草甸地形起伏，与远处 17 世纪圣雅各白色礼拜堂及传统木谷仓群落遥相呼应。',
+          localPos: new THREE.Vector3(2.8, 0.4, 4.8)
+        }
+      ];
+
+      const hotspotLayer = document.getElementById('hotspot-layer');
+      const hotspotCard = document.getElementById('hotspot-card');
+      const hotspotTag = document.getElementById('hotspot-tag');
+      const hotspotTitle = document.getElementById('hotspot-title');
+      const hotspotSubtitle = document.getElementById('hotspot-subtitle');
+      const hotspotDesc = document.getElementById('hotspot-desc');
+      let hotspotsVisible = true;
+      const hotspotElements = [];
+
+      hotspotsData.forEach((h) => {
+        const el = document.createElement('div');
+        el.className = 'hotspot';
+        el.innerHTML = `<button class="hotspot-dot" title="${h.title}">${h.label}</button>`;
+        const btn = el.querySelector('button');
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          hotspotElements.forEach((item) => item.el.querySelector('button').classList.remove('active'));
+          btn.classList.add('active');
+          hotspotTag.textContent = h.tag;
+          hotspotTitle.textContent = h.title;
+          hotspotSubtitle.textContent = h.subtitle;
+          hotspotDesc.textContent = h.desc;
+          hotspotCard.classList.remove('is-hidden');
+        });
+        hotspotLayer.appendChild(el);
+        hotspotElements.push({ data: h, el });
+      });
+
+      document.getElementById('btn-close-hotspot').addEventListener('click', () => {
+        hotspotCard.classList.add('is-hidden');
+        hotspotElements.forEach((item) => item.el.querySelector('button').classList.remove('active'));
+      });
+
+      const toggleHotspotsBtn = document.getElementById('btn-toggle-hotspots');
+      const labelHotspots = document.getElementById('label-hotspots');
+      toggleHotspotsBtn.addEventListener('click', () => {
+        hotspotsVisible = !hotspotsVisible;
+        toggleHotspotsBtn.classList.toggle('active', hotspotsVisible);
+        labelHotspots.textContent = `构造索引：${hotspotsVisible ? '开' : '关'}`;
+        toggleHotspotsBtn.querySelector('.btn-en').textContent = `NODES: ${hotspotsVisible ? 'ON' : 'OFF'}`;
+        if (!hotspotsVisible) {
+          hotspotCard.classList.add('is-hidden');
+        }
+      });
+
+      // Project Archive Popover
+      const btnToggleSpecs = document.getElementById('btn-toggle-specs');
+      const labelSpecs = document.getElementById('label-specs');
+      const archiveBody = document.getElementById('editorial-archive-body');
+
+      function setArchiveOpen(open) {
+        archiveBody.classList.toggle('is-hidden', !open);
+        btnToggleSpecs.classList.toggle('active', open);
+        labelSpecs.textContent = open ? 'ARCHIVE / 收起' : 'ARCHIVE / 档案';
+      }
+
+      btnToggleSpecs.addEventListener('click', () => {
+        setArchiveOpen(archiveBody.classList.contains('is-hidden'));
+      });
+      document.getElementById('btn-close-archive').addEventListener('click', () => setArchiveOpen(false));
+
+      // =========================================================
+      // 13. LIGHTING ATMOSPHERE PRESETS & SMOOTH LERP
+      // =========================================================
+      const atmospherePresets = {
+        day: {
+          label: 'SCENE 01 · DAYLIGHT 11:30',
+          skyTop: new THREE.Color(0x2d639e),
+          skyHorizon: new THREE.Color(0xaecfe8),
+          skyBottom: new THREE.Color(0x3a4d39),
+          fogColor: new THREE.Color(0x9ab8cc),
+          fogBaseDensity: 0.0075,
+          sunPos: new THREE.Vector3(-38, 62, 42),
+          sunColor: new THREE.Color(0xfff7e8),
+          sunIntensity: 1.85,
+          hemiSky: new THREE.Color(0xb8dbf5),
+          hemiGround: new THREE.Color(0x3b4d34),
+          hemiIntensity: 0.78,
+          rimColor: new THREE.Color(0x9bc5eb),
+          rimIntensity: 0.4,
+          orbColor: new THREE.Color(0xfffbeb),
+          starOpacity: 0.0,
+          fireflyOpacity: 0.18,
+          interiorBase: 0.25,
+          exposure: 1.08
+        },
+        dusk: {
+          label: 'SCENE 02 · DUSK 18:20',
+          skyTop: new THREE.Color(0x162238),
+          skyHorizon: new THREE.Color(0xd97b54),
+          skyBottom: new THREE.Color(0x121720),
+          fogColor: new THREE.Color(0x282738),
+          fogBaseDensity: 0.0115,
+          sunPos: new THREE.Vector3(-64, 19, -36),
+          sunColor: new THREE.Color(0xff8e47),
+          sunIntensity: 1.48,
+          hemiSky: new THREE.Color(0x8fa0c8),
+          hemiGround: new THREE.Color(0x242620),
+          hemiIntensity: 0.56,
+          rimColor: new THREE.Color(0x6384b8),
+          rimIntensity: 0.38,
+          orbColor: new THREE.Color(0xff9e5e),
+          starOpacity: 0.38,
+          fireflyOpacity: 0.72,
+          interiorBase: 1.08,
+          exposure: 1.04
+        },
+        night: {
+          label: 'SCENE 03 · STARLIGHT 22:45',
+          skyTop: new THREE.Color(0x050912),
+          skyHorizon: new THREE.Color(0x111e30),
+          skyBottom: new THREE.Color(0x05070b),
+          fogColor: new THREE.Color(0x0b1320),
+          fogBaseDensity: 0.0142,
+          sunPos: new THREE.Vector3(44, 48, -42),
+          sunColor: new THREE.Color(0x7aa2d6),
+          sunIntensity: 0.48,
+          hemiSky: new THREE.Color(0x263b5e),
+          hemiGround: new THREE.Color(0x0b1014),
+          hemiIntensity: 0.32,
+          rimColor: new THREE.Color(0x36527d),
+          rimIntensity: 0.25,
+          orbColor: new THREE.Color(0xdbeafe),
+          starOpacity: 0.92,
+          fireflyOpacity: 0.98,
+          interiorBase: 1.55,
+          exposure: 0.96
+        }
+      };
+
+      let currentMode = 'dusk';
+      let fogMultiplier = 0.8;
+      let warmthMultiplier = 1.0;
+      let windMultiplier = 1.0;
+
+      const liveAtm = {
+        skyTop: atmospherePresets.dusk.skyTop.clone(),
+        skyHorizon: atmospherePresets.dusk.skyHorizon.clone(),
+        skyBottom: atmospherePresets.dusk.skyBottom.clone(),
+        fogColor: atmospherePresets.dusk.fogColor.clone(),
+        fogBaseDensity: atmospherePresets.dusk.fogBaseDensity,
+        sunPos: atmospherePresets.dusk.sunPos.clone(),
+        sunColor: atmospherePresets.dusk.sunColor.clone(),
+        sunIntensity: atmospherePresets.dusk.sunIntensity,
+        hemiSky: atmospherePresets.dusk.hemiSky.clone(),
+        hemiGround: atmospherePresets.dusk.hemiGround.clone(),
+        hemiIntensity: atmospherePresets.dusk.hemiIntensity,
+        rimColor: atmospherePresets.dusk.rimColor.clone(),
+        rimIntensity: atmospherePresets.dusk.rimIntensity,
+        orbColor: atmospherePresets.dusk.orbColor.clone(),
+        starOpacity: atmospherePresets.dusk.starOpacity,
+        fireflyOpacity: atmospherePresets.dusk.fireflyOpacity,
+        interiorBase: atmospherePresets.dusk.interiorBase,
+        exposure: atmospherePresets.dusk.exposure
+      };
+
+      const statusReadout = document.getElementById('status-readout');
+      const modeButtons = document.querySelectorAll('.mode-btn');
+      modeButtons.forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const mode = btn.getAttribute('data-mode');
+          if (!atmospherePresets[mode]) return;
+          currentMode = mode;
+          modeButtons.forEach((b) => b.classList.toggle('active', b === btn));
+          statusReadout.textContent = atmospherePresets[mode].label;
+        });
+      });
+
+      const slidersPanel = document.getElementById('env-sliders-panel');
+      ['mousedown', 'mousemove', 'touchstart', 'touchmove', 'pointerdown', 'pointermove', 'wheel'].forEach((evtName) => {
+        slidersPanel.addEventListener(evtName, (e) => {
+          e.stopPropagation();
+        }, { passive: true });
+      });
+
+      const sliderFog = document.getElementById('slider-fog');
+      const valFog = document.getElementById('val-fog');
+      function handleFogChange() {
+        const val = parseFloat(sliderFog.value);
+        fogMultiplier = val / 100;
+        valFog.textContent = `${Math.round(val)}%`;
+        scene.fog.density = liveAtm.fogBaseDensity * fogMultiplier;
+      }
+      sliderFog.addEventListener('input', handleFogChange);
+      sliderFog.addEventListener('change', handleFogChange);
+
+      const sliderWarmth = document.getElementById('slider-warmth');
+      const valWarmth = document.getElementById('val-warmth');
+      function handleWarmthChange() {
+        const val = parseFloat(sliderWarmth.value);
+        warmthMultiplier = val / 100;
+        valWarmth.textContent = `${Math.round(val)}%`;
+      }
+      sliderWarmth.addEventListener('input', handleWarmthChange);
+      sliderWarmth.addEventListener('change', handleWarmthChange);
+
+      const sliderWind = document.getElementById('slider-wind');
+      const valWind = document.getElementById('val-wind');
+      function handleWindChange() {
+        const val = parseFloat(sliderWind.value);
+        windMultiplier = val / 100;
+        valWind.textContent = `${Math.round(val)}%`;
+      }
+      sliderWind.addEventListener('input', handleWindChange);
+      sliderWind.addEventListener('change', handleWindChange);
+
+      const btnTogglePanel = document.getElementById('btn-toggle-panel');
+      btnTogglePanel.addEventListener('click', () => {
+        if (fogMultiplier > 0.05) {
+          sliderFog.value = '0';
+        } else {
+          sliderFog.value = '80';
+        }
+        handleFogChange();
+      });
+      document.getElementById('btn-close-params').addEventListener('click', () => {
+        hotspotCard.classList.add('is-hidden');
+      });
+
+      // =========================================================
+      // 14. SMOOTH DAMPED ORBIT CAMERA & VIEWPOINT PRESETS
+      // =========================================================
+      const cameraPresets = {
+        overview: {
+          spherical: { radius: 26.5, phi: 1.26, theta: 0.46 },
+          target: new THREE.Vector3(0.2, cabinBaseY + 5.2, 0.6)
+        },
+        facade: {
+          spherical: { radius: 13.5, phi: 1.35, theta: 0.18 },
+          target: new THREE.Vector3(0.3, cabinBaseY + 5.1, 1.5)
+        },
+        terrace: {
+          spherical: { radius: 9.2, phi: 1.44, theta: -0.36 },
+          target: new THREE.Vector3(0.2, cabinBaseY + 5.3, 1.6)
+        },
+        forest: {
+          spherical: { radius: 23.0, phi: 1.36, theta: 0.92 },
+          target: new THREE.Vector3(1.5, cabinBaseY + 4.5, 2.5)
+        },
+        interior: {
+          spherical: { radius: 7.4, phi: 1.32, theta: 0.08 },
+          target: new THREE.Vector3(0.2, cabinBaseY + f3Y + 1.4, 1.4)
+        }
+      };
+
+      const camState = {
+        radius: cameraPresets.overview.spherical.radius,
+        phi: cameraPresets.overview.spherical.phi,
+        theta: cameraPresets.overview.spherical.theta,
+        target: cameraPresets.overview.target.clone(),
+        goalRadius: cameraPresets.overview.spherical.radius,
+        goalPhi: cameraPresets.overview.spherical.phi,
+        goalTheta: cameraPresets.overview.spherical.theta,
+        goalTarget: cameraPresets.overview.target.clone(),
+        autoOrbit: false
+      };
+
+      let isDragging = false;
+      let dragButton = 0;
+      let prevPointer = { x: 0, y: 0 };
+      let pinchStartDist = 0;
+      const domElem = renderer.domElement;
+
+      domElem.addEventListener('contextmenu', (e) => e.preventDefault());
+
+      domElem.addEventListener('mousedown', (e) => {
+        isDragging = true;
+        dragButton = e.button;
+        prevPointer.x = e.clientX;
+        prevPointer.y = e.clientY;
+        setArchiveOpen(false);
+      });
+
+      window.addEventListener('mousemove', (e) => {
+        if (!isDragging) return;
+        const dx = e.clientX - prevPointer.x;
+        const dy = e.clientY - prevPointer.y;
+        prevPointer.x = e.clientX;
+        prevPointer.y = e.clientY;
+
+        if (dragButton === 0) {
+          camState.goalTheta -= dx * 0.0065;
+          camState.goalPhi = Math.max(0.28, Math.min(1.51, camState.goalPhi - dy * 0.0055));
+        } else {
+          const panSpeed = camState.radius * 0.0012;
+          const forward = new THREE.Vector3();
+          camera.getWorldDirection(forward);
+          const right = new THREE.Vector3().crossVectors(forward, camera.up).normalize();
+          const up = new THREE.Vector3().crossVectors(right, forward).normalize();
+          camState.goalTarget.addScaledVector(right, -dx * panSpeed);
+          camState.goalTarget.addScaledVector(up, dy * panSpeed);
+        }
+      });
+
+      window.addEventListener('mouseup', () => {
+        isDragging = false;
+      });
+
+      domElem.addEventListener('wheel', (e) => {
+        e.preventDefault();
+        const zoomFactor = 1 + Math.sign(e.deltaY) * 0.09;
+        camState.goalRadius = Math.max(5.2, Math.min(68.0, camState.goalRadius * zoomFactor));
+      }, { passive: false });
+
+      domElem.addEventListener('touchstart', (e) => {
+        if (e.touches.length === 1) {
+          isDragging = true;
+          dragButton = 0;
+          prevPointer.x = e.touches[0].clientX;
+          prevPointer.y = e.touches[0].clientY;
+        } else if (e.touches.length === 2) {
+          isDragging = false;
+          pinchStartDist = Math.hypot(
+            e.touches[0].clientX - e.touches[1].clientX,
+            e.touches[0].clientY - e.touches[1].clientY
+          );
+        }
+      }, { passive: true });
+
+      domElem.addEventListener('touchmove', (e) => {
+        if (e.touches.length === 1 && isDragging) {
+          const dx = e.touches[0].clientX - prevPointer.x;
+          const dy = e.touches[0].clientY - prevPointer.y;
+          prevPointer.x = e.touches[0].clientX;
+          prevPointer.y = e.touches[0].clientY;
+          camState.goalTheta -= dx * 0.0065;
+          camState.goalPhi = Math.max(0.28, Math.min(1.51, camState.goalPhi - dy * 0.0055));
+        } else if (e.touches.length === 2 && pinchStartDist > 0) {
+          const dist = Math.hypot(
+            e.touches[0].clientX - e.touches[1].clientX,
+            e.touches[0].clientY - e.touches[1].clientY
+          );
+          const ratio = pinchStartDist / Math.max(20, dist);
+          camState.goalRadius = Math.max(5.2, Math.min(68.0, camState.goalRadius * (0.92 + 0.08 * ratio)));
+          pinchStartDist = dist;
+        }
+      }, { passive: true });
+
+      domElem.addEventListener('touchend', () => {
+        isDragging = false;
+      });
+
+      const camButtons = document.querySelectorAll('[data-cam]');
+      function activateCameraPreset(presetKey) {
+        const preset = cameraPresets[presetKey];
+        if (!preset) return;
+
+        const twoPi = Math.PI * 2;
+        let diff = (preset.spherical.theta - camState.theta) % twoPi;
+        if (diff > Math.PI) diff -= twoPi;
+        if (diff < -Math.PI) diff += twoPi;
+
+        camState.goalTheta = camState.theta + diff;
+        camState.goalPhi = preset.spherical.phi;
+        camState.goalRadius = preset.spherical.radius;
+        camState.goalTarget.copy(preset.target);
+
+        camButtons.forEach((b) => {
+          b.classList.toggle('active', b.getAttribute('data-cam') === presetKey);
+        });
+      }
+
+      camButtons.forEach((btn) => {
+        btn.addEventListener('click', () => {
+          activateCameraPreset(btn.getAttribute('data-cam'));
+        });
+      });
+
+      const btnAutoOrbit = document.getElementById('btn-auto-orbit');
+      const labelOrbit = document.getElementById('label-orbit');
+      btnAutoOrbit.addEventListener('click', () => {
+        camState.autoOrbit = !camState.autoOrbit;
+        btnAutoOrbit.classList.toggle('active', camState.autoOrbit);
+        labelOrbit.textContent = `环绕巡礼：${camState.autoOrbit ? '开' : '关'}`;
+        btnAutoOrbit.querySelector('.btn-en').textContent = `ORBIT: ${camState.autoOrbit ? 'ON' : 'OFF'}`;
+      });
+
+      document.getElementById('btn-reset-cam').addEventListener('click', () => {
+        activateCameraPreset('overview');
+      });
+
+      // =========================================================
+      // 15. WEB AUDIO SYNTHESIZED ALPINE FOREST AMBIENCE
+      // =========================================================
+      let audioCtx = null;
+      let masterGain = null;
+      let audioPlaying = false;
+      const btnToggleAudio = document.getElementById('btn-toggle-audio');
+      const labelAudio = document.getElementById('label-audio');
+
+      function toggleForestAudio() {
+        if (!audioCtx) {
+          const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+          audioCtx = new AudioContextClass();
+
+          const bufferSize = audioCtx.sampleRate * 3;
+          const noiseBuffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+          const output = noiseBuffer.getChannelData(0);
+          let b0 = 0, b1 = 0, b2 = 0, b3 = 0, b4 = 0, b5 = 0, b6 = 0;
+          for (let i = 0; i < bufferSize; i++) {
+            const white = Math.random() * 2 - 1;
+            b0 = 0.99886 * b0 + white * 0.0555179;
+            b1 = 0.99332 * b1 + white * 0.0750759;
+            b2 = 0.96900 * b2 + white * 0.1538520;
+            b3 = 0.86650 * b3 + white * 0.3104856;
+            b4 = 0.55000 * b4 + white * 0.5329522;
+            b5 = -0.7616 * b5 - white * 0.0168980;
+            output[i] = (b0 + b1 + b2 + b3 + b4 + b5 + b6 + white * 0.5362) * 0.03;
+            b6 = white * 0.115926;
+          }
+
+          const whiteNoise = audioCtx.createBufferSource();
+          whiteNoise.buffer = noiseBuffer;
+          whiteNoise.loop = true;
+
+          const bandpass = audioCtx.createBiquadFilter();
+          bandpass.type = 'lowpass';
+          bandpass.frequency.value = 340;
+
+          const lfo = audioCtx.createOscillator();
+          lfo.frequency.value = 0.14;
+          const lfoGain = audioCtx.createGain();
+          lfoGain.gain.value = 160;
+          lfo.connect(bandpass.frequency);
+          lfo.start();
+
+          masterGain = audioCtx.createGain();
+          masterGain.gain.value = 0.45;
+
+          whiteNoise.connect(bandpass);
+          bandpass.connect(masterGain);
+          masterGain.connect(audioCtx.destination);
+          whiteNoise.start();
+          audioPlaying = true;
+        } else {
+          if (audioCtx.state === 'suspended') audioCtx.resume();
+          audioPlaying = !audioPlaying;
+          masterGain.gain.setTargetAtTime(audioPlaying ? 0.45 : 0.0, audioCtx.currentTime, 0.25);
+        }
+
+        btnToggleAudio.classList.toggle('active', audioPlaying);
+        labelAudio.textContent = `林间风声：${audioPlaying ? '开' : '关'}`;
+        btnToggleAudio.querySelector('.btn-en').textContent = `AMBIENCE: ${audioPlaying ? 'ON' : 'OFF'}`;
+      }
+
+      btnToggleAudio.addEventListener('click', toggleForestAudio);
+
+      // =========================================================
+      // 16. MAIN ANIMATION LOOP
+      // =========================================================
+      const clock = new THREE.Clock();
+      const fpsElem = document.getElementById('fps-counter');
+      let frameCount = 0;
+      let fpsAccum = 0;
+      const projVec = new THREE.Vector3();
+
+      function animate() {
+        requestAnimationFrame(animate);
+
+        const dt = Math.min(clock.getDelta(), 0.1);
+        const elapsed = clock.getElapsedTime();
+
+        frameCount++;
+        fpsAccum += dt;
+        if (fpsAccum >= 0.5) {
+          const fps = Math.min(60, Math.round(frameCount / fpsAccum));
+          fpsElem.textContent = `${fps} FPS`;
+          frameCount = 0;
+          fpsAccum = 0;
+        }
+
+        const targetPreset = atmospherePresets[currentMode];
+        const lerpSpeed = Math.min(1, dt * 3.2);
+
+        liveAtm.skyTop.lerp(targetPreset.skyTop, lerpSpeed);
+        liveAtm.skyHorizon.lerp(targetPreset.skyHorizon, lerpSpeed);
+        liveAtm.skyBottom.lerp(targetPreset.skyBottom, lerpSpeed);
+        liveAtm.fogColor.lerp(targetPreset.fogColor, lerpSpeed);
+        liveAtm.fogBaseDensity += (targetPreset.fogBaseDensity - liveAtm.fogBaseDensity) * lerpSpeed;
+        liveAtm.sunPos.lerp(targetPreset.sunPos, lerpSpeed);
+        liveAtm.sunColor.lerp(targetPreset.sunColor, lerpSpeed);
+        liveAtm.sunIntensity += (targetPreset.sunIntensity - liveAtm.sunIntensity) * lerpSpeed;
+        liveAtm.hemiSky.lerp(targetPreset.hemiSky, lerpSpeed);
+        liveAtm.hemiGround.lerp(targetPreset.hemiGround, lerpSpeed);
+        liveAtm.hemiIntensity += (targetPreset.hemiIntensity - liveAtm.hemiIntensity) * lerpSpeed;
+        liveAtm.rimColor.lerp(targetPreset.rimColor, lerpSpeed);
+        liveAtm.rimIntensity += (targetPreset.rimIntensity - liveAtm.rimIntensity) * lerpSpeed;
+        liveAtm.orbColor.lerp(targetPreset.orbColor, lerpSpeed);
+        liveAtm.starOpacity += (targetPreset.starOpacity - liveAtm.starOpacity) * lerpSpeed;
+        liveAtm.fireflyOpacity += (targetPreset.fireflyOpacity - liveAtm.fireflyOpacity) * lerpSpeed;
+        liveAtm.interiorBase += (targetPreset.interiorBase - liveAtm.interiorBase) * lerpSpeed;
+        liveAtm.exposure += (targetPreset.exposure - liveAtm.exposure) * lerpSpeed;
+
+        skyMat.uniforms.topColor.value.copy(liveAtm.skyTop);
+        skyMat.uniforms.horizonColor.value.copy(liveAtm.skyHorizon);
+        skyMat.uniforms.bottomColor.value.copy(liveAtm.skyBottom);
+
+        scene.fog.color.copy(liveAtm.fogColor);
+        scene.fog.density = liveAtm.fogBaseDensity * fogMultiplier;
+
+        mainLight.position.copy(liveAtm.sunPos);
+        mainLight.color.copy(liveAtm.sunColor);
+        mainLight.intensity = liveAtm.sunIntensity;
+
+        celestialOrb.position.copy(liveAtm.sunPos).multiplyScalar(2.6);
+        celestialOrb.material.color.copy(liveAtm.orbColor);
+
+        hemiLight.color.copy(liveAtm.hemiSky);
+        hemiLight.groundColor.copy(liveAtm.hemiGround);
+        hemiLight.intensity = liveAtm.hemiIntensity;
+
+        rimLight.color.copy(liveAtm.rimColor);
+        rimLight.intensity = liveAtm.rimIntensity;
+
+        starMat.opacity = liveAtm.starOpacity;
+        starField.rotation.y = elapsed * 0.004;
+
+        const hearthFlicker = 0.92 + Math.sin(elapsed * 7.5) * 0.05 + Math.cos(elapsed * 13.0) * 0.03;
+        const totalWarmth = liveAtm.interiorBase * warmthMultiplier * hearthFlicker;
+        interiorGlowMat.emissiveIntensity = totalWarmth * 0.65;
+        cabinWarmLight1.intensity = totalWarmth * 1.9;
+        cabinWarmLight2.intensity = totalWarmth * 1.35;
+        terraceLanternLight.intensity = totalWarmth * 1.1;
+
+        renderer.toneMappingExposure = liveAtm.exposure;
+
+        if (windMultiplier > 0.01) {
+          updateForestWind(elapsed, windMultiplier);
+        }
+
+        const fPos = fireflyGeo.attributes.position;
+        for (let i = 0; i < fireflyCount; i++) {
+          const ph = fireflyPhase[i];
+          const py = fPos.getY(i) + Math.sin(elapsed * 1.4 + ph) * 0.005 * windMultiplier;
+          fPos.setY(i, py);
+        }
+        fPos.needsUpdate = true;
+        fireflyMat.opacity = liveAtm.fireflyOpacity * Math.min(1.4, windMultiplier);
+
+        const sAttr = smokeGeo.attributes.position;
+        for (let i = 0; i < smokeCount; i++) {
+          let sy = sAttr.getY(i) + dt * (0.9 + windMultiplier * 0.4);
+          if (sy > 9.0) sy = 0;
+          const progress = sy / 9.0;
+          const sx = Math.sin(elapsed * 1.5 + i * 0.7) * progress * 1.2 * windMultiplier;
+          const sz = Math.cos(elapsed * 1.1 + i * 0.5) * progress * 0.8 * windMultiplier;
+          sAttr.setXYZ(i, sx, sy, sz);
+        }
+        sAttr.needsUpdate = true;
+
+        if (camState.autoOrbit && !isDragging) {
+          camState.goalTheta += dt * 0.16;
+        }
+
+        const camSmooth = Math.min(1, dt * 6.5);
+        camState.radius += (camState.goalRadius - camState.radius) * camSmooth;
+        camState.phi += (camState.goalPhi - camState.phi) * camSmooth;
+        camState.theta += (camState.goalTheta - camState.theta) * camSmooth;
+        camState.target.lerp(camState.goalTarget, camSmooth);
+
+        const sinPhiRadius = Math.sin(camState.phi) * camState.radius;
+        const cx = camState.target.x + sinPhiRadius * Math.sin(camState.theta);
+        const cz = camState.target.z + sinPhiRadius * Math.cos(camState.theta);
+        let cy = camState.target.y + Math.cos(camState.phi) * camState.radius;
+
+        const groundY = getTerrainHeight(cx, cz) + 1.25;
+        if (cy < groundY) cy = groundY;
+
+        camera.position.set(cx, cy, cz);
+        camera.lookAt(camState.target);
+
+        for (let i = 0; i < hotspotElements.length; i++) {
+          const item = hotspotElements[i];
+          if (!hotspotsVisible) {
+            item.el.style.opacity = '0';
+            item.el.style.pointerEvents = 'none';
+            continue;
+          }
+          projVec.copy(item.data.localPos);
+          cabinGroup.localToWorld(projVec);
+          projVec.project(camera);
+
+          if (projVec.z > 1.0) {
+            item.el.style.opacity = '0';
+            item.el.style.pointerEvents = 'none';
+          } else {
+            const sx = (projVec.x * 0.5 + 0.5) * window.innerWidth;
+            const sy = (-projVec.y * 0.5 + 0.5) * window.innerHeight;
+            item.el.style.left = `${sx}px`;
+            item.el.style.top = `${sy}px`;
+            item.el.style.opacity = '1';
+            item.el.style.pointerEvents = 'auto';
+          }
+        }
+
+        renderer.render(scene, camera);
+      }
+
+      window.addEventListener('resize', () => {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+      });
+
+      window.onload = () => {
+        animate();
+      };
+    })();
+  </script>
+<!--zc-home:start--><style>.zc-home-btn{position:fixed;top:16px;left:16px;z-index:2147483647;display:inline-flex;align-items:center;gap:6px;padding:8px 14px;font:500 13px/1.1 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Noto Sans SC",sans-serif;color:#111;background:rgba(255,255,255,.86);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);border:1px solid rgba(0,0,0,.08);border-radius:999px;text-decoration:none;box-shadow:0 2px 12px rgba(0,0,0,.2);transition:background .2s ease,transform .2s ease,box-shadow .2s ease}.zc-home-btn:hover{background:#fff;transform:translateY(-1px);box-shadow:0 4px 18px rgba(0,0,0,.26)}</style><a class="zc-home-btn" href="../">← 返回首页</a><script>(function(){try{if(window.self!==window.top||/[?&]embed=1(?:&|$)/.test(location.search)){var b=document.querySelector(".zc-home-btn");if(b&&b.parentNode)b.parentNode.removeChild(b);}}catch(e){}})();</script><!--zc-home:end-->
+</body>
+</html>

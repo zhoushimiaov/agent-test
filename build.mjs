@@ -250,7 +250,18 @@ const categories = [
       ["deepseek-v4.1-flash-1017", "DeepSeek V4.1 Flash 1017", "Three.js 3D"],
       ["kimi-k3", "Kimi K3", "Three.js 3D"],
       ["kimi-work-1.1", "Kimi Work 1.1", "Three.js 3D"],
-      ["grokbot", "GrokBot Builder", "Three.js 3D"],
+    ].map(([slug, name, sub]) => ({ slug, name, sub })),
+  },
+  {
+    group: "eng",
+    slug: "forest-cabin",
+    title: "森林小屋",
+    emoji: "🏕️",
+    blurb: "彼得·卒姆托的莱斯木屋:实木叠梁、石砌基座,考建筑还原与室内光影氛围。",
+    exam: "实木叠梁与石基座的构造还原、空间比例,以及光线穿过木构时的室内氛围。",
+    lede: "彼得·卒姆托(Peter Zumthor)在瑞士山谷里造的莱斯木屋(The Leis Houses),用当地传统的实木叠梁(Strickbau)工法把原木一层层叠起来,落在石砌基座上,屋顶压得很低 —— 建筑几乎不靠装饰,全靠木料的厚度、接缝的阴影和光线在空间里的走向说话。这一题让模型做一座可漫游的木屋:考的是构造是否照实(叠梁、石基、山墙与屋顶比例)、材质与接缝的细节,以及室内光影和漫游机位能不能传达出那种安静的空间感。下面按模型版本归档,缩略图为真实渲染效果,点击卡片查看可交互的在线页面。",
+    versions: [
+      ["gemini-4-argon", "Gemini 4 Argon", "Three.js 3D"],
     ].map(([slug, name, sub]) => ({ slug, name, sub })),
   },
 ];
@@ -397,7 +408,7 @@ ${FONTS}
 ${zooCards}
   </div>
 
-  <div class="label"><span>Engineering</span><b>工程与物理仿真 · Categories</b><i></i></div>
+  <div class="label"><span>Engineering</span><b>工程 · 空间 · 仿真 · Categories</b><i></i></div>
 
   <div class="grid">
 ${engCards}

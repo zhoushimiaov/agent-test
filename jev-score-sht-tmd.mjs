@@ -102,8 +102,6 @@ const ITEMS = [
     desc: "A bright white architectural-model composition very close in framing to the GLM 5.3 page: near-white background, a pale tower model with a dark vertical band on the left, small dark detail on the crown. The code carries the damper vocabulary (mass block, cables, portal, eye sculpture, 120° twist, typhoon timeline), but in the captured still the damper is a small element and no HUD is legible." },
   { slug: "kimi-work-1.1", render: "3D (Three.js / WebGL via CDN)",
     desc: "A light grey-green scene with the clearest golden accents of the batch: the lower part of the frame carries a distinct gilded gold band (reading as the gilded base / eye-sculpture metalwork), over pale grey-green architecture and a bright background. The build is the smallest of the set and its code mentions the fewest damper elements (a mass block, two cables, an eye, Oriental Tower), and no telemetry HUD is visible in the still." },
-  { slug: "grokbot", render: "3D (Three.js / WebGL via CDN)",
-    desc: "A bright white architectural-model scene that renders essentially the same frame as the GLM 5.3 entry — near-white studio background, pale tower model, dark vertical band at the left, five-stage typhoon loop (calm → resonance → damper engaging → peak → detuning) described in its README. A file-level comparison shows ~95% of its non-library code lines are byte-identical to the GLM 5.3 page (three.js moved from inline to a CDN), so this is effectively a re-delivery of that build rather than an independent one." },
 ];
 
 const questions = Object.fromEntries(

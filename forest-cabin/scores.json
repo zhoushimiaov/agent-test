@@ -1,0 +1,46 @@
+{
+  "generatedAt": "2026-11-05T10:38:48.557Z",
+  "model": "jev-1.14.0",
+  "weights": {
+    "construction": 30,
+    "material": 25,
+    "light": 25,
+    "presentation": 20
+  },
+  "dimLabels": {
+    "construction": "构造还原",
+    "material": "材质细节",
+    "light": "室内光影",
+    "presentation": "呈现与漫游"
+  },
+  "results": [
+    {
+      "slug": "gemini-4-argon",
+      "total": 66,
+      "dims": {
+        "construction": {
+          "score": 1.54,
+          "confidence": 0,
+          "frac": 0.513
+        },
+        "material": {
+          "score": 1.46,
+          "confidence": 0,
+          "frac": 0.487
+        },
+        "light": {
+          "score": 2.37,
+          "confidence": 0.36,
+          "frac": 0.79
+        },
+        "presentation": {
+          "score": 2.86,
+          "confidence": 0.87,
+          "frac": 0.953
+        }
+      },
+      "jev": "jev-1.14.0",
+      "rank": 1
+    }
+  ]
+}
