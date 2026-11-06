@@ -6,71 +6,15 @@
 import { writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { ENGINEERING_RUBRICS } from "./worker/src/engineering-rubrics.js";
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
 const KEY = process.env.TYPESAFE_API_KEY;
 if (!KEY) { console.error("missing TYPESAFE_API_KEY"); process.exit(1); }
 
 // The task every model was given.
-const TASK =
-  "Create a self-contained web page presenting Peter Zumthor's Leis Houses (莱斯木屋) — " +
-  "timber houses in a Swiss alpine valley built in the local Strickbau method, where squared " +
-  "logs are stacked layer by layer on a stone plinth under a low-pitched roof. The building " +
-  "carries almost no ornament: its character comes from the thickness of the timber, the " +
-  "shadows in the joints, and the way daylight travels through the interior. The page should " +
-  "let the viewer roam the building and study it, judged on: how faithfully the construction " +
-  "is modelled (stacked log courses, stone plinth, gable and roof proportions, window and door " +
-  "openings), the material detail (wood grain, joint seams, masonry), the interior light and " +
-  "atmosphere (raking light through openings, soft shadow, silence), and the presentation " +
-  "(camera views and interface) that communicates the architecture.";
-
-// Judgment dimensions. Weights combine into a 0-100 overall score.
-const DIMS = {
-  construction: {
-    weight: 30,
-    instructions:
-      "Rate the CONSTRUCTION FIDELITY: is the building actually built as stacked log courses (Strickbau) on a stone plinth with a low gabled roof — distinct horizontal timber layers with visible joints at the corners, a stone base, correct gable and roof pitch, real window/door openings — versus a generic box, a cabin made of smooth walls, or an abstract mass with no timber logic?",
-    criteria: [
-      "No building, or an abstract mass/box with no recognizable timber construction",
-      "A house-like shape, but the construction is generic — smooth walls, no log courses, no plinth, or wrong roof",
-      "A clearly timber building with stacked courses, a stone base and a gabled roof; some joints/openings approximate",
-      "Faithful Strickbau — layered log courses with corner joints, stone plinth, correct gable and low roof pitch, real openings, proportions right",
-    ],
-  },
-  material: {
-    weight: 25,
-    instructions:
-      "Rate MATERIAL AND DETAIL: how convincing the timber is (grain, weathered tone, thickness of each course, joint seams and shadow lines) and the masonry plinth, versus flat untextured surfaces or plastic-looking geometry.",
-    criteria: [
-      "Flat, untextured surfaces with no material character",
-      "Basic color only — wood and stone told apart by hue, no grain, seams or weathering",
-      "Readable materials — timber tone and grain, visible course seams, a stone base with some texture",
-      "Rich, tactile materials — weathered wood grain, deep joint shadows, layered stone, convincing surface detail at close range",
-    ],
-  },
-  light: {
-    weight: 25,
-    instructions:
-      "Rate INTERIOR LIGHT AND ATMOSPHERE: raking daylight through openings, soft indirect bounce, deep quiet shadow, haze or mist in the valley — the sense of a silent, contemplative space — versus flat even lighting or a scene with no atmosphere.",
-    criteria: [
-      "Flat, evenly lit render with no atmosphere or shadow",
-      "Some lighting variation, but no real sense of light entering the interior or of mood",
-      "A convincing lit scene — directional daylight, shadow and some interior glow through openings",
-      "Atmospheric and evocative — raking light through openings, soft bounce, deep quiet shadow, valley haze; the space feels silent",
-    ],
-  },
-  presentation: {
-    weight: 20,
-    instructions:
-      "Rate PRESENTATION: the camera work and interface that let a viewer study the building — multiple architectural views (axon, facade, interior/hearth), orbit or walkthrough, labelled hotspots or parameters — versus a single static view with no way to explore.",
-    criteria: [
-      "One static view, no way to explore or identify anything",
-      "A single controllable camera with no other views or information",
-      "Several camera views and some labels/parameters that help study the building",
-      "A curated architectural presentation — multiple named views (axon/facade/interior), hotspots, environment presets, a considered interface",
-    ],
-  },
-};
+// Use the SAME task and exact weighted criteria as Playground/Worker.
+const { task: TASK, dims: DIMS, dimLabels: DIM_LABELS } = ENGINEERING_RUBRICS["forest-cabin"];
 
 // Factual, neutral descriptions of each RENDERED output.
 const ITEMS = [
@@ -127,7 +71,7 @@ const out = {
   generatedAt: new Date().toISOString(),
   model: results[0]?.jev || "jev",
   weights: Object.fromEntries(Object.entries(DIMS).map(([k, d]) => [k, d.weight])),
-  dimLabels: { construction: "构造还原", material: "材质细节", light: "室内光影", presentation: "呈现与漫游" },
+  dimLabels: DIM_LABELS,
   results,
 };
 writeFileSync(join(ROOT, "forest-cabin", "scores.json"), JSON.stringify(out, null, 2));
