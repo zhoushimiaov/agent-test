@@ -6,68 +6,15 @@
 import { writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { ENGINEERING_RUBRICS } from "./worker/src/engineering-rubrics.js";
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
 const KEY = process.env.TYPESAFE_API_KEY;
 if (!KEY) { console.error("missing TYPESAFE_API_KEY"); process.exit(1); }
 
 // The task every model was given.
-const TASK =
-  "Create a self-contained web page of 'SpaceX flying the Tesla Roadster': a cherry-red " +
-  "Tesla Roadster with the spacesuited Starman at the wheel, floating/drifting through space " +
-  "with Earth and stars behind it (or a cold-gas-thruster variant: vertical take-off, ramp jump " +
-  "and soft landing). What matters is the car actually reading as a Roadster (roadster body " +
-  "proportions, wheels, cabin), the Starman figure seated at the wheel in the classic relaxed " +
-  "pose with arm on the sill, convincing space lighting (single sun, Earth curvature, stars), " +
-  "and physical plausibility of thrust, drift and landing.";
-
-// Judgment dimensions. Weights combine into a 0-100 overall score.
-const DIMS = {
-  vehicle: {
-    weight: 30,
-    instructions:
-      "Rate the ROADSTER CAR: does the vehicle read as a Tesla Roadster / sports car — low roadster proportions with a long hood, cabin, distinct front and rear, and visible wheels — rendered with enough shape detail to be recognizable, versus a generic box, an unrecognizable blob, or no car at all?",
-    criteria: [
-      "No car visible, or a shape that cannot be read as a car at all",
-      "A car is present but crude or wrong-proportioned — boxy, missing wheels/cabin, or barely identifiable",
-      "A recognizable sports car with roadster proportions and basic body detail",
-      "A clearly detailed Roadster — correct proportions, cabin, wheels, lights/panels readable as a Tesla roadster",
-    ],
-  },
-  starman: {
-    weight: 25,
-    instructions:
-      "Rate the STARMAN figure: is there a spacesuited driver seated at the wheel in the classic relaxed Starman pose (arm resting on the window sill, one hand on the wheel), legible as a suited human, versus a missing driver, a vague figure, or an unreadable puppet?",
-    criteria: [
-      "No driver figure at all",
-      "A vague or crude figure that barely suggests a seated driver",
-      "A clearly seated spacesuited driver with a plausible pose",
-      "A legible, well-posed Starman — suit and helmet details visible, arm on the sill / hand on the wheel, relaxed posture",
-    ],
-  },
-  space: {
-    weight: 20,
-    instructions:
-      "Rate the SPACE SCENE and lighting: Earth (or Moon/planetary body) and a star field behind the car, single-source sunlight with correct dark shadows, sense of vacuum and scale — versus a flat gradient background, no celestial reference, or earthbound staging.",
-    criteria: [
-      "No sense of space — flat backdrop, no Earth/stars/light direction",
-      "Minimal space cues (a few stars or a gradient), weak lighting",
-      "A convincing space backdrop with Earth/stars and directional sunlight",
-      "A striking space scene — Earth with atmosphere/curvature, dense stars, dramatic single-source light on the car",
-    ],
-  },
-  flight: {
-    weight: 25,
-    instructions:
-      "Rate the MOTION and PHYSICS of the piece: a drifting/tumbling roadster in vacuum (slow rotation, inertia), or — for the thruster variants — vertical take-off, cold-gas plumes from believable nozzles, a physically plausible trajectory and a soft landing, versus a static diorama, jerky teleporting, or thrust that looks wrong.",
-    criteria: [
-      "Static scene with no motion, or motion that is broken/jerky",
-      "Some motion (drift/spin or launch) but physically unconvincing — no plumes, wrong trajectory, hard stop",
-      "Believable motion — smooth drift/tumble or a plausible launch-and-land sequence with visible thruster effect",
-      "Convincing dynamics — inertial drift/tumble, or a full take-off → maneuver → soft-landing sequence with well-realized cold-gas plumes",
-    ],
-  },
-};
+// Use the SAME task and exact weighted criteria as Playground/Worker.
+const { task: TASK, dims: DIMS, dimLabels: DIM_LABELS } = ENGINEERING_RUBRICS["roadster"];
 
 // Factual, neutral descriptions of each RENDERED output.
 const ITEMS = [
@@ -140,7 +87,7 @@ const out = {
   generatedAt: new Date().toISOString(),
   model: results[0]?.jev || "jev",
   weights: Object.fromEntries(Object.entries(DIMS).map(([k, d]) => [k, d.weight])),
-  dimLabels: { vehicle: "整车还原", starman: "Starman 姿态", space: "太空场景", flight: "飞行动力学" },
+  dimLabels: DIM_LABELS,
   results,
 };
 writeFileSync(join(ROOT, "roadster", "scores.json"), JSON.stringify(out, null, 2));
