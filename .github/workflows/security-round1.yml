@@ -25,7 +25,11 @@ jobs:
           node --check worker/src/index.js
           node --check worker/src/quota.js
           node --check worker/src/rubrics.js
-      - name: Test quota, streaming and scores
+          node --check worker/src/engineering-rubrics.js
+          node --check jev-score-roadster.mjs
+          node --check jev-score-sht-tmd.mjs
+          node --check jev-score-forest-cabin.mjs
+      - name: Test quota, stream, scores and Engineering benchmark integration
         run: node --test worker/test/*.test.mjs playground/test/*.test.mjs
       - name: Verify generated pages are in sync
         run: |
