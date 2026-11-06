@@ -11,6 +11,7 @@ import { validateScoreResponse } from "./score.mjs";
   const el = {
     base: $("pg-base"), model: $("pg-model"), key: $("pg-keyin"), eye: $("pg-eye"),
     remember: $("pg-remember"), forget: $("pg-forget"), preset: $("pg-preset"),
+    presetNote: $("pg-preset-note"),
     text: $("pg-text"), run: $("pg-run"), stop: $("pg-stop"), status: $("pg-status"),
     frame: $("pg-frame"), raw: $("pg-rawtext"), dl: $("pg-dl"), open: $("pg-open"),
     // Jev scoring (present only when a Worker endpoint is configured)
@@ -61,12 +62,24 @@ import { validateScoreResponse } from "./score.mjs";
     el.preset.innerHTML =
       '<option value="__custom">✍️ 自定义(自己写提示词)</option>' +
       prompts.map((p, i) => `<option value="${i}">${p.emoji} ${p.title}</option>`).join("");
+    const syncNotice = () => {
+      const v = el.preset.value;
+      const note = v === "__custom" ? "" : (prompts[Number(v)]?.notice || "");
+      if (el.presetNote) {
+        el.presetNote.textContent = note;
+        el.presetNote.hidden = !note;
+      }
+    };
     el.preset.addEventListener("change", () => {
       const v = el.preset.value;
-      if (v === "__custom") return;
-      el.text.value = prompts[Number(v)].prompt;
+      if (v !== "__custom") el.text.value = prompts[Number(v)]?.prompt || "";
+      syncNotice();
     });
-    if (prompts.length) { el.preset.value = "0"; el.text.value = prompts[0].prompt; }
+    if (prompts.length) {
+      el.preset.value = "0";
+      el.text.value = prompts[0].prompt;
+    }
+    syncNotice();
   }
 
   function setStatus(msg, kind) {

@@ -5,8 +5,12 @@
 // this rubric (task + instructions + ordered criteria) is sent as the System
 // One `questions`, and the model's output depiction (vision caption) + source
 // code go into `state`. Slugs match the preset prompts in build.mjs.
+// Engineering rubrics share their definition with offline scoring scripts.
+
+import { ENGINEERING_RUBRICS } from "./engineering-rubrics.js";
 
 export const RUBRICS = {
+  ...ENGINEERING_RUBRICS,
   "pelican-bicycle": {
     task: "Create 'a pelican riding a bicycle' as a self-contained web page.",
     dimLabels: { pelican: "鹈鹕还原", bicycle: "单车结构", riding: "骑行姿态", scene: "场景构图" },

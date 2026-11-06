@@ -304,7 +304,14 @@ function presetPrompt(cat) {
 }
 
 const PRESET_PROMPTS = ZOO.categories
-  .map((c) => ({ slug: c.slug, title: c.title, emoji: c.emoji, prompt: presetPrompt(c) }))
+  .map((c) => ({
+    slug: c.slug, title: c.title, emoji: c.emoji, prompt: presetPrompt(c),
+    // Engineering prompts reconstructed from archived rubrics. Historical
+    // model inputs/reference drawings were not fully preserved in this repo.
+    notice: c.group === "eng"
+      ? "工程项目使用公开复刻题面，历史模型原始输入／图纸未完整归档；本次评分不等同于与旧榜单严格同条件比较。"
+      : "",
+  }))
   .filter((p) => p.prompt);
 
 const pad2 = (n) => String(n).padStart(2, "0");
@@ -575,6 +582,7 @@ ${FONTS}
 
     <div class="pg-card">
       <label class="f"><span>选题(预设提示词)</span><select id="pg-preset"></select></label>
+      <p class="pg-sec" id="pg-preset-note" role="note" hidden></p>
       <label class="f"><span>提示词 Prompt(可自由编辑)</span><textarea id="pg-text" rows="7" spellcheck="false"></textarea></label>
       <div class="pg-actions">
         <button id="pg-run" type="button" class="btn-primary">▶ 运行</button>

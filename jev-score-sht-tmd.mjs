@@ -9,84 +9,15 @@
 import { writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { ENGINEERING_RUBRICS } from "./worker/src/engineering-rubrics.js";
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
 const KEY = process.env.TYPESAFE_API_KEY;
 if (!KEY) { console.error("missing TYPESAFE_API_KEY"); process.exit(1); }
 
 // The task every model was given (standardized prompt, mode D).
-const TASK =
-  "Create a single self-contained HTML page: a real-time, parametric 3D visualization of the " +
-  "eddy-current pendulum tuned mass damper in the crown of the 632 m Shanghai Tower ('上海之巅'). " +
-  "It must replay the sequence typhoon arrives → tower twists and sways → the 1000-ton mass " +
-  "swings out of phase to absorb energy → eddy-current rods dissipate it → detuning degrades " +
-  "the reduction, with real drawings supplied as reference. Judged on: building the damper to " +
-  "the drawings (tall red mass block ≈8.1×5.2 m hung by ~12 cables from fixed double main beams, " +
-  "a golden non-load-bearing portal frame, 4 diagonal snubbers/dampers that extend and compress " +
-  "with the swing, the stacked-ring 'Shanghai Eye' sculpture on a gilded base), the tower itself " +
-  "(rounded-triangle plan twisting ~120° with a double-skin facade), the city context (Huangpu " +
-  "river on the west as a convex bank, SWFC / Jinmao / Oriental Tower recognizable), engineering " +
-  "physics (resonance, out-of-phase swing, stroke limits, reduction ratio), 3D craft, and the " +
-  "information/interaction design of the telemetry UI.";
-
-// Judgment dimensions. Weights combine into a 0-100 overall score.
-const DIMS = {
-  fidelity: {
-    weight: 30,
-    instructions:
-      "Rate FIDELITY TO THE DRAWINGS: the damper machine itself — a tall red mass block with proportions near 8.1 m high × 5.2 m wide (≈1.55:1, not a cube/ball/flat box), hung by many cables (ideally ~12) from fixed double main beams at the top, a golden four-leg portal frame that does NOT carry the load, and 4 diagonal snubber dampers reaching to the floor that visibly extend/compress with the swing — plus the stacked-ring 'Shanghai Eye' sculpture and the tower's rounded-triangle plan with ~120° twist and double-skin facade.",
-    criteria: [
-      "Damper is generic or absent — a cube/ball mass, a column instead of cables, no portal or snubbers, tower is a plain cylinder/box",
-      "Some recognizable elements (a hanging mass, a tower) but key drawing facts wrong — wrong block proportions, few/no cables, portal missing or load-bearing, no snubbers, little or no twist",
-      "Most elements present and roughly right — blocky red mass on multiple cables, portal frame, some snubbers, tower with visible twist and layered facade; details imperfect",
-      "Faithful to the drawings — tall red block ≈1.55:1 on ~12 cables under fixed double beams, golden non-load-bearing portal, 4 live snubbers, stacked-ring eye sculpture, rounded-triangle tower twisting ~120° with double skin",
-    ],
-  },
-  physics: {
-    weight: 25,
-    instructions:
-      "Rate the ENGINEERING PHYSICS: does the tower sway with the typhoon while the mass swings OUT OF PHASE to absorb energy; is there a believable storm build-up (calm → resonance → damper engaging → peak → detuning/degradation); does the mass respect a stroke limit (±~2 m servo stop); are telemetry numbers (sway amplitude, stroke, reduction ratio, damping) plausible and mutually consistent — versus things just wobbling arbitrarily?",
-    criteria: [
-      "No real physics — objects wobble or nothing moves; no phase relation, no limits, meaningless or absent numbers",
-      "Things move and there are numbers, but the physics reads wrong — mass in phase with the tower, no stroke limit, no storm narrative, telemetry decorative",
-      "A believable coupled response — out-of-phase swing, a storm timeline, stroke limiting and a stated reduction ratio that track the motion",
-      "Convincing engineering simulation — phase lag visible, 5-stage typhoon timeline, ±2 m stroke stop with saturation, reduction ratio degrading on detuning, consistent telemetry",
-    ],
-  },
-  visual: {
-    weight: 20,
-    instructions:
-      "Rate the 3D CRAFT: modeling precision, materials (translucent glass skin, gilded metal, jade-like sculpture), lighting and shadows, camera work (orbit/cinematic moves, cutaway section through the damper hall), overall architectural-model aesthetics.",
-    criteria: [
-      "Crude geometry, broken or flat shading, unreadable space",
-      "Basic but readable 3D — simple boxes and a working camera, little material or light work",
-      "Good 3D — clean geometry, decent materials/lighting, a usable camera and some spatial storytelling",
-      "Excellent 3D — refined geometry and materials, considered lighting, cinematic or cutaway cameras that reveal the damper hall, architectural-model polish",
-    ],
-  },
-  hud: {
-    weight: 15,
-    instructions:
-      "Rate the INFORMATION & INTERACTION design: a professional telemetry HUD (wind speed, sway, stroke, reduction), live charts, and parameters that genuinely drive the physics when adjusted — versus decorative labels, no data, or controls that change nothing.",
-    criteria: [
-      "No HUD or data at all; no interactivity",
-      "Some labels or controls, but data is sparse/static and controls don't really drive the simulation",
-      "A solid telemetry layer — live numbers and at least one chart, and controls that alter the physics",
-      "Professional instrumentation — staged telemetry, live charts, and parametric controls (wind, tuning, stiffness…) that visibly and correctly drive the response",
-    ],
-  },
-  city: {
-    weight: 10,
-    instructions:
-      "Rate the CITY CONTEXT: the Huangpu river on the WEST curving around Lujiazui as a convex bank, with recognizable landmarks nearby — SWFC (thin slab with a trapezoid opening), Jinmao (octagonal pagoda set-backs), Oriental Tower (three columns, two spheres) — plus a plausible road ring, versus no city or a generic skyline.",
-    criteria: [
-      "No city context at all",
-      "A generic skyline or abstract blocks with no identifiable landmarks and no river",
-      "A recognizable Lujiazui setting — river present, one or two landmarks identifiable",
-      "A faithful setting — Huangpu on the west convex bank, all three landmarks recognizable, road ring plausible",
-    ],
-  },
-};
+// Use the SAME task and exact weighted criteria as Playground/Worker.
+const { task: TASK, dims: DIMS, dimLabels: DIM_LABELS } = ENGINEERING_RUBRICS["sht-tmd"];
 
 // Factual, neutral descriptions of each RENDERED output.
 const ITEMS = [
@@ -153,7 +84,7 @@ const out = {
   generatedAt: new Date().toISOString(),
   model: results[0]?.jev || "jev",
   weights: Object.fromEntries(Object.entries(DIMS).map(([k, d]) => [k, d.weight])),
-  dimLabels: { fidelity: "造型还原", physics: "工程物理", visual: "三维表现", hud: "信息交互", city: "城市环境" },
+  dimLabels: DIM_LABELS,
   results,
 };
 writeFileSync(join(ROOT, "sht-tmd", "scores.json"), JSON.stringify(out, null, 2));

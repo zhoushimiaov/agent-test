@@ -82,3 +82,13 @@ npx wrangler deploy
 3. 上游 TypeSafe 返回错误或超时后，预留额度应退款；成功请求不得重复退款。
 4. 移除 `QUOTA_LIMITER` 绑定模拟错误，响应应为 503 且不请求共享 Jev Key。
 5. 启用截图后验证无穷循环、超大资源、外部访问限制与截图失败降级标识。
+
+## Engineering 类专属评分（2026-11-06 修复分支）
+
+- `roadster`：整车还原 30 / Starman 姿态 25 / 太空场景 20 / 飞行动力学 25。
+- `sht-tmd`：造型还原 30 / 工程物理 25 / 三维表现 20 / 信息交互 15 / 城市环境 10。
+- `forest-cabin`：构造还原 30 / 材质细节 25 / 室内光影 25 / 呈现与漫游 20。
+
+三个专属 Rubric 定义在 `worker/src/engineering-rubrics.js`，通过 `worker/src/rubrics.js` 注册；历史榜单离线脚本 `jev-score-{roadster,sht-tmd,forest-cabin}.mjs` 也直接引用它们，不再复制各自的题面和维度。工程类公开可运行 Prompt 存在各自的 `PROMPT.md`，但历史原始输入与工程图纸不全，具体见 `REFERENCES.md`。**代码评分或单帧图像不能独立验证真实物理运动。**
+
+本轮不重新评分历史榜单，不更改生产变量或密钥，不执行 Wrangler 部署。部署前请先确认 Cloudflare GitHub Actions 凭据及生产环境配额迁移状态。
