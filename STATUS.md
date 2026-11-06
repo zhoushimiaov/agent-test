@@ -1,6 +1,30 @@
 # Agent Test — 项目状态与路线图
 
-> 最后更新:2026-10-11 · 站点 https://agentest.shimiao.work · 仓库 https://github.com/zhoushimiaov/agent-test
+> 当前更新：2026-11-06 · 代码分支：`fix/engineering-benchmarks-20261106`（审查修复，尚未合并 main）  
+> 站点：https://agentest.shimiao.work · 仓库：https://github.com/zhoushimiaov/agent-test
+
+## 当前状态（2026-11-06）
+
+- 现有 **11 个栏目、125 个作品**：Zoo 创意类 8 栏目，Engineering 类 Roadster、上海中心阻尼器、森林小屋共 3 栏目。
+- 已归档 11 个栏目的 Jev 评分数据；森林小屋只有 1 个模型作品，暂不构成有效的跨模型排行榜。
+- 本修复分支为 3 个工程栏目补齐 `PROMPT.md` 和 `REFERENCES.md`，Playground 将有 11 道题目；公开工程题面根据历史评审文字重建，**非历史完整原始输入的逐字复原**。
+- 工程类在线 Worker Rubric 与离线 `jev-score-*.mjs` 已共用 `worker/src/engineering-rubrics.js`，不会再自动落入通用四维评审。历史 `scores.json` 不在本次重算范围。
+- 模型 API Key **仅在当前 Playground 内存中保存**，不会写入 localStorage；模型输出使用不含 `allow-same-origin` 的 sandbox iframe。
+- Worker 免费配额使用 Durable Object，而不是旧版 KV 非原子计数；`USE_SCREENSHOT=0` 仍为代码分析模式，不能证明实际动画或工程物理正确性。
+- GitHub Pages 的部署由 GitHub Actions 负责；**Cloudflare Worker 实际生产状态必须单独核实**。先前 GitHub Actions 部署失败的凭据问题不能仅因代码存在而视为已解决。
+
+## 下一步
+
+1. 在 CI 验证 11 题目的 Prompt、Rubric、标签、评分维度与作品引用一致。
+2. 形成固定采样时点、多帧画面、交互检测与可复核的评价数据；工程题需要额外的物理测试证据。
+3. 将原始模型 HTML 移到与 Playground 不同的来源，减少同域直接访问的潜在安全风险。
+4. 把栏目配置逐步迁移到项目级元数据，取代 `ZOO.categories` 内混合注册的方式。
+
+---
+
+## 历史快照（2026-10-11，以下内容已过时，仅供追溯）
+
+> 注意：历史记录曾描述 KV 配额、本地存储 API Key、仅 8 个栏目等，**这些并非当前代码行为**，不得按旧说明部署或处理凭据。
 
 ## 一、这是什么
 
@@ -71,3 +95,4 @@
 - `TYPESAFE_API_KEY` 只在环境变量 / 命令行内联,**绝不入库**;评分脚本须带 `NODE_USE_ENV_PROXY=1`(Node fetch 默认忽略代理,TypeSafe 会 451)。
 - 曾在对话里明文出现过的 TypeSafe、Cloudflare、OpenAI 三个 key 建议轮换 / 吊销。
 - 构建:`node build.mjs`(生成 hub + playground + 8 栏目页 + 刷新 53 个版本页返回钮)。渲染缩略图见仓库记忆笔记里的 headless Chrome 心得。
+
