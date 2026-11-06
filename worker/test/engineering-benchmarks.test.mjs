@@ -34,7 +34,7 @@ test("Playground publishes all 11 benchmark prompts, including the new Engineeri
     const source = markdown.match(/```text\s*\n([\s\S]*?)```/);
     assert.ok(source, "The prompt must be stored in a text fence: " + slug);
     assert.equal(preset.prompt, source[1].trim(), "Generated preset diverged from PROMPT.md: " + slug);
-    assert.match(contentOf(slug + "/REFERENCES.md"), /尚未|未收录|未归档|未存在|缺口|缺失|无法验证|未存/);
+    assert.match(contentOf(slug + "/REFERENCES.md"), /尚未|未收录|未归档|未发现|必须补录|缺口|缺失|无法验证|未存/);
   }
 });
 
